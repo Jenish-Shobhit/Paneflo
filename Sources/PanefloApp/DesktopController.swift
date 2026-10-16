@@ -47,6 +47,8 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
     private let scroll = NSScrollView()
     private let permissionBar = NSStackView()
     private let shortcutButton = NSButton(checkboxWithTitle: "Enable Paneflo shortcuts", target: nil, action: nil)
+    private let gestureButton = NSButton(checkboxWithTitle: "Three-finger swipe opens Overview", target: nil, action: nil)
+    private let gestureStatus = NSTextField(wrappingLabelWithString: "Off")
     private let previewButton = NSButton(checkboxWithTitle: "Live previews", target: nil, action: nil)
     private let zone = NSPopUpButton(frame: .zero, pullsDown: false)
     private let display = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -66,10 +68,16 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
     private let defaults = UserDefaults.standard
     private var lastSavedMetadata: Data?
     var onToggleShortcuts: ((Bool) -> Void)?
+    var onToggleGesture: ((Bool) -> Void)?
     var onTogglePreviews: ((Bool) -> Void)?
     var onPreviewSelection: ((UInt32?, Bool, pid_t?) -> Void)?
     var onDismiss: (() -> Void)?
     var isVisible: Bool { panel.isVisible }
+    var isOverviewVisible: Bool { panel.isVisible && mode == .overview }
+    func setGestureState(enabled: Bool, description: String) {
+        gestureButton.state = enabled ? .on : .off
+        gestureStatus.stringValue = description
+    }
     isolated deinit {
         if let viewportObserver { NotificationCenter.default.removeObserver(viewportObserver) }
     }
@@ -134,6 +142,18 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
             }
         }
         refreshSelection()
+    }
+
+    private func navigateRows(_ delta: Int) {
+        guard mode != .switcher else { navigate(delta > 0 ? .forward : .backward); return }
+        let eligible = Set(eligibleSelectionIDs())
+        let indices = displayed.indices.filter { displayed[$0].map { eligible.contains($0) } ?? false }
+        let current = displayed.firstIndex(where: { $0 != nil && $0 == selectedID })
+        if let next = GridNavigation.vertical(from: current, columns: columnCount, count: displayed.count, eligible: indices, direction: delta) {
+            selectedID = displayed[next]
+            selectedSlot = slots.slots.first(where: { $0.binding == selectedID })?.id
+            refreshSelection()
+        }
     }
 
     func commitShortcut() { if shortcutSession { activateSelected() } }
@@ -251,7 +271,7 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
     }
 
     private func configurePreferences() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 430),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 650),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Paneflo Settings"; window.isReleasedWhenClosed = false
         let root = NSView(); window.contentView = root
@@ -271,6 +291,17 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         previewButton.setAccessibilityLabel("Enable live window previews")
         previewButton.isEnabled = false
         stack.addArrangedSubview(shortcutButton); stack.addArrangedSubview(previewButton)
+        gestureButton.target = self; gestureButton.action = #selector(toggleGesture)
+        stack.addArrangedSubview(gestureButton)
+        let gestureHint = NSTextField(wrappingLabelWithString: "Experimental · macOS 27 on Apple silicon, built-in trackpad only. Turn off the conflicting Mission Control swipe in Trackpad Settings. Requires Input Monitoring.")
+        gestureHint.font = .systemFont(ofSize: 11); gestureHint.textColor = .secondaryLabelColor
+        gestureHint.widthAnchor.constraint(equalToConstant: 572).isActive = true
+        stack.addArrangedSubview(gestureHint)
+        gestureStatus.font = .systemFont(ofSize: 11); gestureStatus.textColor = .secondaryLabelColor
+        gestureStatus.widthAnchor.constraint(equalToConstant: 572).isActive = true
+        stack.addArrangedSubview(gestureStatus)
+        let trackpad = NSStackView(); trackpad.orientation = .horizontal
+        button("Trackpad Settings…", #selector(openTrackpadSettings), trackpad); stack.addArrangedSubview(trackpad)
         permissionBar.orientation = .horizontal; permissionBar.spacing = 10
         button("Grant Accessibility", #selector(grantAccessibility), permissionBar)
         button("Privacy Settings", #selector(openAccessibility), permissionBar)
@@ -515,8 +546,8 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
     }
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         switch NSStringFromSelector(selector) {
-        case "moveUp:": navigate(.backward); return true
-        case "moveDown:": navigate(.forward); return true
+        case "moveUp:": navigateRows(-1); return true
+        case "moveDown:": navigateRows(1); return true
         case "insertNewline:": activateSelected(); return true
         case "cancelOperation:": dismiss(); return true
         default: return false
@@ -539,8 +570,10 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         }
         guard event.modifierFlags.intersection([.command, .control, .option]).isEmpty else { return false }
         switch event.keyCode {
-        case 123, 126: navigate(.backward); return true
-        case 124, 125: navigate(.forward); return true
+        case 123: navigate(.backward); return true
+        case 124: navigate(.forward); return true
+        case 126: navigateRows(-1); return true
+        case 125: navigateRows(1); return true
         case 48: navigate(event.modifierFlags.contains(.shift) ? .backward : .forward); return true
         case 36, 76: activateSelected(); return true
         default: return false
@@ -571,6 +604,10 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
     @objc private func openAccessibility() { service.openAccessibilitySettings() }
     @objc private func refreshWindows() { service.refresh() }
     @objc private func toggleShortcuts() { onToggleShortcuts?(shortcutButton.state == .on) }
+    @objc private func toggleGesture() { onToggleGesture?(gestureButton.state == .on) }
+    @objc private func openTrackpadSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.Trackpad-Settings.extension") { NSWorkspace.shared.open(url) }
+    }
     @objc private func togglePreviews() { onTogglePreviews?(previewButton.state == .on) }
     @objc private func selectCard(_ card: DesktopCard) {
         selectedID = card.record?.id
@@ -606,7 +643,7 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
 
 @MainActor
 private final class DesktopCard: NSButton {
-    var record: WindowRecord? { didSet { needsDisplay = true; setAccessibilityLabel(record.map { "\($0.appName), \($0.title)" } ?? "Vacant overview slot") } }
+    var record: WindowRecord? { didSet { toolTip = record?.title; needsDisplay = true; setAccessibilityLabel(record.map { "\($0.appName), \($0.title)" } ?? "Vacant overview slot") } }
     var icon: NSImage? { didSet { needsDisplay = true } }
     var layoutBadge: String? { didSet { if oldValue != layoutBadge { needsDisplay = true } } }
     private let previewLayer = CALayer()

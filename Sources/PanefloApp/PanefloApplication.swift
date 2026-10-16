@@ -21,6 +21,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let windows = WindowService()
     private let shortcuts = GlobalShortcutService()
     private let capture = CaptureController()
+    private let gestures = TrackpadGestureService.shared
+    private let preferences = UserDefaults.standard
+    private var startupShortcutRestorePending = false
+    private var startupGestureRestorePending = false
     private var previewsEnabled = false
     private var desktop: DesktopController?
     private var sample: PreviewController?
@@ -29,7 +33,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         RuntimeDiagnostics.mark("delegate launched")
         let controller = DesktopController(service: windows)
         desktop = controller
-        windows.onChange = { [weak controller] in controller?.updateSnapshot() }
+        windows.onChange = { [weak self, weak controller] in
+            controller?.updateSnapshot()
+            self?.restoreStartupShortcutsIfReady()
+            self?.restoreStartupGesturesIfReady()
+        }
         windows.onStatus = { [weak controller] in controller?.setStatus($0) }
         controller.enablePreviewControl()
         capture.onThumbnail = { [weak controller] request, image in controller?.showThumbnail(image, for: request.id) }
@@ -56,21 +64,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             self.previewsEnabled = enabled
+            self.preferences.set(enabled, forKey: "previews.enabled.v1")
             if enabled { controller.refreshPreviewSelection() } else { self.capture.stop() }
         }
         controller.onVisibilityChanged = { [weak self] in self?.shortcuts.selectionContextActive = $0 }
+        controller.onToggleGesture = { [weak self] in self?.setGestures($0) }
         controller.onToggleShortcuts = { [weak self] in self?.setShortcuts($0) }
         shortcuts.onAction = { [weak self] in self?.handle($0) }
         shortcuts.onStateChange = { [weak self, weak controller] state in
             controller?.setShortcutsEnabled(state == .active)
             if state == .active, let description = self?.shortcuts.installedTapDescription { controller?.setStatus("Shortcuts installed: \(description). ⌘Tab and ⌃⌥ controls are enabled.") }
-            if case .failed(let message) = state { controller?.setStatus(message) }
+            if state == .active { self?.preferences.set(true, forKey: "shortcuts.enabled.v1") }
+            if case .failed(let message) = state {
+                self?.preferences.set(false, forKey: "shortcuts.enabled.v1")
+                controller?.setStatus(message)
+            }
+        }
+        gestures.onGesture = { [weak self] direction in
+            guard let self else { return }
+            switch direction {
+            case .up:
+                if self.desktop?.isOverviewVisible != true { self.desktop?.present(mode: .overview, fromShortcut: true) }
+            case .down:
+                if self.desktop?.isOverviewVisible == true { self.desktop?.dismiss() }
+            }
+        }
+        gestures.onStateChange = { [weak self] state in self?.showGestureState(state) }
+        gestures.diagnosticCountsOnStop = RuntimeDiagnostics.isEnabled
+        gestures.onDiagnostics = { counts in
+            RuntimeDiagnostics.mark("gesture frames=\(counts.frames) contacts=\(counts.contacts) rejectedFrames=\(counts.rejectedFrames) gestures=\(counts.gestures) up=\(counts.upGestures) down=\(counts.downGestures) palmOrRimContacts=\(counts.palmOrRimContacts)")
         }
         installApplicationMenu()
         installMenu()
+        startupShortcutRestorePending = preferences.bool(forKey: "shortcuts.enabled.v1")
+        startupGestureRestorePending = preferences.bool(forKey: "gesture.enabled.v1")
+        let savedPreviews = preferences.bool(forKey: "previews.enabled.v1")
+        previewsEnabled = savedPreviews && capture.hasPermission
+        controller.setPreviewsEnabled(previewsEnabled)
+        let missingPermission = !windows.hasAccessibility
+            || ((startupShortcutRestorePending || startupGestureRestorePending) && !CGPreflightListenEventAccess())
+            || (savedPreviews && !capture.hasPermission)
+        let firstLaunch = !preferences.bool(forKey: "startup.completed.v1")
+        preferences.set(true, forKey: "startup.completed.v1")
         windows.start()
-        controller.present(mode: .switcher)
-        RuntimeDiagnostics.mark("initial surface requested")
+        if missingPermission || firstLaunch { controller.showPreferences() }
+        RuntimeDiagnostics.mark("startup menuReady=true settingsShown=\(missingPermission || firstLaunch)")
     }
 
     private func installApplicationMenu() {
@@ -120,12 +158,70 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.menu = menu; statusItem = item
     }
 
-    private func setShortcuts(_ enabled: Bool) {
-        guard enabled else { shortcuts.stop(); return }
-        guard windows.hasAccessibility else {
-            desktop?.setShortcutsEnabled(false); windows.requestAccessibility(); return
+    private func restoreStartupShortcutsIfReady() {
+        guard startupShortcutRestorePending, !windows.snapshot.records.isEmpty else { return }
+        startupShortcutRestorePending = false
+        guard windows.hasAccessibility, CGPreflightListenEventAccess() else {
+            desktop?.setStatus("Saved shortcuts need Accessibility and Input Monitoring. Enable them in Settings when ready.")
+            return
         }
+        setShortcuts(true, allowPermissionRequest: false)
+    }
+
+    private func restoreStartupGesturesIfReady() {
+        guard startupGestureRestorePending, !windows.snapshot.records.isEmpty else { return }
+        startupGestureRestorePending = false
+        guard windows.hasAccessibility, CGPreflightListenEventAccess() else {
+            desktop?.setGestureState(enabled: false, description: "Saved gesture needs Accessibility and Input Monitoring. Enable it in Settings when ready.")
+            return
+        }
+        if !gestures.start() { preferences.set(false, forKey: "gesture.enabled.v1") }
+        showGestureState(gestures.state)
+    }
+
+    private func setGestures(_ enabled: Bool) {
+        startupGestureRestorePending = false
+        preferences.set(enabled, forKey: "gesture.enabled.v1")
+        if !enabled { gestures.stop(); return }
         if !CGPreflightListenEventAccess(), !CGRequestListenEventAccess() {
+            preferences.set(false, forKey: "gesture.enabled.v1")
+            desktop?.setGestureState(enabled: false, description: "Enable Input Monitoring in Privacy & Security, then try again.")
+            return
+        }
+        if !gestures.start() { preferences.set(false, forKey: "gesture.enabled.v1") }
+        showGestureState(gestures.state)
+    }
+
+    private func showGestureState(_ state: TrackpadGestureService.State) {
+        let message: String
+        let diagnostic: String
+        switch state {
+        case .disabled: message = "Off"; diagnostic = "disabled"
+        case .starting: message = "Starting…"; diagnostic = "starting"
+        case .active: message = "Ready · swipe up for Overview, down to dismiss it."; diagnostic = "active"
+        case .stopping: message = "Stopping…"; diagnostic = "stopping"
+        case .paused: message = "Paused while the display or session is inactive."; diagnostic = "paused"
+        case .unavailable(let reason):
+            preferences.set(false, forKey: "gesture.enabled.v1")
+            message = reason; diagnostic = "unavailable"
+        case .failed(let reason):
+            preferences.set(false, forKey: "gesture.enabled.v1")
+            message = reason; diagnostic = "failed"
+        }
+        desktop?.setGestureState(enabled: gestures.isEnabled, description: message)
+        RuntimeDiagnostics.mark("gesture state=\(diagnostic) enabled=\(gestures.isEnabled)")
+    }
+
+    private func setShortcuts(_ enabled: Bool, allowPermissionRequest: Bool = true) {
+        startupShortcutRestorePending = false
+        guard enabled else {
+            preferences.set(false, forKey: "shortcuts.enabled.v1")
+            shortcuts.stop(); return
+        }
+        guard windows.hasAccessibility else {
+            desktop?.setShortcutsEnabled(false); if allowPermissionRequest { windows.requestAccessibility() }; return
+        }
+        if !CGPreflightListenEventAccess(), (!allowPermissionRequest || !CGRequestListenEventAccess()) {
             desktop?.setShortcutsEnabled(false)
             desktop?.setStatus("Enable Paneflo in Privacy & Security → Input Monitoring, then enable shortcuts again.")
             return
@@ -166,9 +262,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openDesktop(_ sender: NSMenuItem) { desktop?.present(mode: DesktopMode(rawValue: sender.tag) ?? .switcher) }
     @objc private func showSettings() { desktop?.showPreferences() }
-    @objc private func disableShortcuts() { shortcuts.stop() }
+    @objc private func disableShortcuts() { setShortcuts(false) }
     @objc private func refreshWindows() { windows.refresh() }
     @objc private func showSample() { if sample == nil { sample = PreviewController() }; sample?.present(mode: 0) }
-    @objc private func quit() { shortcuts.stop(); capture.stop(); desktop?.dismiss(); NSApp.terminate(nil) }
-    func applicationWillTerminate(_ notification: Notification) { shortcuts.stop(); capture.stop() }
+    @objc private func quit() { gestures.stop(); shortcuts.stop(); capture.stop(); desktop?.dismiss(); NSApp.terminate(nil) }
+    func applicationWillTerminate(_ notification: Notification) { gestures.stop(); shortcuts.stop(); capture.stop() }
 }
