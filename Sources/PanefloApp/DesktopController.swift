@@ -34,6 +34,10 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
     private var latestPlacement: UInt64?
     private var presentationGeneration: UInt64 = 0
     private var columnCount = 4
+    private var overviewCardHeight: CGFloat = 220
+    private var viewportObserver: NSObjectProtocol?
+    private var thumbnailViewportQueued = false
+    var onThumbnailViewport: (([WindowThumbnailRequest], Bool, Set<WindowIdentity>) -> Void)?
     var onVisibilityChanged: ((Bool) -> Void)?
     private let modes = NSSegmentedControl(labels: ["Switch", "Arrange", "Overview"], trackingMode: .selectOne, target: nil, action: nil)
     private let search = NSSearchField()
@@ -66,6 +70,9 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
     var onPreviewSelection: ((UInt32?, Bool, pid_t?) -> Void)?
     var onDismiss: (() -> Void)?
     var isVisible: Bool { panel.isVisible }
+    isolated deinit {
+        if let viewportObserver { NotificationCenter.default.removeObserver(viewportObserver) }
+    }
     private let zones: [(String, LayoutZone)] = [
         ("Left half", .leftHalf), ("Right half", .rightHalf), ("Top half", .topHalf), ("Bottom half", .bottomHalf),
         ("First third", .firstThird), ("Middle third", .middleThird), ("Last third", .lastThird),
@@ -136,6 +143,8 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         panel.orderOut(nil)
         onVisibilityChanged?(false)
         for card in cards { card.preview = nil; card.previewLabel = "Icon preview" }
+        for card in cards { card.thumbnail = nil }
+        onThumbnailViewport?([], false, Set(service.snapshot.records.map(\.id)))
         onPreviewSelection?(nil, false, nil); onDismiss?()
     }
 
@@ -167,6 +176,11 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
     func showPreview(_ image: CGImage?, label: String) {
         for card in cards where card.record?.id == selectedID { card.preview = image; card.previewLabel = label }
     }
+
+    func showThumbnail(_ image: CGImage, for id: WindowIdentity) {
+        for card in cards where card.record?.id == id { card.thumbnail = image }
+    }
+    func clearThumbnails() { for card in cards { card.thumbnail = nil } }
 
     private func configure() {
         panel.title = "Paneflo"
@@ -204,6 +218,11 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.drawsBackground = false
         grid.orientation = .vertical; grid.alignment = .leading; grid.spacing = 10
         grid.translatesAutoresizingMaskIntoConstraints = false
+        scroll.contentView.postsBoundsChangedNotifications = true
+        viewportObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
+            object: scroll.contentView, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateThumbnailViewport() }
+        }
         let document = FlippedDesktopDocument()
         document.translatesAutoresizingMaskIntoConstraints = false
         document.addSubview(grid); scroll.documentView = document
@@ -324,6 +343,7 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
             for card in cards[displayed.count...] {
                 card.record = nil
                 card.icon = nil
+                card.thumbnail = nil
                 card.preview = nil
                 card.previewLabel = "Icon preview"
                 card.selected = false
@@ -343,9 +363,11 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         }
         for index in displayed.indices {
             let card = cards[index]
+            if card.record?.id != displayed[index] { card.thumbnail = nil }
             card.tag = index; card.record = displayed[index].flatMap { byID[$0] }
             card.isVacancyPinned = mode == .overview && slots.slots[index].isPinned
             if let record = card.record {
+                if service.captureWindowNumber(for: record.id) == nil { card.thumbnail = nil }
                 if iconCache[record.appIdentifier] == nil { iconCache[record.appIdentifier] = NSRunningApplication(processIdentifier: record.id.process.pid)?.icon }
                 card.icon = iconCache[record.appIdentifier]
             } else { card.icon = nil }
@@ -375,6 +397,8 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
             empty.heightAnchor.constraint(equalToConstant: 100).isActive = true
         } else {
             let usableWidth = (panel.screen ?? NSScreen.main)?.visibleFrame.width ?? 1000
+            let usableHeight = (panel.screen ?? NSScreen.main)?.visibleFrame.height ?? 900
+            overviewCardHeight = max(174, min(280, (usableHeight * 0.9 - 160) / 3))
             columnCount = max(1, min(4, Int((usableWidth - 60) / 190)))
             columnCount = min(columnCount, max(1, displayed.count))
             for start in stride(from: 0, to: displayed.count, by: columnCount) {
@@ -383,7 +407,7 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
                 for _ in min(start + columnCount, displayed.count)..<(start + columnCount) { row.addArrangedSubview(NSView()) }
                 grid.addArrangedSubview(row)
                 row.widthAnchor.constraint(equalTo: grid.widthAnchor).isActive = true
-                row.heightAnchor.constraint(equalToConstant: mode == .overview ? 174 : 142).isActive = true
+                row.heightAnchor.constraint(equalToConstant: mode == .overview ? overviewCardHeight : 142).isActive = true
             }
         }
         summary.stringValue = "\(records.count) real windows · " + (mode == .overview ? "Your slot order stays independent of recent use" : mode == .tiling ? "Select a window and choose its destination" : "Individual windows · frozen order for this session")
@@ -436,12 +460,13 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         guard let screen = panel.screen ?? NSScreen.main else { return }
         let usable = screen.visibleFrame.insetBy(dx: 16, dy: 16)
         let rows = max(1, (displayed.count + columnCount - 1) / columnCount)
-        let cardHeight: CGFloat = mode == .overview ? 174 : 142
+        let cardHeight: CGFloat = mode == .overview ? overviewCardHeight : 142
         let visibleRows = min(rows, mode == .overview ? 3 : 2)
-        let desiredViewport = CGFloat(visibleRows) * cardHeight + CGFloat(max(0, visibleRows - 1)) * 10
+        let desiredViewport = mode == .overview ? usable.height * 0.9 - 128
+            : CGFloat(visibleRows) * cardHeight + CGFloat(max(0, visibleRows - 1)) * 10
         viewportHeight?.constant = min(desiredViewport, max(80, usable.height - (search.isHidden ? 110 : 145)))
         panel.minSize = NSSize(width: min(320, usable.width), height: min(180, usable.height))
-        panel.setContentSize(NSSize(width: min(CGFloat(columnCount) * 208 + 36, usable.width),
+        panel.setContentSize(NSSize(width: mode == .overview ? usable.width * 0.92 : min(CGFloat(columnCount) * 208 + 36, usable.width),
                                    height: min((viewportHeight?.constant ?? 142) + (search.isHidden ? 94 : 128) + (failureFeedback.isHidden ? 0 : 30), usable.height)))
         var frame = panel.frame
         frame.origin.x = min(max(frame.minX, usable.minX), usable.maxX - frame.width)
@@ -449,8 +474,33 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         panel.setFrame(frame, display: false)
     }
 
+    private func updateThumbnailViewport() {
+        if building {
+            guard !thumbnailViewportQueued else { return }
+            thumbnailViewportQueued = true
+            DispatchQueue.main.async { [weak self] in
+                self?.thumbnailViewportQueued = false
+                self?.updateThumbnailViewport()
+            }
+            return
+        }
+        let surviving = Set(service.snapshot.records.map(\.id))
+        guard panel.isVisible, mode != .tiling, let document = scroll.documentView else {
+            onThumbnailViewport?([], false, surviving); return
+        }
+        let viewport = scroll.contentView.documentVisibleRect
+        let requests = cards.prefix(displayed.count).compactMap { card -> WindowThumbnailRequest? in
+            guard card.matches, let record = card.record, record.id != selectedID,
+                  card.convert(card.bounds, to: document).intersects(viewport),
+                  let number = service.captureWindowNumber(for: record.id) else { return nil }
+            return WindowThumbnailRequest(id: record.id, windowNumber: number, ownerPID: record.id.process.pid)
+        }
+        onThumbnailViewport?(requests, true, surviving)
+    }
+
     private func updatePreviewSelection() {
         onPreviewSelection?(selectedID.flatMap { service.captureWindowNumber(for: $0) }, panel.isVisible && mode != .tiling, selectedID?.process.pid)
+        updateThumbnailViewport()
     }
 
     func controlTextDidChange(_ notification: Notification) {
@@ -560,6 +610,12 @@ private final class DesktopCard: NSButton {
     var icon: NSImage? { didSet { needsDisplay = true } }
     var layoutBadge: String? { didSet { if oldValue != layoutBadge { needsDisplay = true } } }
     private let previewLayer = CALayer()
+    var thumbnail: CGImage? {
+        didSet {
+            updatePreviewLayer()
+            if preview == nil, (oldValue == nil) != (thumbnail == nil) { needsDisplay = true }
+        }
+    }
     var preview: CGImage? {
         didSet {
             if PreviewRenderer.usesReferenceRenderer { needsDisplay = true }
@@ -611,8 +667,9 @@ private final class DesktopCard: NSButton {
         previewLayer.frame = convertToLayer(target)
         previewLayer.contentsScale = window?.backingScaleFactor ?? 1
         previewLayer.opacity = matches ? 1 : 0.24
-        previewLayer.contents = preview
-        previewLayer.isHidden = preview == nil
+        previewLayer.contents = preview ?? thumbnail
+        previewLayer.isHidden = preview == nil && thumbnail == nil
+        setAccessibilityHelp(preview != nil ? "Live window preview" : thumbnail != nil ? "Static window snapshot" : previewLabel)
         CATransaction.commit()
     }
 
@@ -644,7 +701,7 @@ private final class DesktopCard: NSButton {
             NSGraphicsContext.restoreGraphicsState(); return
         }
         let target = NSRect(x: 14, y: 13, width: bounds.width - 28, height: bounds.height - 66)
-        if let preview {
+        if let preview = preview ?? thumbnail {
             let scale = min(target.width / CGFloat(preview.width), target.height / CGFloat(preview.height))
             let area = NSRect(x: target.midX - CGFloat(preview.width) * scale / 2, y: target.midY - CGFloat(preview.height) * scale / 2, width: CGFloat(preview.width) * scale, height: CGFloat(preview.height) * scale)
             if PreviewRenderer.usesReferenceRenderer {
@@ -653,7 +710,7 @@ private final class DesktopCard: NSButton {
         } else { icon?.draw(in: NSRect(x: target.midX - 30, y: target.midY - 30, width: 60, height: 60)) }
         drawText(record.appName + (layoutBadge.map { " · " + $0 } ?? "") + (isVacancyPinned ? "  • pinned" : ""), in: NSRect(x: 15, y: bounds.height - 53, width: bounds.width - 30, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: .labelColor)
         drawText(record.title, in: NSRect(x: 15, y: bounds.height - 34, width: bounds.width - 30, height: 17), font: .systemFont(ofSize: 11), color: .labelColor)
-        drawText(record.isMinimized ? "Minimized · icon only" : previewLabel, in: NSRect(x: 15, y: bounds.height - 18, width: bounds.width - 30, height: 13), font: .systemFont(ofSize: 9), color: .secondaryLabelColor)
+        drawText(preview != nil ? "● Live" : thumbnail != nil ? "◷ Snapshot" : record.isMinimized ? "Minimized" : "", in: NSRect(x: 15, y: bounds.height - 18, width: bounds.width - 30, height: 13), font: .systemFont(ofSize: 9), color: .secondaryLabelColor)
         NSGraphicsContext.restoreGraphicsState()
     }
 }

@@ -66,7 +66,15 @@ import CoreGraphics
         precondition(third != nil && budget.counts.current == 2)
         second = nil; third = nil
         precondition(budget.counts.current == 0 && budget.counts.peak == 2)
+        // A static cache image must not retain a live provider or consume its scarce lease.
+        var liveSource: CGImage? = output.makeImage(from: one)
+        precondition(liveSource != nil && budget.counts.current == 1)
+        let detached = CaptureController.detachedThumbnail(liveSource!)!
+        liveSource = nil
+        precondition(budget.counts.current == 0)
+        autoreleasepool { validatePixels(detached) }
+        precondition(budget.counts.current == 0)
         output.deactivate()
-        print("PASS provider pixels/row-stride/color draw; provider retains lease after image release; lease cap 2; rejection/re-admission; final leases 0")
+        print("PASS detached thumbnail holds no live lease; provider pixels/row-stride/color draw; provider retains lease after image release; lease cap 2; rejection/re-admission; final leases 0")
     }
 }

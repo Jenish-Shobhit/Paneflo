@@ -19,7 +19,15 @@ trap 'rm -rf "$TEMP_DIR"' EXIT HUP INT TERM
 # These helpers are fileprivate in production. Concatenating the test entrypoint
 # into a temporary copy keeps production visibility and sources untouched.
 cat "$CAPTURE_SOURCE" "$TEST_SOURCE" > "$TEMP_DIR/CaptureOwnershipCheck.swift"
-xcrun swiftc \
+TARGET_TRIPLE="$(uname -m)-apple-macosx14.0"
+# Capture's thumbnail identities/accounting use the actual core module. Build that
+# small dependency locally without SwiftPM state or third-party packages.
+xcrun swiftc -target "$TARGET_TRIPLE" -parse-as-library -sanitize=address \
+    -module-cache-path "$TEMP_DIR/module-cache" -emit-library -emit-module \
+    -module-name PanefloCore "$PROJECT_ROOT"/Sources/PanefloCore/*.swift \
+    -emit-module-path "$TEMP_DIR/PanefloCore.swiftmodule" -o "$TEMP_DIR/libPanefloCore.dylib"
+xcrun swiftc -target "$TARGET_TRIPLE" \
+    -I "$TEMP_DIR" -L "$TEMP_DIR" -lPanefloCore -Xlinker -rpath -Xlinker "$TEMP_DIR" \
     -parse-as-library \
     -module-cache-path "$TEMP_DIR/module-cache" \
     -sanitize=address \

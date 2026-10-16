@@ -32,6 +32,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windows.onChange = { [weak controller] in controller?.updateSnapshot() }
         windows.onStatus = { [weak controller] in controller?.setStatus($0) }
         controller.enablePreviewControl()
+        capture.onThumbnail = { [weak controller] request, image in controller?.showThumbnail(image, for: request.id) }
+        capture.onThumbnailsCleared = { [weak controller] in controller?.clearThumbnails() }
+        capture.isThumbnailCurrent = { [weak self] request in
+            guard let self else { return false }
+            return request.id.process.pid == request.ownerPID && self.windows.captureWindowNumber(for: request.id) == request.windowNumber
+        }
+        controller.onThumbnailViewport = { [weak self] requests, visible, surviving in
+            guard let self else { return }
+            self.capture.selectVisibleThumbnails(requests, visible: visible && self.previewsEnabled, surviving: surviving)
+        }
         capture.onImage = { [weak controller] in controller?.showPreview($0, label: $1) }
         controller.onPreviewSelection = { [weak self] number, visible, ownerPID in
             guard let self else { return }
