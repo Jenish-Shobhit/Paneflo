@@ -1,0 +1,46 @@
+# Private design, research clones, binaries, captures, and local reports.
+/dev_acrtifacts/
+
+# macOS and editor state.
+.DS_Store
+._*
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Swift Package Manager and Xcode generated output.
+.build/
+.swiftpm/
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+*.hmap
+*.ipa
+*.dSYM/
+*.dSYM.zip
+*.xcarchive/
+
+# Local secrets, signing materials, and machine-specific configuration.
+.env
+.env.*
+!.env.example
+*.p12
+*.pfx
+*.mobileprovision
+*.provisionprofile
+*.key
+*.pem
+*.cer
+.aws/
+
+# Local profiling and runtime output.
+*.trace/
+*.trace
+*.log
+coverage/
+*.profraw
+*.profdata
