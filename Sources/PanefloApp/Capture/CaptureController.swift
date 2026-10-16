@@ -3,6 +3,11 @@ import AppKit
 import CoreMedia
 import CoreImage
 
+/// Developer-only A/B renderer selection; cadence, dimensions and capture configuration stay identical.
+enum PreviewRenderer {
+    static let usesReferenceRenderer = CommandLine.arguments.contains("--preview-reference-renderer")
+}
+
 /// Selected-window-only live preview. A single worker serializes actual framework completions.
 @MainActor
 final class CaptureController {
@@ -109,6 +114,7 @@ final class CaptureController {
             throw error
         }
     }
+    private let bufferBudget = CaptureBufferBudget()
     private let frameQueue = DispatchQueue(label: "Paneflo.selected-preview", qos: .userInitiated)
 
     isolated deinit {
@@ -241,10 +247,11 @@ final class CaptureController {
             configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
             configuration.queueDepth = 3
             configuration.pixelFormat = kCVPixelFormatType_32BGRA
+            configuration.colorSpaceName = CGColorSpace.sRGB
             configuration.showsCursor = false
             configuration.capturesAudio = false
             configuration.scalesToFit = true
-            let output = CaptureOutput(onImage: { [weak self] image in
+            let output = CaptureOutput(budget: bufferBudget, onImage: { [weak self] image in
                 guard let self, self.generation == token, self.desired != nil else { return }
                 self.publish(image, "Live selected preview")
             }, onStop: { [weak self] in
@@ -279,7 +286,10 @@ final class CaptureController {
 
     private func detach(_ stopped: SCStream, reason: String = "confirmedStop") {
         output?.deactivate()
-        if let output { try? stopped.removeStreamOutput(output, type: .screen) }
+        if let output {
+            try? stopped.removeStreamOutput(output, type: .screen)
+            output.reportCounters()
+        }
         if stream === stopped {
             stream = nil; output = nil; streamGeneration = nil
             transition(reason)
@@ -287,7 +297,43 @@ final class CaptureController {
     }
 }
 
-/// Serial conversion plus a one-image mailbox: slow UI delivery never queues image payloads.
+/// At most two retained pixel buffers across all capture generations. The framework's
+/// own stream queue is separate; no timeout can release an outstanding provider lease.
+private final class CaptureBufferBudget: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    private var peak = 0
+    func acquire() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard count < 2 else { return false }
+        count += 1; peak = max(peak, count)
+        return true
+    }
+    func release() { lock.lock(); count -= 1; lock.unlock() }
+    var counts: (current: Int, peak: Int) {
+        lock.lock(); defer { lock.unlock() }; return (count, peak)
+    }
+}
+
+/// Provider ownership keeps both the pixel buffer and its read lock alive until the last
+/// CGImage/data-provider consumer actually releases it, including a deferred draw.
+private final class CaptureBufferLease {
+    let buffer: CVPixelBuffer
+    let budget: CaptureBufferBudget
+    init?(buffer: CVPixelBuffer, budget: CaptureBufferBudget) {
+        guard budget.acquire() else { return nil }
+        guard CVPixelBufferLockBaseAddress(buffer, .readOnly) == kCVReturnSuccess else {
+            budget.release(); return nil
+        }
+        self.buffer = buffer; self.budget = budget
+    }
+    deinit {
+        CVPixelBufferUnlockBaseAddress(buffer, .readOnly)
+        budget.release()
+    }
+}
+
+/// Serial image wrapping plus a one-image mailbox: slow UI delivery never queues payloads.
 private final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     // A per-payload ownership limit, not a bound on framework surfaces or total process RAM.
     private static let maximumImageBytes = 4 * 1024 * 1024
@@ -301,13 +347,30 @@ private final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @
     private var active = true
     private var pending: CGImage?
     private var deliveryScheduled = false
-    private let context = CIContext(options: [.cacheIntermediates: false])
+    private let budget: CaptureBufferBudget
+    private let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+    private let referenceContext: CIContext? = PreviewRenderer.usesReferenceRenderer
+        ? CIContext(options: [.cacheIntermediates: false]) : nil
+    private var received: UInt64 = 0
+    private var delivered: UInt64 = 0
+    private var capacityDropped: UInt64 = 0
+    private var firstPresentationSeconds: Double?
+    private var lastPresentationSeconds: Double?
     private let onImage: @MainActor @Sendable (CGImage) -> Void
     private let onStop: @MainActor @Sendable () -> Void
 
-    init(onImage: @escaping @MainActor @Sendable (CGImage) -> Void,
+    init(budget: CaptureBufferBudget, onImage: @escaping @MainActor @Sendable (CGImage) -> Void,
          onStop: @escaping @MainActor @Sendable () -> Void) {
-        self.onImage = onImage; self.onStop = onStop
+        self.budget = budget; self.onImage = onImage; self.onStop = onStop
+    }
+
+    func reportCounters() {
+        lock.lock()
+        let values = (received, delivered, capacityDropped)
+        let span = (lastPresentationSeconds ?? 0) - (firstPresentationSeconds ?? 0)
+        lock.unlock()
+        let leases = budget.counts
+        RuntimeDiagnostics.mark("capture renderer=\(PreviewRenderer.usesReferenceRenderer ? "reference" : "provider") framesReceived=\(values.0) framesDelivered=\(values.1) capacityDropped=\(values.2) frameSpanSeconds=\(span) retainedBufferLeases=\(leases.current) peakBufferLeases=\(leases.peak)")
     }
 
     func deactivate() {
@@ -331,9 +394,19 @@ private final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @
               CVPixelBufferGetWidth(buffer) <= 960,
               CVPixelBufferGetHeight(buffer) <= 600,
               Self.admitsPayload(rowBytes: CVPixelBufferGetBytesPerRow(buffer), height: CVPixelBufferGetHeight(buffer)) else { return }
-        let source = CIImage(cvPixelBuffer: buffer)
-        guard let image = context.createCGImage(source, from: source.extent),
-              Self.admitsPayload(rowBytes: image.bytesPerRow, height: image.height) else { return }
+        guard CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_32BGRA,
+              !CVPixelBufferIsPlanar(buffer) else { return }
+        lock.lock()
+        received &+= 1
+        let presentation = sampleBuffer.presentationTimeStamp.seconds
+        if presentation.isFinite {
+            if firstPresentationSeconds == nil { firstPresentationSeconds = presentation }
+            lastPresentationSeconds = presentation
+        }
+        // Release an undelivered image before admitting its replacement, preserving the lease cap.
+        pending = nil
+        lock.unlock()
+        guard let image = makeImage(from: buffer) else { return }
         lock.lock()
         guard active else { lock.unlock(); return }
         pending = image
@@ -345,10 +418,45 @@ private final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @
         }
     }
 
+    /// Shared by actual frame delivery and the local synthetic ownership/pixel-format check.
+    fileprivate func makeImage(from buffer: CVPixelBuffer) -> CGImage? {
+        guard CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_32BGRA,
+              !CVPixelBufferIsPlanar(buffer),
+              CVPixelBufferGetWidth(buffer) > 0, CVPixelBufferGetWidth(buffer) <= 960,
+              CVPixelBufferGetHeight(buffer) > 0, CVPixelBufferGetHeight(buffer) <= 600,
+              Self.admitsPayload(rowBytes: CVPixelBufferGetBytesPerRow(buffer), height: CVPixelBufferGetHeight(buffer)) else { return nil }
+        if let referenceContext {
+            let source = CIImage(cvPixelBuffer: buffer)
+            guard let image = referenceContext.createCGImage(source, from: source.extent),
+                  Self.admitsPayload(rowBytes: image.bytesPerRow, height: image.height) else { return nil }
+            return image
+        }
+        guard let lease = CaptureBufferLease(buffer: buffer, budget: budget) else {
+            lock.lock(); capacityDropped &+= 1; lock.unlock(); return nil
+        }
+        guard let address = CVPixelBufferGetBaseAddress(buffer) else { return nil }
+        let rowBytes = CVPixelBufferGetBytesPerRow(buffer)
+        let height = CVPixelBufferGetHeight(buffer)
+        // Admission above checked multiplication and the actual row-stride payload cap.
+        let retained = Unmanaged.passRetained(lease)
+        guard let provider = CGDataProvider(dataInfo: retained.toOpaque(), data: address,
+                                           size: rowBytes * height, releaseData: { info, _, _ in
+            if let info { Unmanaged<CaptureBufferLease>.fromOpaque(info).release() }
+        }) else { retained.release(); return nil }
+        let bitmapInfo = CGBitmapInfo.byteOrder32Little.union(CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue))
+        guard let image = CGImage(width: CVPixelBufferGetWidth(buffer), height: height,
+                                  bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: rowBytes,
+                                  space: CVImageBufferGetColorSpace(buffer)?.takeUnretainedValue() ?? colorSpace,
+                                  bitmapInfo: bitmapInfo, provider: provider, decode: nil,
+                                  shouldInterpolate: true, intent: .defaultIntent) else { return nil }
+        return image
+    }
+
     @MainActor private func deliverLatest() {
         lock.lock()
         let image = active ? pending : nil
         pending = nil; deliveryScheduled = false
+        if image != nil { delivered &+= 1 }
         lock.unlock()
         if let image { onImage(image) }
     }

@@ -508,11 +508,21 @@ private final class DesktopCard: NSButton {
         if let preview {
             let scale = min(target.width / CGFloat(preview.width), target.height / CGFloat(preview.height))
             let area = NSRect(x: target.midX - CGFloat(preview.width) * scale / 2, y: target.midY - CGFloat(preview.height) * scale / 2, width: CGFloat(preview.width) * scale, height: CGFloat(preview.height) * scale)
-            NSImage(cgImage: preview, size: NSSize(width: preview.width, height: preview.height)).draw(in: area)
+            if PreviewRenderer.usesReferenceRenderer {
+                NSImage(cgImage: preview, size: NSSize(width: preview.width, height: preview.height)).draw(in: area)
+            } else if let context = NSGraphicsContext.current?.cgContext {
+                context.saveGState()
+                // DesktopCard uses flipped AppKit coordinates; restore image orientation locally.
+                context.translateBy(x: area.minX, y: area.maxY)
+                context.scaleBy(x: 1, y: -1)
+                context.interpolationQuality = .high
+                context.draw(preview, in: CGRect(origin: .zero, size: area.size))
+                context.restoreGState()
+            }
         } else { icon?.draw(in: NSRect(x: target.midX - 30, y: target.midY - 30, width: 60, height: 60)) }
         drawText(record.appName + (isVacancyPinned ? "  • pinned" : ""), in: NSRect(x: 15, y: bounds.height - 53, width: bounds.width - 30, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: .labelColor)
         drawText(record.title, in: NSRect(x: 15, y: bounds.height - 34, width: bounds.width - 30, height: 17), font: .systemFont(ofSize: 11), color: .labelColor)
-        drawText(record.isMinimized ? "Minimized · cached/icon only" : previewLabel, in: NSRect(x: 15, y: bounds.height - 18, width: bounds.width - 30, height: 13), font: .systemFont(ofSize: 9), color: .secondaryLabelColor)
+        drawText(record.isMinimized ? "Minimized · icon only" : previewLabel, in: NSRect(x: 15, y: bounds.height - 18, width: bounds.width - 30, height: 13), font: .systemFont(ofSize: 9), color: .secondaryLabelColor)
         NSGraphicsContext.restoreGraphicsState()
     }
 }

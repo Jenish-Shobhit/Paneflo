@@ -50,7 +50,8 @@ final class WindowService {
         guard workspaceObservers.isEmpty else { refresh(); return }
         worker.onEvent = { [weak self] in Task { @MainActor in self?.scheduleRefresh() } }
         let center = NSWorkspace.shared.notificationCenter
-        for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification, NSWorkspace.didWakeNotification] {
+        for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification, NSWorkspace.didWakeNotification,
+                     NSWorkspace.didHideApplicationNotification, NSWorkspace.didUnhideApplicationNotification] {
             workspaceObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
                 let endedApp = name == NSWorkspace.didTerminateApplicationNotification
                     ? notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication : nil
@@ -82,7 +83,11 @@ final class WindowService {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") { NSWorkspace.shared.open(url) }
     }
 
-    func captureWindowNumber(for id: WindowIdentity) -> UInt32? { targets[id]?.captureNumber }
+    func captureWindowNumber(for id: WindowIdentity) -> UInt32? {
+        guard let record = snapshot.records.first(where: { $0.id == id }), !record.isMinimized,
+              let app = currentApplication(for: id), !app.isHidden else { return nil }
+        return targets[id]?.captureNumber
+    }
 
     func refresh() {
         pendingRefresh?.cancel(); pendingRefresh = nil
