@@ -1,6 +1,6 @@
 # Paneflo product specification
 
-Status: product requirements, pre-implementation. Updated 2026-10-16.
+Status: product requirements; native foundation in progress. Updated 2026-10-16.
 
 ## Purpose
 
