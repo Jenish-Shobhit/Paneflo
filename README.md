@@ -6,18 +6,9 @@ Paneflo is a native macOS menu-bar app for finding, arranging, and switching bet
 
 ## Project status
 
-The current developer build works with real application windows. Accessibility-backed discovery, window activation, tiling, the organized overview, and opt-in global shortcuts are implemented. Native testing verified Cocoa-accepted left-half placement with focus preserved and exact-frame undo after a shrinking resize. The selected-window ScreenCaptureKit path is implemented, but capture has not been reverified on the current source hash. All permissions are user initiated. Other window cards currently show app icons and title metadata; Paneflo does not yet provide cached thumbnails.
+Paneflo is a native macOS developer preview for discovering and activating real windows, tiling with undo, switching, and arranging entries in its own overview. Global shortcuts and selected-window ScreenCaptureKit previews are opt-in. Paneflo does not alter Mission Control or native Spaces; unselected cards currently use app icons and title metadata, with cached thumbnails still unimplemented. See [implementation status](docs/status.md) for verified behavior, validation results, and remaining work.
 
-On an earlier build, a native smoke check found real windows, activated a selected fixture window, applied a layout and undid it, displayed a selected-window frame from ScreenCaptureKit, and opened Paneflo's grid through Command–Tab with shortcuts enabled. On the current bundle, native testing confirms the left-half placement is accepted by Cocoa with focus preserved, shrinking-resize undo restores the exact recorded frame, switcher search displays and reveals the matching card, and the registry continues refreshing and can activate a responsive window while a separate fixture is unresponsive. Live capture has not been rechecked on this hash. These checks cover one Mac, not the supported macOS matrix or broader real-world app behavior.
-
-| Capability | Current behavior | Remaining work |
-| --- | --- | --- |
-| Switcher | Lists real windows by app and title; supports pointer/keyboard selection and activation. Command–Tab replacement is available only after explicit shortcut enablement. | Verify shortcut precedence and recovery across supported systems; finish input-method and accessibility coverage. |
-| Tiling | Applies half-screen and maximize layouts to a real window through Accessibility. Latest left-half geometry, focus, and exact-frame undo after shrinking resize were confirmed natively. | Test constrained-window readback, more displays, and broader app behavior. Pointer-edge snapping and multi-window arrangements are not implemented. |
-| Overview | Paneflo's own overlay lists real windows; users can reorder, pin, search, and activate entries. Slot order is saved separately from recent-use switch order. | Validate long-term matching, settings migration, display and Space transitions. This does not rearrange Apple's Mission Control. |
-| Live preview | The opt-in ScreenCaptureKit path admits one selected eligible window while a switching surface is visible; other cards use icons and titles. A capture frame was shown on an earlier build. | Recheck capture on the current source hash; add cached thumbnails and complete permission-revocation, teardown, privacy, and workload validation. |
-
-The latest integrated run passed 36 core tests across 9 suites. Release compilation and local bundle signature verification passed. Current-hash capture validation and repeatable performance measurements remain pending. No performance benchmark or comparison has established lower memory, lower latency, or superiority over macOS, AltTab, or Rectangle.
+Final code commit `8c989be` passed hosted CI with 36 core tests across 9 suites, the synthetic capture-ownership Address Sanitizer check, and release package/signature checks. This is a developer preview tested on one Mac, not a supported-system certification or product-superiority claim.
 
 ## Build and run
 
@@ -35,6 +26,7 @@ For a developer run and core tests:
 ```sh
 open build/Paneflo.app --args --diagnostics
 ./scripts/test.sh
+sh ./Tools/test-capture-ownership.sh
 ```
 
 Use LaunchServices (`open`) or Finder to launch the native app. `--diagnostics` prints title-free startup phases to stderr. `build/Paneflo.app/Contents/MacOS/Paneflo --version` exits without initializing AppKit.
