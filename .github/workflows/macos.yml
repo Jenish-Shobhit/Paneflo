@@ -39,5 +39,7 @@ jobs:
           xcrun swift --version
       - name: Run core tests
         run: ./scripts/test.sh
+      - name: Run synthetic capture ownership regression with Address Sanitizer
+        run: sh ./Tools/test-capture-ownership.sh
       - name: Build and sign local app bundle
         run: ./scripts/build-app.sh

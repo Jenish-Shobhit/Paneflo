@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import PanefloCore
 
 @MainActor
@@ -465,18 +466,63 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
 private final class DesktopCard: NSButton {
     var record: WindowRecord? { didSet { needsDisplay = true; setAccessibilityLabel(record.map { "\($0.appName), \($0.title)" } ?? "Vacant overview slot") } }
     var icon: NSImage? { didSet { needsDisplay = true } }
-    var preview: CGImage? { didSet { needsDisplay = true } }
-    var previewLabel = "Icon preview" { didSet { needsDisplay = true } }
+    private let previewLayer = CALayer()
+    var preview: CGImage? {
+        didSet {
+            if PreviewRenderer.usesReferenceRenderer { needsDisplay = true }
+            else {
+                updatePreviewLayer()
+                // Only image/placeholder transitions change the static backing-store drawing.
+                if (oldValue == nil) != (preview == nil) { needsDisplay = true }
+            }
+        }
+    }
+    var previewLabel = "Icon preview" { didSet { if oldValue != previewLabel { needsDisplay = true } } }
     var selected = false { didSet { needsDisplay = true } }
-    var matches = true { didSet { needsDisplay = true } }
+    var matches = true { didSet { needsDisplay = true; updatePreviewLayer() } }
     var isVacancyPinned = false { didSet { needsDisplay = true } }
     var dragEnabled = false
     var onDoubleClick: ((WindowIdentity) -> Void)?
     var onDragEnd: ((Int, NSPoint) -> Void)?
     override var isFlipped: Bool { true }
     override var intrinsicContentSize: NSSize { NSSize(width: 260, height: 168) }
-    override init(frame: NSRect) { super.init(frame: frame); isBordered = false; title = ""; setButtonType(.momentaryChange) }
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        isBordered = false; title = ""; setButtonType(.momentaryChange)
+        if !PreviewRenderer.usesReferenceRenderer {
+            wantsLayer = true
+            previewLayer.contentsGravity = .resizeAspect
+            previewLayer.minificationFilter = .trilinear
+            previewLayer.magnificationFilter = .linear
+            previewLayer.isHidden = true
+            layer?.addSublayer(previewLayer)
+        }
+    }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
+
+    override func layout() {
+        super.layout()
+        if !PreviewRenderer.usesReferenceRenderer { updatePreviewLayer() }
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        if !PreviewRenderer.usesReferenceRenderer { updatePreviewLayer() }
+    }
+
+    private func updatePreviewLayer() {
+        guard !PreviewRenderer.usesReferenceRenderer else { return }
+        let target = NSRect(x: 14, y: 13, width: max(0, bounds.width - 28), height: max(0, bounds.height - 66))
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        previewLayer.frame = convertToLayer(target)
+        previewLayer.contentsScale = window?.backingScaleFactor ?? 1
+        previewLayer.opacity = matches ? 1 : 0.24
+        previewLayer.contents = preview
+        previewLayer.isHidden = preview == nil
+        CATransaction.commit()
+    }
+
     override func mouseDown(with event: NSEvent) {
         guard isEnabled else { return }
         if event.clickCount == 2, let record { onDoubleClick?(record.id); return }
@@ -510,14 +556,6 @@ private final class DesktopCard: NSButton {
             let area = NSRect(x: target.midX - CGFloat(preview.width) * scale / 2, y: target.midY - CGFloat(preview.height) * scale / 2, width: CGFloat(preview.width) * scale, height: CGFloat(preview.height) * scale)
             if PreviewRenderer.usesReferenceRenderer {
                 NSImage(cgImage: preview, size: NSSize(width: preview.width, height: preview.height)).draw(in: area)
-            } else if let context = NSGraphicsContext.current?.cgContext {
-                context.saveGState()
-                // DesktopCard uses flipped AppKit coordinates; restore image orientation locally.
-                context.translateBy(x: area.minX, y: area.maxY)
-                context.scaleBy(x: 1, y: -1)
-                context.interpolationQuality = .high
-                context.draw(preview, in: CGRect(origin: .zero, size: area.size))
-                context.restoreGState()
             }
         } else { icon?.draw(in: NSRect(x: target.midX - 30, y: target.midY - 30, width: 60, height: 60)) }
         drawText(record.appName + (isVacancyPinned ? "  • pinned" : ""), in: NSRect(x: 15, y: bounds.height - 53, width: bounds.width - 30, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: .labelColor)
