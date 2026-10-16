@@ -12,6 +12,31 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Select installed Swift 6.2 or newer
+        shell: bash
+        run: |
+          selected_developer_dir=""
+          selected_score=0
+          for developer_dir in /Applications/Xcode_*.app/Contents/Developer; do
+            [[ -d "$developer_dir" ]] || continue
+            [[ "$developer_dir" == *beta* || "$developer_dir" == *Beta* || "$developer_dir" == *rc* ]] && continue
+            swift_version=$(DEVELOPER_DIR="$developer_dir" xcrun swift --version | sed -nE 's/^Apple Swift version ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' | head -n 1)
+            [[ -n "$swift_version" ]] || continue
+            IFS=. read -r major minor patch <<< "$swift_version"
+            score=$((major * 1000000 + minor * 1000 + patch))
+            if ((major > 6 || (major == 6 && minor >= 2))) && ((score > selected_score)); then
+              selected_developer_dir="$developer_dir"
+              selected_score=$score
+            fi
+          done
+          if [[ -z "$selected_developer_dir" ]]; then
+            echo "No installed Swift 6.2-or-newer Xcode toolchain found." >&2
+            exit 1
+          fi
+          export DEVELOPER_DIR="$selected_developer_dir"
+          echo "DEVELOPER_DIR=$selected_developer_dir" >> "$GITHUB_ENV"
+          echo "Using $selected_developer_dir"
+          xcrun swift --version
       - name: Run core tests
         run: ./scripts/test.sh
       - name: Build and sign local app bundle

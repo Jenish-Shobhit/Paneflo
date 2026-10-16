@@ -81,9 +81,9 @@ final class SampleCard: NSButton {
         appearance.color.withAlphaComponent(0.10).setFill()
         NSBezierPath(roundedRect: preview, xRadius: 6, yRadius: 6).fill()
         for line in 0..<4 {
-            let widths = [0.68, 0.43, 0.78, 0.54]
+            let widths: [CGFloat] = [0.68, 0.43, 0.78, 0.54]
             appearance.color.withAlphaComponent(line == 0 ? 0.6 : 0.24).setFill()
-            NSBezierPath(roundedRect: NSRect(x: preview.minX + 12, y: preview.minY + 13 + Double(line) * 12, width: (preview.width - 24) * widths[line], height: 4), xRadius: 2, yRadius: 2).fill()
+            NSBezierPath(roundedRect: NSRect(x: preview.minX + 12, y: preview.minY + 13 + CGFloat(line) * 12, width: (preview.width - 24) * widths[line], height: 4), xRadius: 2, yRadius: 2).fill()
         }
         drawText(record.title, in: NSRect(x: 18, y: bounds.height - 45, width: bounds.width - 36, height: 20), font: .systemFont(ofSize: 12, weight: .medium), color: .labelColor)
         drawText(record.isMinimized ? "SAMPLE · MINIMIZED" : "SYNTHETIC WINDOW", in: NSRect(x: 18, y: bounds.height - 25, width: bounds.width - 36, height: 15), font: .systemFont(ofSize: 9, weight: .medium), color: .secondaryLabelColor)
@@ -116,15 +116,22 @@ final class LayoutPreviewView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         NSColor.windowBackgroundColor.setFill()
         NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 2), xRadius: 12, yRadius: 12).fill()
-        let scale = min((bounds.width - 60) / usable.width, (bounds.height - 50) / usable.height)
-        let desktop = NSRect(x: (bounds.width - usable.width * scale) / 2, y: (bounds.height - usable.height * scale) / 2, width: usable.width * scale, height: usable.height * scale)
+        let usableWidth = CGFloat(usable.width)
+        let usableHeight = CGFloat(usable.height)
+        let scale = min((bounds.width - 60) / usableWidth, (bounds.height - 50) / usableHeight)
+        let desktop = NSRect(x: (bounds.width - usableWidth * scale) / 2, y: (bounds.height - usableHeight * scale) / 2, width: usableWidth * scale, height: usableHeight * scale)
         NSColor.controlBackgroundColor.setFill()
         NSBezierPath(roundedRect: desktop, xRadius: 7, yRadius: 7).fill()
         NSColor.separatorColor.setStroke()
         NSBezierPath(roundedRect: desktop, xRadius: 7, yRadius: 7).stroke()
 
         func mapped(_ rect: WindowRect) -> NSRect {
-            NSRect(x: desktop.minX + (rect.x - usable.x) * scale, y: desktop.minY + (rect.y - usable.y) * scale, width: rect.width * scale, height: rect.height * scale)
+            NSRect(
+                x: desktop.minX + (CGFloat(rect.x) - CGFloat(usable.x)) * scale,
+                y: desktop.minY + (CGFloat(rect.y) - CGFloat(usable.y)) * scale,
+                width: CGFloat(rect.width) * scale,
+                height: CGFloat(rect.height) * scale
+            )
         }
         let current = mapped(applied)
         NSColor.systemPurple.withAlphaComponent(0.18).setFill()
