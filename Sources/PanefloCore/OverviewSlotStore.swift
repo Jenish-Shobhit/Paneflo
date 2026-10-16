@@ -93,6 +93,12 @@ public struct OverviewSlotStore: Sendable {
         return Set(slots.filter { $0.binding.map { matchingWindows.contains($0) } ?? false }.map(\.id))
     }
 
+    /// Query-eligible window keys remain in their user-assigned slot order.
+    public func matchingWindowIDs(query: String, records: [WindowRecord]) -> [WindowIdentity] {
+        let matchingSlots = matches(query: query, records: records)
+        return slots.filter { matchingSlots.contains($0.id) }.compactMap(\.binding)
+    }
+
     public func encodedMetadata() throws -> Data {
         let envelope = Envelope(schemaVersion: 1, slots: slots.map {
             Metadata(id: $0.id, isPinned: $0.isPinned, matchingRule: $0.matchingRule)

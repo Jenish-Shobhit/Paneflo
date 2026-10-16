@@ -2,7 +2,7 @@
 
 Status: implementation requirements and feasibility gates. Updated 2026-10-16.
 
-This specification implements the [product requirements](000-product.md). The native target currently presents synthetic developer fixtures; real-window adapters and measured performance results remain pending. Numeric budgets are initial configuration requirements to validate, not measurements of an existing app. Platform-sensitive capabilities must pass their gates before the application enables them by default.
+This specification records the target architecture and feasibility gates for the [product requirements](000-product.md). The app now has real-window discovery and control, opt-in shortcuts, a custom overview, and an opt-in selected-window live capture path; this integration remains under verification. Cached thumbnails, broader platform validation, and measured performance results remain pending. Numeric budgets are initial configuration requirements to validate, not measurements of an existing app. Platform-sensitive capabilities must pass their gates before the application enables them by default.
 
 ## 1. Application shape
 

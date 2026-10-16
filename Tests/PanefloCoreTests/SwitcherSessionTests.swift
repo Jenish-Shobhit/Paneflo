@@ -60,6 +60,22 @@ struct SwitcherSessionTests {
     }
 
     @Test
+    func testExplicitRefreshSeedsAsyncDiscoveryAndPreservesQuerySelection() {
+        var session = SwitcherSession(snapshot: WindowSnapshot(records: []))
+        session.setSearchQuery("browser")
+        session.refresh(snapshot: snapshot)
+        #expect(session.filteredIDs == [windowID(1), windowID(3)])
+        #expect(session.selectedID == windowID(1))
+        session.select(windowID(3))
+        session.refresh(snapshot: WindowSnapshot(records: snapshot.records + [record(4, title: "Browser new")], mostRecent: [windowID(4)]))
+        #expect(session.searchQuery == "browser")
+        #expect(session.selectedID == windowID(3))
+        #expect(session.filteredIDs == [windowID(4), windowID(1), windowID(3)])
+        session.refresh(snapshot: WindowSnapshot(records: [record(4, title: "Browser new")]))
+        #expect(session.selectedID == windowID(4))
+    }
+
+    @Test
     func testRemovalPreservesNearestSelectionAndEmptyIsSafe() {
         var session = SwitcherSession(snapshot: snapshot)
         session.remove(windowID(2))

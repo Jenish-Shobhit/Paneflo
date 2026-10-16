@@ -1,41 +1,33 @@
 # Implementation status
 
-Updated 2026-10-16. Milestone: native developer preview and pure Swift foundation.
+Updated 2026-10-16. Milestone: native real-window integration under verification.
 
 ## Available
 
-- Dependency-free Swift 6 package with a `PanefloCore` library, deterministic core tests, and `Paneflo` AppKit executable.
-- Value-model window/process lifetime identities, immutable snapshots, registry updates, frozen switching sessions/search, and logical overview slots independent of focus history.
-- Pure layout planning and preview-work budget/admission models; these do not invoke macOS window or capture APIs.
-- One menu-bar accessory app with a clearly labeled synthetic preview for switching, layout geometry, and stable overview order. Sample cards are reused and the panel has no timers or background animation.
-- Local `.app` assembly through `scripts/build-app.sh`; build output and private development material remain ignored.
+- Dependency-free Swift 6 package with a `PanefloCore` library, `Paneflo` AppKit app, and core test suite.
+- Accessibility-backed discovery for regular application windows, with identity tracking across process lifetimes and off-main Accessibility calls. Discovery and window control remain unavailable until the user grants Accessibility access.
+- Real-window activation and geometry placement for half-screen and maximize layouts, with undo history. The latest source includes a placement correction; final native geometry, focus, and undo retests on that bundle are pending.
+- Switcher and a custom Paneflo overview over real windows. Overview slot order, pinning, and search are separate from recent-use switch order; slot metadata is saved locally.
+- Global shortcuts are opt-in. When enabled, Command–Tab cycles and selects, Control–Option–Space opens Overview, Control–Option–arrows tile, Control–Option–Return maximizes, and Control–Option–Z undoes. Installation tries the HID head-insert event tap and falls back to the session head-insert tap. No automatic retry runs if macOS disables the tap.
+- Live ScreenCaptureKit preview is opt-in and requires Screen Recording permission. At most one selected eligible window is streamed while Switcher or Overview is visible. Other cards currently show app icons and title metadata; there is no cached-thumbnail pipeline.
+- Local `.app` assembly uses an ad-hoc signature. It is not Developer ID signed or notarized.
 
 ## Validation
 
-Verified on the current arm64 host with Swift 6.4:
+The latest integrated run passed **33 tests in 8 suites**. Release compilation and local bundle signature verification also passed. Native regression checks on the latest bundle remain pending.
 
-- **24 core tests in 6 suites passed** through `scripts/test.sh` with the executor's manifest-sandbox opt-in.
-- Release compilation and local `.app` assembly passed after the preview constraint-order fix.
-- Assembled-bundle ad-hoc signature verification passed with `codesign --verify --strict --verbose=2`.
-- Mach-O arm64 output, Info.plist lint, shell syntax, and private/build artifact ignore checks passed.
+On one Mac and an earlier build, the native smoke check discovered real windows, activated a selected fixture window, changed its frame and restored it with undo, displayed a live selected-window ScreenCaptureKit frame, and installed a global event tap. The user physically confirmed that Command–Tab opened Paneflo's switching grid. These checks establish a working path on one host only; the latest bundle has not yet completed the same interaction pass. They do not establish shortcut precedence on every system, nor production recovery or compatibility.
 
-**Native GUI launch and the three sample modes passed a smoke check on this Mac.** Search, keyboard selection and sample choice worked; layout apply/undo changed the synthetic rectangle; overview reorder, pin, simulated focus changes and reopen preserved its logical order. The normal GUI launch reached every startup diagnostic phase and showed the native panel.
+The one local physical-memory sample is an observation from a single short run, not a repeatable benchmark. No comparison against macOS, AltTab, or Rectangle has been measured, and no performance superiority is claimed. The GitHub Actions workflow builds and tests on macOS when run; it has not yet completed a hosted CI run.
 
-A direct launch from the restricted background executor aborted inside macOS application registration before `NSApplication.shared` returned. LaunchServices successfully launched the same signed bundle. Opt-in `--diagnostics` reports startup phases without titles or images; `--version` exits without initializing AppKit. No real-window integration or performance benchmark has been tested.
+## Not implemented or not verified
 
-## Not connected
+- Cached thumbnails for unselected windows, durable window matching across relaunches, and settings migration.
+- Pointer-edge snapping and coordinated multi-window layouts.
+- Native Mission Control, Spaces, or fullscreen modification. The organized overview is Paneflo's own panel.
+- Shortcut precedence and immediate emergency recovery across supported macOS versions and competing input tools.
+- Permission revocation, protected/minimized/unresponsive windows, screen lock and sleep transitions, multi-display recovery, and the full input-method and VoiceOver matrix.
+- A supported macOS/architecture matrix, project license, distribution identity, and notarization.
+- Repeatable measurements of app/system memory, CPU, energy, latency, and correctness against declared workloads.
 
-Real window discovery or focus; AX geometry/control; global Command–Tab ownership; native shortcut recovery; ScreenCaptureKit or screenshots; permission onboarding; native Spaces/gestures; saved user settings; production signing/distribution. All current cards, search titles, focus changes, layouts, and display sizes are synthetic.
-
-## Remaining gates
-
-1. Confirm supported macOS/architecture matrix; macOS 14 is a provisional build floor only.
-2. Prove real identity/discovery, newest-intent AX execution, constrained geometry readback, cross-Space capability limits, and display recovery.
-3. Prove reversible shortcut ownership and immediate forced-termination/emergency recovery before replacing native shortcuts by default.
-4. Integrate bounded capture with actual outstanding-request and buffer-lifetime accounting; verify permission/privacy transitions and hidden-state teardown.
-5. Measure release-build latency, app/system memory, CPU, energy, and correctness against declared workloads. No performance superiority is established.
-6. Complete accessibility/input-method checks, durable matching/settings migration, project license choice, and distribution/signing decisions.
-
-The synthetic preview is interactively verified. The next milestone connects real-window discovery, focus and geometry through explicit permission gates.
-
-Product acceptance criteria remain in [000-product.md](specs/000-product.md), with architecture/capability gates in [001-engineering.md](specs/001-engineering.md). This milestone validates contracts and native interaction scaffolding; it is not a working desktop window manager yet.
+Product acceptance criteria remain in [000-product.md](specs/000-product.md), with architecture and capability gates in [001-engineering.md](specs/001-engineering.md).

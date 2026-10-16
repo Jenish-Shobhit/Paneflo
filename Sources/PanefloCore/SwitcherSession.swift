@@ -27,6 +27,16 @@ public struct SwitcherSession: Sendable {
         }
     }
 
+    /// Explicit refresh for a manually opened surface. Shortcut invocations must not call this.
+    /// Preserves the query and an eligible selection while accepting newly discovered windows.
+    public mutating func refresh(snapshot: WindowSnapshot) {
+        let query = searchQuery
+        let previous = selectedID
+        self = SwitcherSession(snapshot: snapshot)
+        setSearchQuery(query)
+        if let previous { _ = select(previous) }
+    }
+
     public var filteredIDs: [WindowIdentity] {
         orderedIDs.filter { id in records[id].map { WindowSearch.matches(searchQuery, record: $0) } ?? false }
     }

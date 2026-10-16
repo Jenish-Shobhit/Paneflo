@@ -20,6 +20,20 @@ struct OverviewSlotStoreTests {
     }
 
     @Test
+    func testQueryEligibilityContainsOnlyMatchingBoundWindowsInStableSlotOrder() {
+        var store = OverviewSlotStore()
+        let records = [record(1, title: "Finder"), record(2, title: "Fixture One"), record(3, title: "Fixture Two")]
+        store.reconcile(records)
+        store.move(slotID: store.slots[2].id, to: 0)
+        let positions = store.slots
+        #expect(store.matchingWindowIDs(query: "fixture", records: records) == [windowID(3), windowID(2)])
+        #expect(store.matchingWindowIDs(query: "no results", records: records).isEmpty)
+        #expect(store.slots == positions)
+        store.reconcile([records[0], records[2]])
+        #expect(store.matchingWindowIDs(query: "fixture", records: [records[0], records[2]]) == [windowID(3)])
+    }
+
+    @Test
     func testPinnedVacancyAndExplicitReorder() {
         var store = OverviewSlotStore()
         store.reconcile([record(1), record(2)])
