@@ -14,7 +14,9 @@ One shared window engine connects the three modules. Recent-use switch order and
 
 The current milestone is a **native developer preview using synthetic windows**. A dependency-free Swift 6 package contains the pure state/geometry foundation and an AppKit menu-bar shell. The expected workflow is a preview panel on launch, with the menu-bar item reopening each mode after the panel closes. It does not inspect or control your desktop, intercept shortcuts, request permissions, or capture your screen.
 
-Verified: 24 core tests in 6 suites, release compilation, local bundle signature verification, and packaging checks. Native GUI launch and interaction remain unverified in the current environment; the preview instructions below describe the implemented workflow awaiting that check. No performance benchmark has been run.
+Verified: 24 core tests in 6 suites, release compilation, local bundle signature verification, packaging checks, and a native GUI smoke check of all three sample modes. Search/selection, layout apply/undo, and overview reorder/pin/reopen were exercised on this Mac. No real-window or performance benchmark has been run.
+
+Implementation will proceed in stages: reliable app startup, real-window discovery and focus, tiling, switching, organized overview, and capture, followed by correctness fixes and measured performance. Platform capability gates in the specifications continue to govern behavior and defaults.
 
 The goal is reliable interaction with bounded resource use. Being faster or using less RAM than native macOS, AltTab, or Rectangle remains a hypothesis to benchmark, not an achieved result. The overview is a custom Paneflo surface, not a promised patch to Apple's Mission Control.
 
@@ -37,12 +39,14 @@ open build/Paneflo.app
 
 The script builds a release executable, assembles `build/Paneflo.app`, and ad-hoc signs and verifies the assembled local bundle. No developer signing identity or permission setup is required for this synthetic preview. This local signature is not Developer ID distribution signing or notarization. Use `./scripts/build-app.sh debug` for a debug bundle. Quit through the Paneflo menu-bar menu.
 
-For a command-line developer run and core tests:
+For a developer run and core tests:
 
 ```sh
-swift run --build-system native Paneflo
+open build/Paneflo.app --args --diagnostics
 ./scripts/test.sh
 ```
+
+Use LaunchServices (`open`) or Finder for the native app. A restricted background executor can abort in macOS application registration before Paneflo receives a launch callback; that is separate from UI construction. `--diagnostics` emits title-free startup phases to stderr, and `build/Paneflo.app/Contents/MacOS/Paneflo --version` works without a GUI session.
 
 The scripts keep compiler caches in ignored `.build/`. The test script runs bundled Swift Testing, deriving its framework search path from the selected Command Line Tools or Xcode installation when needed; failures remain visible. With a full Xcode toolchain that resolves Testing automatically, `swift test --build-system native --enable-swift-testing --disable-xctest` is also available.
 

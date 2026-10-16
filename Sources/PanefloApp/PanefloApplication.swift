@@ -4,7 +4,10 @@ import AppKit
 struct PanefloApplication {
     @MainActor
     static func main() {
+        if RuntimeDiagnostics.handleCommandLine() { return }
+        RuntimeDiagnostics.mark("entry")
         let application = NSApplication.shared
+        RuntimeDiagnostics.mark("application initialized")
         let delegate = AppDelegate()
         application.delegate = delegate
         application.setActivationPolicy(.accessory)
@@ -20,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var previewController: PreviewController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        RuntimeDiagnostics.mark("delegate launched")
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = NSImage(systemSymbolName: "rectangle.3.group", accessibilityDescription: "Paneflo developer preview")
         item.button?.title = " Paneflo"
@@ -45,6 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Explicit preview launch only. No permissions or global input hooks are installed.
         showPreview(mode: 0)
+        RuntimeDiagnostics.mark("initial surface requested")
     }
 
     @objc private func openPreview(_ sender: NSMenuItem) {

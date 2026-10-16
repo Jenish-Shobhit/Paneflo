@@ -19,7 +19,9 @@ Verified on the current arm64 host with Swift 6.4:
 - Assembled-bundle ad-hoc signature verification passed with `codesign --verify --strict --verbose=2`.
 - Mach-O arm64 output, Info.plist lint, shell syntax, and private/build artifact ignore checks passed.
 
-**Native GUI launch and sample interaction remain unverified.** UI automation could not obtain a Paneflo app state after launch attempts. Build/signature success does not establish visible launch or interaction correctness. No real-window integration or performance benchmark has been tested.
+**Native GUI launch and the three sample modes passed a smoke check on this Mac.** Search, keyboard selection and sample choice worked; layout apply/undo changed the synthetic rectangle; overview reorder, pin, simulated focus changes and reopen preserved its logical order. The normal GUI launch reached every startup diagnostic phase and showed the native panel.
+
+A direct launch from the restricted background executor aborted inside macOS application registration before `NSApplication.shared` returned. LaunchServices successfully launched the same signed bundle. Opt-in `--diagnostics` reports startup phases without titles or images; `--version` exits without initializing AppKit. No real-window integration or performance benchmark has been tested.
 
 ## Not connected
 
@@ -34,6 +36,6 @@ Real window discovery or focus; AX geometry/control; global Command–Tab owners
 5. Measure release-build latency, app/system memory, CPU, energy, and correctness against declared workloads. No performance superiority is established.
 6. Complete accessibility/input-method checks, durable matching/settings migration, project license choice, and distribution/signing decisions.
 
-A native GUI smoke check of all three synthetic modes is the immediate validation task before treating this preview as interactively verified.
+The synthetic preview is interactively verified. The next milestone connects real-window discovery, focus and geometry through explicit permission gates.
 
 Product acceptance criteria remain in [000-product.md](specs/000-product.md), with architecture/capability gates in [001-engineering.md](specs/001-engineering.md). This milestone validates contracts and native interaction scaffolding; it is not a working desktop window manager yet.

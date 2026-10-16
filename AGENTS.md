@@ -4,7 +4,7 @@
 
 - The root agent is the orchestrator. Delegate source changes, document creation, and implementation to contributors; root coordinates, reviews, runs integration checks, and performs milestone commits and repository operations.
 - Keep at most **two contributor subagents active at once**. Contributor agents must not spawn further agents. Work in small, reviewable increments.
-- The product and engineering specification milestone has been reviewed. The current milestone is a native developer preview and pure Swift foundation, using synthetic windows only. Real window adapters, global shortcut interception, capture, and permission requests require subsequent capability gates; do not connect them in the foundation milestone.
+- The user has authorized a staged implementation of the complete native app. First make app startup reliable, then implement real-window discovery and focus, tiling, switching, organized overview, and capture. Fix bugs and add the tests needed to establish correctness, then measure performance before making comparative claims. Work through these stages in small, reviewable milestones; capability gates in the specifications still govern platform behavior and defaults.
 - Commit completed, verified milestones regularly. Keep unrelated work out of a commit, and do not include generated or private development artifacts.
 
 ## Evidence and scope

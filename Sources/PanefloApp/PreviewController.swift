@@ -54,6 +54,7 @@ final class PreviewController: NSObject, NSSearchFieldDelegate {
         configureWindow()
         configureContent()
         refresh()
+        RuntimeDiagnostics.mark("preview content constructed")
     }
 
     func present(mode rawValue: Int) {
@@ -63,6 +64,7 @@ final class PreviewController: NSObject, NSSearchFieldDelegate {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         window.makeFirstResponder(search)
+        RuntimeDiagnostics.mark("preview visible=\(window.isVisible)")
     }
 
     private func configureWindow() {
