@@ -16,6 +16,10 @@ final class GlobalShortcutService {
     private var source: CFRunLoopSource?
     private var router = ShortcutSession(configuration: .init())
     private var generation: UInt64 = 0
+    var selectionContextActive: Bool {
+        get { router.selectionContextActive }
+        set { router.selectionContextActive = newValue }
+    }
 
     isolated deinit {
         if let tap { CGEvent.tapEnable(tap: tap, enable: false); CFMachPortInvalidate(tap) }

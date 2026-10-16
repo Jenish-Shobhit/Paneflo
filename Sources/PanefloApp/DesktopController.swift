@@ -13,13 +13,28 @@ private final class DesktopPanel: NSPanel {
     var onKey: ((NSEvent) -> Bool)?
     override var canBecomeKey: Bool { true }
     override func keyDown(with event: NSEvent) { if onKey?(event) != true { super.keyDown(with: event) } }
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.contains(.command), [123, 124, 126].contains(event.keyCode), onKey?(event) == true { return true }
+        return super.performKeyEquivalent(with: event)
+    }
 }
 
 /// Native presentation reads prepared snapshots. It never makes remote AX or capture calls.
 @MainActor
 final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate {
     private let service: WindowService
-    private let panel = DesktopPanel(contentRect: NSRect(x: 0, y: 0, width: 1080, height: 780), styleMask: [.titled, .closable, .resizable, .nonactivatingPanel], backing: .buffered, defer: false)
+    private let panel = DesktopPanel(contentRect: NSRect(x: 0, y: 0, width: 1080, height: 780), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+    private var preferences: NSWindow?
+    private let heading = NSTextField(labelWithString: "Switch windows")
+    private let keyboardHint = NSTextField(labelWithString: "")
+    private let failureFeedback = NSTextField(wrappingLabelWithString: "")
+    private var viewportHeight: NSLayoutConstraint?
+    private var layoutFeedback: [WindowIdentity: String] = [:]
+    private var commitGate = SelectionCommitGate()
+    private var latestPlacement: UInt64?
+    private var presentationGeneration: UInt64 = 0
+    private var columnCount = 4
+    var onVisibilityChanged: ((Bool) -> Void)?
     private let modes = NSSegmentedControl(labels: ["Switch", "Arrange", "Overview"], trackingMode: .selectOne, target: nil, action: nil)
     private let search = NSSearchField()
     private let status = NSTextField(wrappingLabelWithString: "")
@@ -68,7 +83,14 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
 
     func present(mode: DesktopMode, fromShortcut: Bool = false, backwards: Bool = false) {
         self.mode = mode
+        presentationGeneration &+= 1
         shortcutSession = fromShortcut && mode == .switcher
+        layoutFeedback.removeAll()
+        failureFeedback.isHidden = true
+        commitGate.cancelCommit()
+        heading.stringValue = mode == .overview ? "Your overview" : mode == .tiling ? "Arrange a window" : "Switch windows"
+        keyboardHint.stringValue = mode == .overview ? "arrows select   ⌘← → tile   ⌘↑ fill   return open   esc close" : "⇥ switch   ⇧⇥ reverse   ⌘← → tile   ⌘↑ fill   esc cancel"
+        search.isHidden = shortcutSession
         search.stringValue = ""
         if mode == .switcher {
             session = SwitcherSession(snapshot: service.snapshot, direction: backwards ? .backward : .forward)
@@ -81,6 +103,7 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         panel.center()
         fitToVisibleScreen()
         panel.makeKeyAndOrderFront(nil)
+        onVisibilityChanged?(panel.isKeyWindow)
         if !fromShortcut { panel.makeFirstResponder(search) }
         RuntimeDiagnostics.mark("desktop mode=\(mode.rawValue) visible=\(panel.isVisible)")
         updatePreviewSelection()
@@ -108,8 +131,10 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
 
     func commitShortcut() { if shortcutSession { activateSelected() } }
     func dismiss() {
+        commitGate.cancelCommit()
         session.cancel(); shortcutSession = false
         panel.orderOut(nil)
+        onVisibilityChanged?(false)
         for card in cards { card.preview = nil; card.previewLabel = "Icon preview" }
         onPreviewSelection?(nil, false, nil); onDismiss?()
     }
@@ -145,104 +170,133 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
 
     private func configure() {
         panel.title = "Paneflo"
-        panel.minSize = NSSize(width: 860, height: 620)
+        panel.minSize = NSSize(width: 320, height: 210)
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
+        panel.hasShadow = true
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.level = .floating
         panel.delegate = self
         panel.onKey = { [weak self] in self?.handleKey($0) ?? false }
-        let root = NSView()
+        let root = NSVisualEffectView()
+        root.material = .popover; root.blendingMode = .behindWindow; root.state = .active
+        root.wantsLayer = true; root.layer?.cornerRadius = 18; root.layer?.masksToBounds = true
         panel.contentView = root
         let stack = NSStackView()
-        stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12
+        stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 10
         stack.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 22), stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -22),
-            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 20), stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -18),
+            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 18),
+            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -18),
+            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 15),
+            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -15)
+        ])
+        heading.font = .systemFont(ofSize: 13, weight: .semibold)
+        heading.textColor = .secondaryLabelColor
+        stack.addArrangedSubview(heading)
+        search.placeholderString = "Find a window"
+        search.delegate = self; search.setAccessibilityLabel("Search windows")
+        stack.addArrangedSubview(search)
+        search.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.drawsBackground = false
+        grid.orientation = .vertical; grid.alignment = .leading; grid.spacing = 10
+        grid.translatesAutoresizingMaskIntoConstraints = false
+        let document = FlippedDesktopDocument()
+        document.translatesAutoresizingMaskIntoConstraints = false
+        document.addSubview(grid); scroll.documentView = document
+        stack.addArrangedSubview(scroll)
+        scroll.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        viewportHeight = scroll.heightAnchor.constraint(equalToConstant: 142)
+        viewportHeight?.isActive = true
+        NSLayoutConstraint.activate([
+            document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+            grid.leadingAnchor.constraint(equalTo: document.leadingAnchor), grid.trailingAnchor.constraint(equalTo: document.trailingAnchor),
+            grid.topAnchor.constraint(equalTo: document.topAnchor), grid.bottomAnchor.constraint(equalTo: document.bottomAnchor)
+        ])
+        failureFeedback.font = .systemFont(ofSize: 11)
+        failureFeedback.textColor = .secondaryLabelColor
+        failureFeedback.isHidden = true
+        stack.addArrangedSubview(failureFeedback)
+        failureFeedback.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        keyboardHint.font = .systemFont(ofSize: 11)
+        keyboardHint.textColor = .secondaryLabelColor
+        keyboardHint.lineBreakMode = .byTruncatingTail
+        stack.addArrangedSubview(keyboardHint)
+        keyboardHint.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        status.font = .systemFont(ofSize: 12); status.textColor = .secondaryLabelColor
+        overviewBar.isHidden = true
+        configurePreferences()
+    }
+
+    private func configurePreferences() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 430),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.title = "Paneflo Settings"; window.isReleasedWhenClosed = false
+        let root = NSView(); window.contentView = root
+        let stack = NSStackView()
+        stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 16
+        stack.translatesAutoresizingMaskIntoConstraints = false; root.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
+            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 24)
         ])
         let title = NSTextField(labelWithString: "Paneflo")
-        title.font = .systemFont(ofSize: 27, weight: .semibold)
-        let header = NSStackView(views: [title, modes])
-        header.orientation = .horizontal; header.spacing = 26
-        stack.addArrangedSubview(header)
-        modes.target = self; modes.action = #selector(changeMode)
-        modes.setAccessibilityLabel("Paneflo function")
-        summary.font = .systemFont(ofSize: 12); summary.textColor = .secondaryLabelColor
-        stack.addArrangedSubview(summary)
-
-        permissionBar.orientation = .horizontal; permissionBar.spacing = 8
-        let permissionLabel = NSTextField(labelWithString: "Connect real windows with Accessibility access.")
-        permissionBar.addArrangedSubview(permissionLabel)
-        button("Grant Accessibility", #selector(grantAccessibility), permissionBar)
-        button("Open Settings", #selector(openAccessibility), permissionBar)
-        stack.addArrangedSubview(permissionBar)
-
-        let options = NSStackView(views: [shortcutButton, previewButton])
-        options.orientation = .horizontal; options.spacing = 20
-        button("Refresh windows", #selector(refreshWindows), options)
-        stack.addArrangedSubview(options)
+        title.font = .systemFont(ofSize: 22, weight: .semibold); stack.addArrangedSubview(title)
         shortcutButton.target = self; shortcutButton.action = #selector(toggleShortcuts)
         shortcutButton.setAccessibilityLabel("Enable Paneflo shortcuts")
         previewButton.target = self; previewButton.action = #selector(togglePreviews)
         previewButton.setAccessibilityLabel("Enable live window previews")
         previewButton.isEnabled = false
-        previewButton.toolTip = "Screen capture will become available after explicit permission."
-
-        search.placeholderString = "Search windows by app or title"
-        search.delegate = self; search.setAccessibilityLabel("Search windows")
-        stack.addArrangedSubview(search)
-        search.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-
-        scroll.hasVerticalScroller = true; scroll.drawsBackground = false
-        grid.orientation = .vertical; grid.alignment = .leading; grid.spacing = 10
-        grid.translatesAutoresizingMaskIntoConstraints = false
-        let document = FlippedDesktopDocument()
-        document.translatesAutoresizingMaskIntoConstraints = false
-        document.addSubview(grid)
-        scroll.documentView = document
-        stack.addArrangedSubview(scroll)
-        scroll.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 80).isActive = true
-        let preferredHeight = scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 270)
-        preferredHeight.priority = .defaultLow
-        preferredHeight.isActive = true
-        NSLayoutConstraint.activate([
-            document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
-            grid.leadingAnchor.constraint(equalTo: document.leadingAnchor), grid.trailingAnchor.constraint(equalTo: document.trailingAnchor),
-            grid.topAnchor.constraint(equalTo: document.topAnchor), grid.bottomAnchor.constraint(equalTo: document.bottomAnchor),
-        ])
-
-        let actions = NSStackView(); actions.orientation = .horizontal; actions.spacing = 8
-        button("Previous", #selector(previous), actions); button("Next", #selector(next), actions)
-        activateButton.target = self; activateButton.action = #selector(activate); activateButton.bezelStyle = .rounded
-        actions.addArrangedSubview(activateButton)
-        button("Minimize", #selector(minimize), actions)
-        button("Close overlay", #selector(closePanel), actions)
-        stack.addArrangedSubview(actions)
-
-        let tiling = NSStackView(); tiling.orientation = .horizontal; tiling.spacing = 8
-        zone.addItems(withTitles: zones.map(\.0)); zone.setAccessibilityLabel("Window layout")
-        display.addItem(withTitle: "Current display")
+        stack.addArrangedSubview(shortcutButton); stack.addArrangedSubview(previewButton)
+        permissionBar.orientation = .horizontal; permissionBar.spacing = 10
+        button("Grant Accessibility", #selector(grantAccessibility), permissionBar)
+        button("Privacy Settings", #selector(openAccessibility), permissionBar)
+        stack.addArrangedSubview(permissionBar)
+        let refresh = NSStackView(); refresh.orientation = .horizontal
+        button("Refresh windows", #selector(refreshWindows), refresh); stack.addArrangedSubview(refresh)
+        let arrange = NSStackView(); arrange.orientation = .horizontal; arrange.spacing = 8
+        zone.addItems(withTitles: zones.map(\.0)); display.addItem(withTitle: "Current display")
         display.addItems(withTitles: NSScreen.screens.enumerated().map { "Display \($0.offset + 1): \($0.element.localizedName)" })
-        display.setAccessibilityLabel("Destination display")
-        tiling.addArrangedSubview(zone); tiling.addArrangedSubview(display)
-        button("Apply layout", #selector(applyLayout), tiling); button("Undo layout", #selector(undoLayout), tiling)
-        stack.addArrangedSubview(tiling)
+        arrange.addArrangedSubview(zone); arrange.addArrangedSubview(display)
+        button("Apply to selection", #selector(applyLayout), arrange); stack.addArrangedSubview(arrange)
+        let undo = NSStackView(); undo.orientation = .horizontal
+        button("Undo arrangement", #selector(undoLayout), undo); stack.addArrangedSubview(undo)
+        stack.addArrangedSubview(status); status.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        status.stringValue = "⌘Tab picks a window. Hold ⌘ and use ← → or ↑ to arrange it before releasing."
+        preferences = window
+    }
 
-        overviewBar.orientation = .horizontal; overviewBar.spacing = 8
-        button("Move slot left", #selector(moveLeft), overviewBar); button("Move slot right", #selector(moveRight), overviewBar)
-        pinButton.target = self; pinButton.action = #selector(togglePin); overviewBar.addArrangedSubview(pinButton)
-        let overviewHint = NSTextField(labelWithString: "Drag a card to reorder · Double-click to activate")
-        overviewHint.font = .systemFont(ofSize: 11); overviewHint.textColor = .secondaryLabelColor
-        overviewBar.addArrangedSubview(overviewHint)
-        stack.addArrangedSubview(overviewBar)
-        status.font = .systemFont(ofSize: 11); status.textColor = .secondaryLabelColor
-        status.stringValue = "⌘Tab switches · ⌃⌥Space overview · ⌃⌥arrows arrange · ⌃⌥Return maximize · ⌃⌥Z undo"
-        stack.addArrangedSubview(status)
-        status.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        status.heightAnchor.constraint(greaterThanOrEqualToConstant: 30).isActive = true
+    func showPreferences() {
+        dismiss()
+        preferences?.center(); preferences?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func tileSelected(_ zone: LayoutZone) {
+        guard panel.isVisible, let id = selectedID, eligibleSelectionIDs().contains(id) else { return }
+        let generation = commitGate.beginPlacement()
+        let presentedGeneration = presentationGeneration
+        latestPlacement = generation
+        layoutFeedback[id] = zone == .leftHalf ? "Left half" : zone == .rightHalf ? "Right half" : "Fill screen"
+        for card in cards where card.record?.id == id { card.layoutBadge = layoutFeedback[id] }
+        service.tile(id, zone: zone) { [weak self] accepted in
+            guard let self, self.latestPlacement == generation else { return }
+            self.latestPlacement = nil
+            if !accepted {
+                self.layoutFeedback.removeValue(forKey: id)
+                for card in self.cards where card.record?.id == id { card.layoutBadge = nil }
+                if self.panel.isVisible, self.presentationGeneration == presentedGeneration {
+                    self.failureFeedback.stringValue = "Couldn’t arrange this window. Try another window or check Accessibility in Settings."
+                    self.failureFeedback.isHidden = false
+                    self.fitToVisibleScreen()
+                }
+            }
+            if let focus = self.commitGate.finishPlacement(generation) { self.service.focus(focus) }
+        }
     }
 
     private func button(_ title: String, _ selector: Selector, _ stack: NSStackView) {
@@ -254,7 +308,7 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         guard !building else { return }; building = true; defer { building = false }
         modes.selectedSegment = mode.rawValue
         overviewBar.isHidden = mode != .overview
-        let selectedPreview = cards.first { $0.record?.id == selectedID && $0.preview != nil }
+        let selectedPreview = cards.first { $0.record?.id == selectedID }
         let retainedImage = selectedPreview?.preview
         let retainedLabel = selectedPreview?.previewLabel ?? "Icon preview"
         let retainedIdentity = selectedPreview?.record?.id
@@ -299,6 +353,16 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
             card.preview = retain ? retainedImage : nil
             card.previewLabel = retain ? retainedLabel : "Icon preview"
             card.dragEnabled = mode == .overview
+            card.layoutBadge = card.record.flatMap { layoutFeedback[$0.id] }
+            card.menu = nil
+            if mode == .overview {
+                let menu = NSMenu()
+                for (title, action) in [("Move slot left", #selector(moveLeft(_:))), ("Move slot right", #selector(moveRight(_:))), (card.isVacancyPinned ? "Unpin slot" : "Pin slot", #selector(togglePin(_:)))] {
+                    let item = NSMenuItem(title: title, action: action, keyEquivalent: ""); item.target = self; item.representedObject = slots.slots[index].id.uuidString
+                    menu.addItem(item)
+                }
+                card.menu = menu
+            }
         }
         if displayed.isEmpty {
             let message: String
@@ -310,16 +374,20 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
             empty.widthAnchor.constraint(equalTo: grid.widthAnchor).isActive = true
             empty.heightAnchor.constraint(equalToConstant: 100).isActive = true
         } else {
-            for start in stride(from: 0, to: displayed.count, by: 3) {
+            let usableWidth = (panel.screen ?? NSScreen.main)?.visibleFrame.width ?? 1000
+            columnCount = max(1, min(4, Int((usableWidth - 60) / 190)))
+            columnCount = min(columnCount, max(1, displayed.count))
+            for start in stride(from: 0, to: displayed.count, by: columnCount) {
                 let row = NSStackView(); row.orientation = .horizontal; row.distribution = .fillEqually; row.spacing = 10
-                for index in start..<min(start + 3, displayed.count) { row.addArrangedSubview(cards[index]) }
-                for _ in min(start + 3, displayed.count)..<(start + 3) { row.addArrangedSubview(NSView()) }
+                for index in start..<min(start + columnCount, displayed.count) { row.addArrangedSubview(cards[index]) }
+                for _ in min(start + columnCount, displayed.count)..<(start + columnCount) { row.addArrangedSubview(NSView()) }
                 grid.addArrangedSubview(row)
                 row.widthAnchor.constraint(equalTo: grid.widthAnchor).isActive = true
-                row.heightAnchor.constraint(equalToConstant: 168).isActive = true
+                row.heightAnchor.constraint(equalToConstant: mode == .overview ? 174 : 142).isActive = true
             }
         }
         summary.stringValue = "\(records.count) real windows · " + (mode == .overview ? "Your slot order stays independent of recent use" : mode == .tiling ? "Select a window and choose its destination" : "Individual windows · frozen order for this session")
+        fitToVisibleScreen()
         refreshSelection()
     }
 
@@ -366,11 +434,16 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
 
     private func fitToVisibleScreen() {
         guard let screen = panel.screen ?? NSScreen.main else { return }
-        let usable = screen.visibleFrame
-        panel.minSize = NSSize(width: min(860, usable.width), height: min(620, usable.height))
+        let usable = screen.visibleFrame.insetBy(dx: 16, dy: 16)
+        let rows = max(1, (displayed.count + columnCount - 1) / columnCount)
+        let cardHeight: CGFloat = mode == .overview ? 174 : 142
+        let visibleRows = min(rows, mode == .overview ? 3 : 2)
+        let desiredViewport = CGFloat(visibleRows) * cardHeight + CGFloat(max(0, visibleRows - 1)) * 10
+        viewportHeight?.constant = min(desiredViewport, max(80, usable.height - (search.isHidden ? 110 : 145)))
+        panel.minSize = NSSize(width: min(320, usable.width), height: min(180, usable.height))
+        panel.setContentSize(NSSize(width: min(CGFloat(columnCount) * 208 + 36, usable.width),
+                                   height: min((viewportHeight?.constant ?? 142) + (search.isHidden ? 94 : 128) + (failureFeedback.isHidden ? 0 : 30), usable.height)))
         var frame = panel.frame
-        frame.size.width = min(frame.width, usable.width)
-        frame.size.height = min(frame.height, usable.height)
         frame.origin.x = min(max(frame.minX, usable.minX), usable.maxX - frame.width)
         frame.origin.y = min(max(frame.minY, usable.minY), usable.maxY - frame.height)
         panel.setFrame(frame, display: false)
@@ -399,14 +472,26 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         default: return false
         }
     }
+    func windowDidBecomeKey(_ notification: Notification) {
+        onVisibilityChanged?(panel.isVisible && panel.isKeyWindow)
+    }
+    func windowDidResignKey(_ notification: Notification) { onVisibilityChanged?(false) }
     func windowShouldClose(_ sender: NSWindow) -> Bool { dismiss(); return false }
 
     private func handleKey(_ event: NSEvent) -> Bool {
         if event.keyCode == 53 { dismiss(); return true }
+        let commandModifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        if commandModifiers == .command, [123, 124, 126].contains(event.keyCode) {
+            if event.isARepeat { return true }
+            if event.keyCode == 123 { tileSelected(.leftHalf); return true }
+            if event.keyCode == 124 { tileSelected(.rightHalf); return true }
+            if event.keyCode == 126 { tileSelected(.maximize); return true }
+        }
         guard event.modifierFlags.intersection([.command, .control, .option]).isEmpty else { return false }
         switch event.keyCode {
         case 123, 126: navigate(.backward); return true
-        case 124, 125, 48: navigate(.forward); return true
+        case 124, 125: navigate(.forward); return true
+        case 48: navigate(event.modifierFlags.contains(.shift) ? .backward : .forward); return true
         case 36, 76: activateSelected(); return true
         default: return false
         }
@@ -414,7 +499,8 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
     private func activateSelected() {
         guard let selectedID, eligibleSelectionIDs().contains(selectedID) else { if shortcutSession { dismiss() }; return }
         if mode == .switcher { _ = session.commit() }
-        dismiss(); service.focus(selectedID)
+        dismiss()
+        if let focus = commitGate.commit(selectedID) { service.focus(focus) }
     }
     private func saveSlots() { if let metadata = try? slots.encodedMetadata(), metadata != lastSavedMetadata { defaults.set(metadata, forKey: "overview.slots.v1"); lastSavedMetadata = metadata } }
     private func moveSlot(by delta: Int) {
@@ -449,9 +535,15 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
     @objc private func closePanel() { dismiss() }
     @objc private func applyLayout() { if let selectedID, eligibleSelectionIDs().contains(selectedID) { service.tile(selectedID, zone: zones[zone.indexOfSelectedItem].1, screenIndex: display.indexOfSelectedItem == 0 ? nil : display.indexOfSelectedItem - 1) } }
     @objc private func undoLayout() { service.undo() }
-    @objc private func moveLeft() { moveSlot(by: -1) }
-    @objc private func moveRight() { moveSlot(by: 1) }
-    @objc private func togglePin() {
+    private func selectMenuSlot(_ sender: NSMenuItem?) {
+        if let text = sender?.representedObject as? String, let id = UUID(uuidString: text) {
+            selectedSlot = id; selectedID = slots.slots.first { $0.id == id }?.binding
+        }
+    }
+    @objc private func moveLeft(_ sender: NSMenuItem?) { selectMenuSlot(sender); moveSlot(by: -1) }
+    @objc private func moveRight(_ sender: NSMenuItem?) { selectMenuSlot(sender); moveSlot(by: 1) }
+    @objc private func togglePin(_ sender: NSMenuItem?) {
+        selectMenuSlot(sender)
         guard let slot = slots.slots.first(where: { $0.id == selectedSlot }) else { return }
         if slot.isPinned { slots.unpin(slotID: slot.id) }
         else {
@@ -466,6 +558,7 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
 private final class DesktopCard: NSButton {
     var record: WindowRecord? { didSet { needsDisplay = true; setAccessibilityLabel(record.map { "\($0.appName), \($0.title)" } ?? "Vacant overview slot") } }
     var icon: NSImage? { didSet { needsDisplay = true } }
+    var layoutBadge: String? { didSet { if oldValue != layoutBadge { needsDisplay = true } } }
     private let previewLayer = CALayer()
     var preview: CGImage? {
         didSet {
@@ -558,7 +651,7 @@ private final class DesktopCard: NSButton {
                 NSImage(cgImage: preview, size: NSSize(width: preview.width, height: preview.height)).draw(in: area)
             }
         } else { icon?.draw(in: NSRect(x: target.midX - 30, y: target.midY - 30, width: 60, height: 60)) }
-        drawText(record.appName + (isVacancyPinned ? "  • pinned" : ""), in: NSRect(x: 15, y: bounds.height - 53, width: bounds.width - 30, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: .labelColor)
+        drawText(record.appName + (layoutBadge.map { " · " + $0 } ?? "") + (isVacancyPinned ? "  • pinned" : ""), in: NSRect(x: 15, y: bounds.height - 53, width: bounds.width - 30, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: .labelColor)
         drawText(record.title, in: NSRect(x: 15, y: bounds.height - 34, width: bounds.width - 30, height: 17), font: .systemFont(ofSize: 11), color: .labelColor)
         drawText(record.isMinimized ? "Minimized · icon only" : previewLabel, in: NSRect(x: 15, y: bounds.height - 18, width: bounds.width - 30, height: 13), font: .systemFont(ofSize: 9), color: .secondaryLabelColor)
         NSGraphicsContext.restoreGraphicsState()

@@ -48,6 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.previewsEnabled = enabled
             if enabled { controller.refreshPreviewSelection() } else { self.capture.stop() }
         }
+        controller.onVisibilityChanged = { [weak self] in self?.shortcuts.selectionContextActive = $0 }
         controller.onToggleShortcuts = { [weak self] in self?.setShortcuts($0) }
         shortcuts.onAction = { [weak self] in self?.handle($0) }
         shortcuts.onStateChange = { [weak self, weak controller] state in
@@ -68,6 +69,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let app = NSMenu(title: "Paneflo")
         let about = NSMenuItem(title: "About Paneflo", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         about.target = NSApp; app.addItem(about); app.addItem(.separator())
+        let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
+        settings.target = self; app.addItem(settings); app.addItem(.separator())
         let hide = NSMenuItem(title: "Hide Paneflo", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         hide.target = NSApp; app.addItem(hide)
         app.addItem(.separator())
@@ -93,6 +96,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             entry.target = self; entry.tag = index; menu.addItem(entry)
         }
         menu.addItem(.separator())
+        let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
+        settings.target = self; menu.addItem(settings)
         let disable = NSMenuItem(title: "Disable global shortcuts", action: #selector(disableShortcuts), keyEquivalent: "")
         disable.target = self; menu.addItem(disable)
         let refresh = NSMenuItem(title: "Refresh windows", action: #selector(refreshWindows), keyEquivalent: "")
@@ -136,7 +141,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .navigate(let direction): desktop?.navigate(direction)
         case .overview:
             if desktop?.isVisible == true { desktop?.dismiss() } else { desktop?.present(mode: .overview, fromShortcut: true) }
-        case .tile(let zone): windows.tile(zone: zone)
+        case .tileSelected(let zone): desktop?.tileSelected(zone)
+        case .tile(let zone):
+            if desktop?.isVisible == true { desktop?.tileSelected(zone) }
+            else { windows.tile(zone: zone) }
         case .restore: windows.undo()
         }
     }
@@ -147,6 +155,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openDesktop(_ sender: NSMenuItem) { desktop?.present(mode: DesktopMode(rawValue: sender.tag) ?? .switcher) }
+    @objc private func showSettings() { desktop?.showPreferences() }
     @objc private func disableShortcuts() { shortcuts.stop() }
     @objc private func refreshWindows() { windows.refresh() }
     @objc private func showSample() { if sample == nil { sample = PreviewController() }; sample?.present(mode: 0) }

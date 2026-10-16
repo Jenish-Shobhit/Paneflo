@@ -9,7 +9,55 @@ struct ShortcutSessionTests {
         #expect(!router.route(kind: .down, keyCode: 48, modifiers: [.command, .function]).suppress)
         _ = router.route(kind: .down, keyCode: 48, modifiers: .command)
         let navigation = router.route(kind: .down, keyCode: 124, modifiers: [.command, .function])
-        guard case .navigate(.forward)? = navigation.action else { Issue.record("Missing arrow navigation"); return }
+        guard case .tileSelected(.rightHalf)? = navigation.action else { Issue.record("Missing selected-window tiling"); return }
+    }
+
+    @Test func selectedTilingDoesNotCommitOrChangeSessionAndRequiresContext() {
+        var router = ShortcutSession(configuration: .init(switcherEnabled: true))
+        #expect(!router.route(kind: .down, keyCode: 123, modifiers: .command).suppress)
+        _ = router.route(kind: .down, keyCode: 48, modifiers: .command)
+        let tile = router.route(kind: .down, keyCode: 123, modifiers: .command)
+        guard case .tileSelected(.leftHalf)? = tile.action else { Issue.record("Missing left-half intent"); return }
+        #expect(router.switching)
+        #expect(router.route(kind: .up, keyCode: 123, modifiers: .command).suppress)
+        let fill = router.route(kind: .down, keyCode: 126, modifiers: .command)
+        guard case .tileSelected(.maximize)? = fill.action else { Issue.record("Missing fill intent"); return }
+        #expect(!router.route(kind: .down, keyCode: 125, modifiers: .command).suppress)
+        #expect(!router.route(kind: .down, keyCode: 124, modifiers: [.command, .option]).suppress)
+        let release = router.route(kind: .modifiersChanged, keyCode: 55, modifiers: [])
+        guard case .commit? = release.action else { Issue.record("Missing deferred commit intent"); return }
+        router.selectionContextActive = true
+        #expect(router.route(kind: .down, keyCode: 124, modifiers: .command).suppress)
+        #expect(!router.switching)
+        #expect(router.route(kind: .modifiersChanged, keyCode: 55, modifiers: []).action == nil)
+    }
+
+    @Test func inactiveOverviewReleasesCommandArrowsWhileOwnedSwitchSessionKeepsThem() {
+        var router = ShortcutSession(configuration: .init(switcherEnabled: true))
+        router.selectionContextActive = true
+        #expect(router.route(kind: .down, keyCode: 123, modifiers: .command).suppress)
+        _ = router.route(kind: .up, keyCode: 123, modifiers: .command)
+        router.selectionContextActive = false
+        #expect(!router.route(kind: .down, keyCode: 124, modifiers: .command).suppress)
+        _ = router.route(kind: .down, keyCode: 48, modifiers: .command)
+        #expect(router.route(kind: .down, keyCode: 124, modifiers: .command).suppress)
+        #expect(router.switching)
+    }
+
+    @Test func selectedArrowRepeatsOnlyConsumeOwnedPressAndNewPressFiresAgain() {
+        var router = ShortcutSession(configuration: .init(switcherEnabled: true))
+        _ = router.route(kind: .down, keyCode: 48, modifiers: .command)
+        let unownedRepeat = router.route(kind: .down, keyCode: 123, modifiers: .command, isRepeat: true)
+        #expect(!unownedRepeat.suppress && unownedRepeat.action == nil)
+        let first = router.route(kind: .down, keyCode: 123, modifiers: .command)
+        guard case .tileSelected(.leftHalf)? = first.action else { Issue.record("Missing first physical press"); return }
+        let ownedRepeat = router.route(kind: .down, keyCode: 123, modifiers: .command, isRepeat: true)
+        #expect(ownedRepeat.suppress && ownedRepeat.action == nil)
+        #expect(router.route(kind: .up, keyCode: 123, modifiers: .command).suppress)
+        let next = router.route(kind: .down, keyCode: 123, modifiers: .command)
+        guard case .tileSelected(.leftHalf)? = next.action else { Issue.record("Missing new physical press"); return }
+        let cycle = router.route(kind: .down, keyCode: 48, modifiers: .command, isRepeat: true)
+        guard case .switchForward? = cycle.action else { Issue.record("Tab repeat must still cycle"); return }
     }
 
     @Test func switchPairAndRelease() {

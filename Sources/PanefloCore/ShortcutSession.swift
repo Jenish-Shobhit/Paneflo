@@ -19,7 +19,7 @@ public struct ShortcutChord: Hashable, Sendable {
 
 public enum ShortcutAction: Sendable {
     case switchForward, switchBackward, commit, cancel
-    case navigate(CycleDirection), overview, tile(LayoutZone), restore
+    case navigate(CycleDirection), overview, tile(LayoutZone), tileSelected(LayoutZone), restore
 }
 
 public struct ShortcutConfiguration: Sendable {
@@ -43,6 +43,7 @@ public struct ShortcutRoute: Sendable {
 public struct ShortcutSession: Sendable {
     public var configuration: ShortcutConfiguration
     public private(set) var switching = false
+    public var selectionContextActive = false
     private var ownedKeys: Set<UInt16> = []
     public init(configuration: ShortcutConfiguration) { self.configuration = configuration }
 
@@ -68,9 +69,10 @@ public struct ShortcutSession: Sendable {
             action = modifiers.contains(.shift) ? .switchBackward : .switchForward
         } else if switching && keyCode == 53 && modifiers.subtracting([.command, .shift]).isEmpty {
             switching = false; action = .cancel
-        } else if switching && (modifiers == .command || modifiers == [.command, .shift]) {
-            if keyCode == 123 || keyCode == 126 { action = .navigate(.backward) }
-            if keyCode == 124 || keyCode == 125 { action = .navigate(.forward) }
+        } else if (switching || selectionContextActive) && modifiers == .command {
+            if keyCode == 123 { action = .tileSelected(.leftHalf) }
+            if keyCode == 124 { action = .tileSelected(.rightHalf) }
+            if keyCode == 126 { action = .tileSelected(.maximize) }
         }
         if action == nil && !switching {
             if configuration.overview == chord { action = .overview }
@@ -79,6 +81,9 @@ public struct ShortcutSession: Sendable {
             if isRepeat && action != nil { return ShortcutRoute(suppress: ownedKeys.contains(keyCode)) }
         }
         guard let action else { return ShortcutRoute(suppress: isRepeat && ownedKeys.contains(keyCode)) }
+        if case .tileSelected = action, isRepeat {
+            return ShortcutRoute(suppress: ownedKeys.contains(keyCode))
+        }
         ownedKeys.insert(keyCode)
         return ShortcutRoute(suppress: true, action: action)
     }

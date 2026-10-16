@@ -159,22 +159,25 @@ final class WindowService {
         worker.focus(target, intent: intent) { [weak self] success in
             Task { @MainActor in
                 guard let self else { return }
-                self.onStatus?(success ? "Window activated." : "The application could not focus that window.")
+                let frontMatches = NSWorkspace.shared.frontmostApplication?.processIdentifier == id.process.pid
+                let verified = success && self.validLifetime(id) && frontMatches
+                RuntimeDiagnostics.mark("AX focus frontmostVerified=\(verified ? 1 : 0)")
+                self.onStatus?(verified ? "Window activated." : "The application could not focus that window.")
                 self.scheduleRefresh()
             }
         }
     }
 
-    func tile(_ id: WindowIdentity? = nil, zone: LayoutZone, screenIndex: Int? = nil, gap: Double = 8) {
+    func tile(_ id: WindowIdentity? = nil, zone: LayoutZone, screenIndex: Int? = nil, gap: Double = 8, completion: (@MainActor @Sendable (Bool) -> Void)? = nil) {
         if id == nil, focusedID?.process.pid != NSWorkspace.shared.frontmostApplication?.processIdentifier {
             onStatus?("The frontmost window changed. Try again after its focus is confirmed.")
-            scheduleRefresh(); return
+            scheduleRefresh(); completion?(false); return
         }
         guard hasAccessibility, let id = id ?? focusedID, validLifetime(id), let record = snapshot.records.first(where: { $0.id == id }), let target = targets[id] else {
-            onStatus?("Select a window before arranging it."); return
+            onStatus?("Select a window before arranging it."); completion?(false); return
         }
         let screens = NSScreen.screens
-        guard let primary = screens.first else { return }
+        guard let primary = screens.first else { completion?(false); return }
         let usable: [(NSScreen, WindowRect)] = screens.map { screen in
             let f = screen.visibleFrame
             return (screen, DisplayCoordinates.accessibilityFrame(fromAppKit: WindowRect(x: f.minX, y: f.minY, width: f.width, height: f.height), primaryHeight: primary.frame.height))
@@ -183,14 +186,15 @@ final class WindowService {
         if let screenIndex, usable.indices.contains(screenIndex) { chosen = usable[screenIndex] }
         else { chosen = usable.max(by: { Self.intersection($0.1, record.frame) < Self.intersection($1.1, record.frame) })! }
         guard let proposed = LayoutEngine.plan(zone: zone, in: chosen.1, gap: gap, backingScale: chosen.0.backingScaleFactor, currentSize: record.frame.size).rect else {
-            onStatus?("The layout does not fit this display."); return
+            onStatus?("The layout does not fit this display."); completion?(false); return
         }
         let intent = worker.beginIntent()
         worker.place(target, frame: proposed, intent: intent) { [weak self] actual, before, message in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self else { completion?(false); return }
                 if let actual, let before { self.undoHistory.record([GeometryChange(id: id, before: before, after: actual)]) }
                 self.onStatus?(message); self.scheduleRefresh()
+                completion?(actual != nil)
             }
         }
     }
@@ -418,20 +422,29 @@ private final class WindowWorker: @unchecked Sendable {
             guard isCurrent(intent), Self.valid(target) else { completion(false); return }
             if Self.attribute(target.element, kAXMinimizedAttribute) as? Bool == true {
                 guard isCurrent(intent) else { completion(false); return }
-                AXUIElementSetAttributeValue(target.element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+                let result = AXUIElementSetAttributeValue(target.element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+                RuntimeDiagnostics.mark("AX focus stage=unminimize result=\(result.rawValue)")
             }
             guard isCurrent(intent) else { completion(false); return }
-            AXUIElementSetAttributeValue(target.app, kAXFocusedWindowAttribute as CFString, target.element)
+            let appResult = AXUIElementSetAttributeValue(target.app, kAXFocusedWindowAttribute as CFString, target.element)
+            RuntimeDiagnostics.mark("AX focus stage=application-focused result=\(appResult.rawValue)")
             guard isCurrent(intent) else { completion(false); return }
-            AXUIElementSetAttributeValue(target.element, kAXMainAttribute as CFString, kCFBooleanTrue)
+            let mainResult = AXUIElementSetAttributeValue(target.element, kAXMainAttribute as CFString, kCFBooleanTrue)
+            RuntimeDiagnostics.mark("AX focus stage=window-main result=\(mainResult.rawValue)")
             guard isCurrent(intent) else { completion(false); return }
             let raised = AXUIElementPerformAction(target.element, kAXRaiseAction as CFString)
-            guard raised == .success, isCurrent(intent) else { completion(false); return }
-            // A successful Raise is not itself proof that the requested window is focused.
-            for attempt in 0..<3 {
-                guard isCurrent(intent) else { completion(false); return }
-                if let focused = Self.attribute(target.app, kAXFocusedWindowAttribute), CFEqual(focused, target.element) { completion(true); return }
-                if attempt < 2 { Thread.sleep(forTimeInterval: 0.04) }
+            RuntimeDiagnostics.mark("AX focus stage=raise result=\(raised.rawValue)")
+            // Raise support is not focus proof. Always verify the exact requested AX element,
+            // including apps which focus successfully while rejecting a redundant Raise.
+            let deadline = ProcessInfo.processInfo.systemUptime + 0.45
+            for attempt in 1...5 {
+                guard isCurrent(intent), ProcessInfo.processInfo.systemUptime < deadline else { completion(false); return }
+                var focused: CFTypeRef?
+                let result = AXUIElementCopyAttributeValue(target.app, kAXFocusedWindowAttribute as CFString, &focused)
+                let matches = result == .success && focused.map { CFEqual($0, target.element) } == true
+                RuntimeDiagnostics.mark("AX focus attempt=\(attempt) result=\(result.rawValue) targetMatched=\(matches ? 1 : 0)")
+                if matches { completion(true); return }
+                if attempt < 5 { Thread.sleep(forTimeInterval: 0.035) }
             }
             completion(false)
         }
