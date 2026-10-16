@@ -1,0 +1,76 @@
+import Foundation
+import Testing
+@testable import PanefloCore
+
+struct OverviewSlotStoreTests {
+    @Test
+    func testFocusOrderSearchAndNewWindowsPreserveSlots() {
+        var store = OverviewSlotStore()
+        store.reconcile([record(1, title: "Browser"), record(2, title: "Editor"), record(3)])
+        let original = store.slots
+        store.reconcile([record(3), record(2, title: "Renamed"), record(1, title: "Browser")])
+        #expect(store.slots == original)
+        #expect(store.matches(query: "browser", records: [record(1, title: "Browser"), record(2)]) == [original[0].id])
+        #expect(store.slots == original)
+        store.reconcile([record(1), record(3)])
+        #expect(store.slots[1].binding == nil)
+        store.reconcile([record(4), record(1), record(3)])
+        #expect(store.slots.map(\.id) == original.map(\.id))
+        #expect(store.slots.map(\.binding) == [windowID(1), windowID(4), windowID(3)])
+    }
+
+    @Test
+    func testPinnedVacancyAndExplicitReorder() {
+        var store = OverviewSlotStore()
+        store.reconcile([record(1), record(2)])
+        let pinnedID = store.slots[0].id
+        store.pin(slotID: pinnedID)
+        store.reconcile([record(2), record(3)])
+        #expect(store.slots.count == 3)
+        #expect(store.slots[0].binding == nil)
+        #expect(store.slots[1].binding == windowID(2))
+        store.move(slotID: pinnedID, to: 99)
+        #expect(store.slots.last?.id == pinnedID)
+        store.unpin(slotID: pinnedID)
+        store.reconcile([record(2), record(3), record(4)])
+        #expect(store.slots.last?.binding == windowID(4))
+    }
+
+    @Test
+    func testMatchingRequiresUniqueWindowAndUniqueSlotClaim() throws {
+        var store = OverviewSlotStore()
+        store.reconcile([record(1)])
+        store.pin(slotID: store.slots[0].id, matchingRule: SlotMatchingRule(appIdentifier: "example.app"))
+        store = try OverviewSlotStore(metadata: store.encodedMetadata())
+        store.reconcile([record(2), record(3)])
+        #expect(store.slots[0].binding == nil)
+        #expect(store.slots.count == 3)
+        var exact = OverviewSlotStore()
+        exact.reconcile([record(1)])
+        exact.pin(slotID: exact.slots[0].id, matchingRule: SlotMatchingRule(appIdentifier: "example.app", documentKey: "document-A"))
+        exact = try OverviewSlotStore(metadata: exact.encodedMetadata())
+        exact.reconcile([record(4, document: "document-B"), record(5, document: "document-A")])
+        #expect(exact.slots[0].binding == windowID(5))
+    }
+
+    @Test
+    func testPersistenceContainsNoRuntimeIdentityOrTitleAndRejectsUnknownSchema() throws {
+        var store = OverviewSlotStore()
+        store.reconcile([record(12, title: "PRIVATE_WINDOW_TITLE")])
+        store.pin(slotID: store.slots[0].id)
+        let encoded = try store.encodedMetadata()
+        let encodedAgain = try store.encodedMetadata()
+        #expect(encoded == encodedAgain)
+        let text = try #require(String(data: encoded, encoding: .utf8))
+        #expect(!(text.contains("PRIVATE_WINDOW_TITLE")))
+        #expect(!(text.contains("launchToken")))
+        #expect(!(text.contains("binding")))
+        let restored = try OverviewSlotStore(metadata: encoded)
+        #expect(restored.slots.map(\.id) == store.slots.map(\.id))
+        #expect(restored.slots[0].binding == nil)
+        #expect(restored.slots[0].isPinned)
+        let future = Data(text.replacingOccurrences(of: "\"schemaVersion\":1", with: "\"schemaVersion\":2").utf8)
+        #expect(throws: (any Error).self) { try OverviewSlotStore(metadata: future) }
+        #expect(throws: (any Error).self) { try OverviewSlotStore(metadata: Data("broken".utf8)) }
+    }
+}
