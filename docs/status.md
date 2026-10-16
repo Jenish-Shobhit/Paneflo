@@ -4,21 +4,22 @@ Updated 2026-10-16. Milestone: native real-window integration under verification
 
 ## Available
 
-- Dependency-free Swift 6 package with a `PanefloCore` library, `Paneflo` AppKit app, and core test suite.
+- Dependency-free Swift 6.2+ package with a `PanefloCore` library, `Paneflo` AppKit app, and core test suite.
 - Accessibility-backed discovery for regular application windows, with identity tracking across process lifetimes and off-main Accessibility calls. Discovery and window control remain unavailable until the user grants Accessibility access.
-- Real-window activation and geometry placement for half-screen and maximize layouts, with undo history. The latest source includes a placement correction; final native geometry, focus, and undo retests on that bundle are pending.
+- Real-window activation and geometry placement for half-screen and maximize layouts. Native testing confirmed the left-half placement was accepted by Cocoa with focus preserved, and undo after a shrinking resize restored the exact recorded frame.
 - Switcher and a custom Paneflo overview over real windows. Overview slot order, pinning, and search are separate from recent-use switch order; slot metadata is saved locally.
 - Global shortcuts are opt-in. When enabled, Command–Tab cycles and selects, Control–Option–Space opens Overview, Control–Option–arrows tile, Control–Option–Return maximizes, and Control–Option–Z undoes. Installation tries the HID head-insert event tap and falls back to the session head-insert tap. No automatic retry runs if macOS disables the tap.
-- Live ScreenCaptureKit preview is opt-in and requires Screen Recording permission. At most one selected eligible window is streamed while Switcher or Overview is visible. Other cards currently show app icons and title metadata; there is no cached-thumbnail pipeline.
+- The opt-in ScreenCaptureKit preview path admits at most one selected eligible window while Switcher or Overview is visible. A selected capture frame was shown on an earlier build but has not been reverified on the current source hash. Other cards currently show app icons and title metadata; there is no cached-thumbnail pipeline.
+- `Tools/PanefloFixture.swift` provides labeled fixture processes, a default-off 30 fps animation workload, and a clearly labeled five-second UI-thread pause for unresponsive-window checks. The fixture acts only on its own windows; its build and output remain ignored.
 - Local `.app` assembly uses an ad-hoc signature. It is not Developer ID signed or notarized.
 
 ## Validation
 
-The latest integrated run passed **33 tests in 8 suites**. Release compilation and local bundle signature verification also passed. Native regression checks on the latest bundle remain pending.
+The latest integrated run passed **36 tests in 9 suites**. Release compilation and local bundle signature verification also passed.
 
-On one Mac and an earlier build, the native smoke check discovered real windows, activated a selected fixture window, changed its frame and restored it with undo, displayed a live selected-window ScreenCaptureKit frame, and installed a global event tap. The user physically confirmed that Command–Tab opened Paneflo's switching grid. These checks establish a working path on one host only; the latest bundle has not yet completed the same interaction pass. They do not establish shortcut precedence on every system, nor production recovery or compatibility.
+On an earlier build, a native smoke check discovered real windows, activated a selected fixture window, changed and restored its frame with tiling and undo, displayed a selected-window ScreenCaptureKit frame, and installed a global event tap. The user physically confirmed that Command–Tab opened Paneflo's switching grid. On the latest bundle, native checks confirmed Cocoa-accepted left-half geometry with focus preserved, exact-frame undo after a shrinking resize, and that switcher search displayed and revealed its matching card. In a separate fixture test, Paneflo continued refreshing its window registry and activated a responsive fixture window while another fixture's UI thread was paused; focus was confirmed on the responsive window, and the paused fixture resumed afterward. Capture has not been rechecked on this source hash. These checks establish behavior on one host only; they do not establish shortcut precedence on every system, production recovery, or behavior across broader real-world apps.
 
-The one local physical-memory sample is an observation from a single short run, not a repeatable benchmark. No comparison against macOS, AltTab, or Rectangle has been measured, and no performance superiority is claimed. The GitHub Actions workflow builds and tests on macOS when run; it has not yet completed a hosted CI run.
+Current-hash capture validation remains pending. No repeatable performance benchmark or comparison against macOS, AltTab, or Rectangle has been completed. A hosted GitHub Actions run passed after the Swift 6.2+ toolchain selection fix; the latest source changes still need a hosted run after commit.
 
 ## Not implemented or not verified
 

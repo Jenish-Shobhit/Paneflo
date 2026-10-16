@@ -262,9 +262,23 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         iconCache = iconCache.filter { liveApps.contains($0.key) }
         let byID = Dictionary(uniqueKeysWithValues: records.map { ($0.id, $0) })
         if mode == .overview { displayed = slots.slots.map(\.binding) }
-        else if mode == .switcher { displayed = session.orderedIDs.map(Optional.some) }
+        else if mode == .switcher { displayed = session.filteredIDs.map(Optional.some) }
         else { displayed = service.snapshot.orderedRecords.map { Optional($0.id) } }
         for row in grid.arrangedSubviews { grid.removeArrangedSubview(row); row.removeFromSuperview() }
+        if cards.count > displayed.count {
+            for card in cards[displayed.count...] {
+                card.record = nil
+                card.icon = nil
+                card.preview = nil
+                card.previewLabel = "Icon preview"
+                card.selected = false
+                card.matches = true
+                card.isVacancyPinned = false
+                card.dragEnabled = false
+            }
+            let retainedCount = displayed.count + 3
+            if cards.count > retainedCount { cards.removeLast(cards.count - retainedCount) }
+        }
         while cards.count < displayed.count {
             let card = DesktopCard()
             card.target = self; card.action = #selector(selectCard(_:))
@@ -286,7 +300,10 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
             card.dragEnabled = mode == .overview
         }
         if displayed.isEmpty {
-            let empty = NSTextField(wrappingLabelWithString: service.hasAccessibility ? "No eligible windows found. Open a normal application window, then refresh." : "Your windows will appear here after Accessibility access is enabled.")
+            let message: String
+            if !search.stringValue.isEmpty { message = "No windows match this search." }
+            else { message = service.hasAccessibility ? "No eligible windows found. Open a normal application window, then refresh." : "Your windows will appear here after Accessibility access is enabled." }
+            let empty = NSTextField(wrappingLabelWithString: message)
             empty.textColor = .secondaryLabelColor
             grid.addArrangedSubview(empty)
             empty.widthAnchor.constraint(equalTo: grid.widthAnchor).isActive = true
@@ -320,6 +337,11 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         }
         if let slot = slots.slots.first(where: { $0.id == selectedSlot }) { pinButton.title = slot.isPinned ? "Unpin slot" : "Pin slot" }
         activateButton.isEnabled = selectedID.map { eligibleSelectionIDs().contains($0) } ?? false
+        if let selectedID,
+           let selectedCard = cards.prefix(displayed.count).first(where: { $0.record?.id == selectedID }) {
+            grid.layoutSubtreeIfNeeded()
+            _ = selectedCard.scrollToVisible(selectedCard.bounds)
+        }
         updatePreviewSelection()
     }
 
@@ -358,9 +380,14 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
     }
 
     func controlTextDidChange(_ notification: Notification) {
-        if mode == .switcher { session.setSearchQuery(search.stringValue); selectedID = session.selectedID }
-        else { reconcileSelectionWithSearch() }
-        refreshSelection()
+        if mode == .switcher {
+            session.setSearchQuery(search.stringValue)
+            selectedID = session.selectedID
+            rebuildCards()
+        } else {
+            reconcileSelectionWithSearch()
+            refreshSelection()
+        }
     }
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         switch NSStringFromSelector(selector) {

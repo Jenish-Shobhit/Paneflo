@@ -51,8 +51,22 @@ final class WindowService {
         worker.onEvent = { [weak self] in Task { @MainActor in self?.scheduleRefresh() } }
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification, NSWorkspace.didWakeNotification] {
-            workspaceObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in self?.scheduleRefresh() }
+            workspaceObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+                let endedApp = name == NSWorkspace.didTerminateApplicationNotification
+                    ? notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication : nil
+                let endedPID = endedApp?.processIdentifier
+                let endedLaunch = endedApp?.launchDate
+                MainActor.assumeIsolated {
+                    if let pid = endedPID, let self, let token = self.processTokens[pid], token.0 == endedLaunch {
+                        self.processTokens.removeValue(forKey: pid)
+                        let ended = ProcessIdentity(pid: pid, launchToken: token.1)
+                        self.registry.processEnded(ended)
+                        self.targets = self.targets.filter { $0.key.process != ended }
+                        self.snapshot = self.registry.snapshot
+                        self.onChange?()
+                    }
+                    self?.scheduleRefresh()
+                }
             })
         }
         refresh()
@@ -88,12 +102,14 @@ final class WindowService {
             return AppDescriptor(process: ProcessIdentity(pid: pid, launchToken: token), identifier: app.bundleIdentifier ?? "pid.\(pid)", name: app.localizedName ?? "Application")
         }
         let live = Set(apps.map(\.process))
+        let livePIDs = Set(apps.map { $0.process.pid })
+        processTokens = processTokens.filter { livePIDs.contains($0.key) }
         for process in Set(snapshot.records.map { $0.id.process }) where !live.contains(process) { registry.processEnded(process) }
         targets = targets.filter { live.contains($0.key.process) }
         scanInFlight = true
         let frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        worker.discover(apps: apps, frontPID: frontPID) { [weak self] result in
-            Task { @MainActor in self?.apply(result) }
+        worker.discover(apps: apps, frontPID: frontPID) { [weak self] result, finished in
+            Task { @MainActor in self?.apply(result, finished: finished) }
         }
     }
 
@@ -104,7 +120,12 @@ final class WindowService {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
     }
 
-    private func apply(_ result: DiscoveryResult) {
+    private func apply(_ discovered: DiscoveryResult, finished: Bool) {
+        // A terminated process cannot repopulate targets from a late in-flight scan.
+        let records = discovered.records.filter { validLifetime($0.id) }
+        let admitted = Set(records.map(\.id))
+        let result = DiscoveryResult(records: records, targets: discovered.targets.filter { admitted.contains($0.key) },
+                                     completed: discovered.completed, focus: discovered.focus)
         let current = Set(result.records.map(\.id))
         for record in snapshot.records where result.completed.contains(record.id.process) && !current.contains(record.id) {
             registry.remove(record.id)
@@ -114,9 +135,11 @@ final class WindowService {
         targets.merge(result.targets) { _, new in new }
         if let focus = result.focus, NSWorkspace.shared.frontmostApplication?.processIdentifier == focus.process.pid { focusedID = focus; registry.commitFocus(focus) }
         snapshot = registry.snapshot
-        scanInFlight = false
         onChange?()
-        if needsRescan { needsRescan = false; scheduleRefresh() }
+        if finished {
+            scanInFlight = false
+            if needsRescan { needsRescan = false; scheduleRefresh() }
+        }
     }
 
     func focus(_ id: WindowIdentity) {
@@ -199,12 +222,33 @@ final class WindowService {
 }
 
 private final class WindowWorker: @unchecked Sendable {
-    private let scanQueue = DispatchQueue(label: "dev.paneflo.discovery", qos: .utility)
-    private let actionQueue = DispatchQueue(label: "dev.paneflo.actions", qos: .userInitiated)
-    private var previous: [ProcessIdentity: [AXWindowTarget]] = [:]
-    private var previousRecords: [WindowIdentity: WindowRecord] = [:]
+    private final class ScanState: @unchecked Sendable {
+        var previous: [AXWindowTarget] = []
+        var records: [WindowIdentity: WindowRecord] = [:]
+        var observer: AXObserver?
+        var cursor = 0
+    }
+    private final class Batch: @unchecked Sendable {
+        var remaining: Int
+        init(_ count: Int) { remaining = count }
+    }
+    private struct Job: Sendable {
+        let work: @Sendable () -> Void
+        let cancelled: @Sendable () -> Void
+    }
+    private final class CGSnapshot: @unchecked Sendable {
+        let windows: [[String: Any]]
+        init(_ windows: [[String: Any]]) { self.windows = windows }
+    }
+    private let coordinator = DispatchQueue(label: "dev.paneflo.ax-admission")
+    private let metadataQueue = DispatchQueue(label: "dev.paneflo.cg-metadata", qos: .utility)
+    private let workers = DispatchQueue(label: "dev.paneflo.ax-workers", qos: .userInitiated, attributes: .concurrent)
+    private var admission = AXWorkAdmission()
+    private var jobs: [UInt64: Job] = [:]
+    private var nextJob: UInt64 = 0
+    private var states: [ProcessIdentity: ScanState] = [:]
     private var nextNumber: UInt32 = 0
-    private var observers: [pid_t: AXObserver] = [:]
+    private let numberLock = NSLock()
     private let intentLock = NSLock()
     private var latestIntent: UInt64 = 0
     var onEvent: (@Sendable () -> Void)?
@@ -212,81 +256,151 @@ private final class WindowWorker: @unchecked Sendable {
     func beginIntent() -> UInt64 { intentLock.withLock { latestIntent += 1; return latestIntent } }
     private func isCurrent(_ intent: UInt64) -> Bool { intentLock.withLock { latestIntent == intent } }
 
-    func discover(apps: [AppDescriptor], frontPID: pid_t?, completion: @escaping @Sendable (DiscoveryResult) -> Void) {
-        scanQueue.async { [self] in
-            var result = DiscoveryResult(records: [], targets: [:], completed: [], focus: nil)
-            let cgWindows = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
-            let livePIDs = Set(apps.map { $0.process.pid })
-            for (pid, observer) in observers where !livePIDs.contains(pid) {
-                CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
-                observers.removeValue(forKey: pid)
-            }
-            previous = previous.filter { key, _ in apps.contains { $0.process == key } }
-            for descriptor in apps {
-                let app = AXUIElementCreateApplication(descriptor.process.pid)
-                AXUIElementSetMessagingTimeout(app, 0.2)
-                guard let elements = Self.attribute(app, kAXWindowsAttribute) as? [AXUIElement] else { continue }
-                result.completed.insert(descriptor.process)
-                let observer = ensureObserver(pid: descriptor.process.pid, app: app)
-                let focused = Self.attribute(app, kAXFocusedWindowAttribute)
-                var current: [AXWindowTarget] = []
-                for element in elements.prefix(256) {
-                    AXUIElementSetMessagingTimeout(element, 0.2)
-                    guard let rect = Self.frame(element) else {
-                        // An AX timeout is not a close; retain the previous identity and metadata.
-                        if let old = previous[descriptor.process]?.first(where: { CFEqual($0.element, element) }), let record = previousRecords[old.id] {
-                            current.append(old); result.targets[old.id] = old; result.records.append(record)
-                        }
-                        continue
-                    }
-                    guard rect.width >= 40, rect.height >= 30 else { continue }
-                    let role = Self.attribute(element, kAXRoleAttribute) as? String
-                    if role == nil {
-                        if let old = previous[descriptor.process]?.first(where: { CFEqual($0.element, element) }), let record = previousRecords[old.id] {
-                            current.append(old); result.targets[old.id] = old; result.records.append(record)
-                        }
-                        continue
-                    }
-                    guard role == kAXWindowRole else { continue }
-                    let subrole = Self.attribute(element, kAXSubroleAttribute) as? String
-                    guard subrole != kAXSystemDialogSubrole else { continue }
-                    let oldRecord = previous[descriptor.process]?.first(where: { CFEqual($0.element, element) }).flatMap { previousRecords[$0.id] }
-                    let title = Self.attribute(element, kAXTitleAttribute) as? String ?? oldRecord?.title ?? "Untitled window"
-                    let id: WindowIdentity
-                    if let old = previous[descriptor.process]?.first(where: { CFEqual($0.element, element) }) { id = old.id }
-                    else {
-                        nextNumber &+= 1
-                        id = WindowIdentity(process: descriptor.process, number: nextNumber, incarnation: 1)
-                    }
-                    let capture = Self.captureNumber(pid: descriptor.process.pid, rect: rect, title: title, windows: cgWindows)
-                    let target = AXWindowTarget(element: element, app: app, id: id, captureNumber: capture)
-                    current.append(target); result.targets[id] = target
-                    result.records.append(WindowRecord(id: id, appIdentifier: descriptor.identifier, appName: descriptor.name, title: title, frame: rect, isMinimized: Self.attribute(element, kAXMinimizedAttribute) as? Bool ?? oldRecord?.isMinimized ?? false))
-                    if descriptor.process.pid == frontPID, let focused, CFEqual(focused, element) { result.focus = id }
-                    if let observer {
-                        for name in [kAXUIElementDestroyedNotification, kAXMovedNotification, kAXResizedNotification, kAXWindowMiniaturizedNotification, kAXWindowDeminiaturizedNotification, kAXTitleChangedNotification] {
-                            AXObserverAddNotification(observer, element, name as CFString, Unmanaged.passUnretained(self).toOpaque())
-                        }
-                    }
+    private func submit(pid: pid_t, priority: AXWorkAdmission.Priority,
+                        cancelled: @escaping @Sendable () -> Void,
+                        work: @escaping @Sendable () -> Void) {
+        coordinator.async { [self] in enqueue(pid: pid, priority: priority, cancelled: cancelled, work: work) }
+    }
+
+    /// Coordinator-only. No AX IPC is allowed here, including cancellation callbacks.
+    private func enqueue(pid: pid_t, priority: AXWorkAdmission.Priority,
+                         cancelled: @escaping @Sendable () -> Void,
+                         work: @escaping @Sendable () -> Void) {
+        nextJob &+= 1
+        let ticket = AXWorkAdmission.Ticket(id: nextJob, pid: pid, priority: priority)
+        jobs[ticket.id] = Job(work: work, cancelled: cancelled)
+        for id in admission.enqueue(ticket) { jobs.removeValue(forKey: id)?.cancelled() }
+        drain()
+    }
+
+    private func drain() {
+        for ticket in admission.takeReady() {
+            guard let job = jobs[ticket.id] else { admission.finish(ticket.id); continue }
+            workers.async { [self] in
+                job.work()
+                coordinator.async { [self] in
+                    jobs.removeValue(forKey: ticket.id)
+                    admission.finish(ticket.id)
+                    drain()
                 }
-                previous[descriptor.process] = current
             }
-            let surviving = Set(previous.values.flatMap { $0.map(\.id) })
-            previousRecords = previousRecords.filter { surviving.contains($0.key) }
-            for record in result.records { previousRecords[record.id] = record }
-            completion(result)
         }
     }
 
-    private func ensureObserver(pid: pid_t, app: AXUIElement) -> AXObserver? {
-        if let observer = observers[pid] { return observer }
+    func discover(apps: [AppDescriptor], frontPID: pid_t?,
+                  completion: @escaping @Sendable (DiscoveryResult, Bool) -> Void) {
+        metadataQueue.async { [self] in
+            let cg = CGSnapshot(CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? [])
+            coordinator.async { [self] in
+                let live = Set(apps.map(\.process))
+                for (identity, state) in states where !live.contains(identity) {
+                    if let observer = state.observer {
+                        CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
+                    }
+                    states.removeValue(forKey: identity)
+                }
+                guard !apps.isEmpty else {
+                    completion(DiscoveryResult(records: [], targets: [:], completed: [], focus: nil), true)
+                    return
+                }
+                let batch = Batch(apps.count)
+                for descriptor in apps {
+                    let state = states[descriptor.process] ?? ScanState()
+                    states[descriptor.process] = state
+                    enqueue(pid: descriptor.process.pid, priority: .background, cancelled: {
+                        // Cancellation executes on the coordinator, never releases an active call.
+                        batch.remaining -= 1
+                        completion(DiscoveryResult(records: [], targets: [:], completed: [], focus: nil), batch.remaining == 0)
+                    }, work: { [self] in
+                        let result = scan(descriptor, state: state, frontPID: frontPID, cgWindows: cg)
+                        coordinator.async {
+                            batch.remaining -= 1
+                            // Publish each responsive PID immediately; a slow app cannot hold all results.
+                            completion(result, batch.remaining == 0)
+                        }
+                    })
+                }
+            }
+        }
+    }
+
+    private func scan(_ descriptor: AppDescriptor, state: ScanState, frontPID: pid_t?, cgWindows: CGSnapshot) -> DiscoveryResult {
+        var result = DiscoveryResult(records: [], targets: [:], completed: [], focus: nil)
+        let app = AXUIElementCreateApplication(descriptor.process.pid)
+        AXUIElementSetMessagingTimeout(app, 0.12)
+        guard let elements = Self.attribute(app, kAXWindowsAttribute) as? [AXUIElement] else { return result }
+        result.completed.insert(descriptor.process)
+        let observer = ensureObserver(state: state, pid: descriptor.process.pid, app: app)
+        let deadline = ProcessInfo.processInfo.systemUptime + 0.8
+        let focused = Self.attribute(app, kAXFocusedWindowAttribute, deadline: deadline)
+        var current: [AXWindowTarget] = []
+        let candidates = Array(elements.prefix(256))
+        let start = state.cursor % max(1, candidates.count)
+        for offset in candidates.indices {
+            let index = (start + offset) % candidates.count
+            let element = candidates[index]
+            if ProcessInfo.processInfo.systemUptime >= deadline {
+                if let old = state.previous.first(where: { CFEqual($0.element, element) }), let record = state.records[old.id] {
+                    current.append(old); result.targets[old.id] = old; result.records.append(record)
+                    if descriptor.process.pid == frontPID, let focused, CFEqual(focused, element) { result.focus = old.id }
+                }
+                continue
+            }
+            state.cursor = (index + 1) % candidates.count
+            AXUIElementSetMessagingTimeout(element, 0.12)
+            guard let rect = Self.frame(element, deadline: deadline) else {
+                // An AX timeout is not a close; retain the previous identity and metadata.
+                if let old = state.previous.first(where: { CFEqual($0.element, element) }), let record = state.records[old.id] {
+                    current.append(old); result.targets[old.id] = old; result.records.append(record)
+                }
+                continue
+            }
+            guard rect.width >= 40, rect.height >= 30 else { continue }
+            let role = Self.attribute(element, kAXRoleAttribute, deadline: deadline) as? String
+            if role == nil {
+                if let old = state.previous.first(where: { CFEqual($0.element, element) }), let record = state.records[old.id] {
+                    current.append(old); result.targets[old.id] = old; result.records.append(record)
+                }
+                continue
+            }
+            guard role == kAXWindowRole else { continue }
+            let subrole = Self.attribute(element, kAXSubroleAttribute, deadline: deadline) as? String
+            guard subrole != kAXSystemDialogSubrole else { continue }
+            let oldRecord = state.previous.first(where: { CFEqual($0.element, element) }).flatMap { state.records[$0.id] }
+            let title = Self.attribute(element, kAXTitleAttribute, deadline: deadline) as? String ?? oldRecord?.title ?? "Untitled window"
+            let id: WindowIdentity
+            if let old = state.previous.first(where: { CFEqual($0.element, element) }) { id = old.id }
+            else {
+                let number = numberLock.withLock { nextNumber &+= 1; return nextNumber }
+                id = WindowIdentity(process: descriptor.process, number: number, incarnation: 1)
+            }
+            let capture = Self.captureNumber(pid: descriptor.process.pid, rect: rect, title: title, windows: cgWindows.windows)
+            let target = AXWindowTarget(element: element, app: app, id: id, captureNumber: capture)
+            current.append(target); result.targets[id] = target
+            result.records.append(WindowRecord(id: id, appIdentifier: descriptor.identifier, appName: descriptor.name, title: title, frame: rect, isMinimized: Self.attribute(element, kAXMinimizedAttribute, deadline: deadline) as? Bool ?? oldRecord?.isMinimized ?? false))
+            if descriptor.process.pid == frontPID, let focused, CFEqual(focused, element) { result.focus = id }
+            if let observer {
+                for name in [kAXUIElementDestroyedNotification, kAXMovedNotification, kAXResizedNotification, kAXWindowMiniaturizedNotification, kAXWindowDeminiaturizedNotification, kAXTitleChangedNotification] {
+                    guard ProcessInfo.processInfo.systemUptime < deadline else { break }
+                    AXObserverAddNotification(observer, element, name as CFString, Unmanaged.passUnretained(self).toOpaque())
+                }
+            }
+        }
+        state.previous = current
+        state.records = Dictionary(uniqueKeysWithValues: result.records.map { ($0.id, $0) })
+        return result
+    }
+
+
+    private func ensureObserver(state: ScanState, pid: pid_t, app: AXUIElement) -> AXObserver? {
+        if let observer = state.observer { return observer }
         var created: AXObserver?
         let status = AXObserverCreate(pid, { _, _, _, context in
             guard let context else { return }
             Unmanaged<WindowWorker>.fromOpaque(context).takeUnretainedValue().onEvent?()
         }, &created)
         guard status == .success, let observer = created else { return nil }
-        observers[pid] = observer
+        state.observer = observer
         for name in [kAXWindowCreatedNotification, kAXFocusedWindowChangedNotification, kAXMainWindowChangedNotification] {
             AXObserverAddNotification(observer, app, name as CFString, Unmanaged.passUnretained(self).toOpaque())
         }
@@ -295,7 +409,7 @@ private final class WindowWorker: @unchecked Sendable {
     }
 
     func focus(_ target: AXWindowTarget, intent: UInt64, completion: @escaping @Sendable (Bool) -> Void) {
-        actionQueue.async { [self] in
+        submit(pid: target.id.process.pid, priority: .interactive, cancelled: { completion(false) }) { [self] in
             guard isCurrent(intent), Self.valid(target) else { completion(false); return }
             if Self.attribute(target.element, kAXMinimizedAttribute) as? Bool == true {
                 guard isCurrent(intent) else { completion(false); return }
@@ -319,7 +433,7 @@ private final class WindowWorker: @unchecked Sendable {
     }
 
     func place(_ target: AXWindowTarget, frame: WindowRect, intent: UInt64, completion: @escaping @Sendable (WindowRect?, WindowRect?, String) -> Void) {
-        actionQueue.async { [self] in
+        submit(pid: target.id.process.pid, priority: .interactive, cancelled: { completion(nil, nil, "Layout superseded before execution.") }) { [self] in
             guard isCurrent(intent), Self.valid(target), let before = Self.frame(target.element) else {
                 completion(nil, nil, "The window is no longer available."); return
             }
@@ -337,18 +451,56 @@ private final class WindowWorker: @unchecked Sendable {
             guard let p = AXValueCreate(.cgPoint, &position), let s = AXValueCreate(.cgSize, &size) else { completion(nil, before, "Invalid window geometry."); return }
             var failures: [AXError] = []
             var actual: WindowRect?
+            let deadline = ProcessInfo.processInfo.systemUptime + 1.5
+            let shrinking = frame.width <= before.width && frame.height <= before.height
+            let stages = shrinking
+                ? [("size-before", kAXSizeAttribute, s), ("position", kAXPositionAttribute, p), ("size-after", kAXSizeAttribute, s)]
+                : [("position-before", kAXPositionAttribute, p), ("size", kAXSizeAttribute, s), ("position-after", kAXPositionAttribute, p)]
+            RuntimeDiagnostics.mark("AX placement strategy=\(shrinking ? "shrink-SPS" : "expand-PSP") requested=\(Self.geometryText(frame)) before=\(Self.geometryText(before))")
             for pass in 0..<2 {
-                // Move before expanding so the existing screen edge cannot clamp the new size.
-                // Reapply position after resizing; some applications anchor or adjust it.
-                for (stage, name, value) in [("position-before", kAXPositionAttribute, p), ("size", kAXSizeAttribute, s), ("position-after", kAXPositionAttribute, p)] {
+                if ProcessInfo.processInfo.systemUptime >= deadline { break }
+                // Shrink before moving to avoid temporarily extending an oversized frame offscreen.
+                // Expand after moving, then correct position. Both sequences settle between writes.
+                for (stage, name, value) in stages {
                     guard isCurrent(intent) else { completion(Self.frame(target.element), before, "Layout superseded."); return }
+                    if ProcessInfo.processInfo.systemUptime >= deadline { break }
                     let error = AXUIElementSetAttributeValue(target.element, name as CFString, value)
-                    RuntimeDiagnostics.mark("AX placement pass=\(pass) stage=\(stage) result=\(error.rawValue)")
                     if error != .success { failures.append(error) }
+                    // AppKit may acknowledge an AX write before its queued frame mutation settles.
+                    // A property match during animation is insufficient: the entire frame must
+                    // remain stable across three readbacks before the next geometry write.
+                    var matches = 0
+                    var readback: WindowRect?
+                    var previousReadback: WindowRect?
+                    for _ in 0..<6 {
+                        guard isCurrent(intent) else { completion(Self.frame(target.element), before, "Layout superseded."); return }
+                        if ProcessInfo.processInfo.systemUptime >= deadline { break }
+                        Thread.sleep(forTimeInterval: 0.035)
+                        readback = Self.frame(target.element, deadline: deadline)
+                        let propertyMatches = readback.map { value in
+                            name == kAXSizeAttribute
+                                ? abs(value.width - frame.width) < 2 && abs(value.height - frame.height) < 2
+                                : abs(value.x - frame.x) < 2 && abs(value.y - frame.y) < 2
+                        } ?? false
+                        let stable = readback.flatMap { current in previousReadback.map { Self.sameFrame(current, $0) } } ?? false
+                        matches = propertyMatches ? (stable ? matches + 1 : 1) : 0
+                        previousReadback = readback
+                        if matches >= 3 { break }
+                    }
+                    RuntimeDiagnostics.mark("AX placement pass=\(pass) stage=\(stage) result=\(error.rawValue) requested=\(Self.geometryText(frame)) actual=\(readback.map(Self.geometryText) ?? "unavailable")")
+                    if ProcessInfo.processInfo.systemUptime >= deadline { break }
                 }
-                actual = Self.frame(target.element)
-                if let actual, Self.sameFrame(actual, frame) {
-                    completion(actual, before, "Layout applied. Undo is available."); return
+                var confirmed = 0
+                for _ in 0..<4 {
+                    guard isCurrent(intent) else { completion(Self.frame(target.element), before, "Layout superseded."); return }
+                    guard ProcessInfo.processInfo.systemUptime < deadline else { break }
+                    actual = Self.frame(target.element, deadline: deadline)
+                    confirmed = actual.map { Self.sameFrame($0, frame) } == true ? confirmed + 1 : 0
+                    if confirmed >= 3, let actual {
+                        RuntimeDiagnostics.mark("AX placement stable-target actual=\(Self.geometryText(actual))")
+                        completion(actual, before, "Layout applied. Undo is available."); return
+                    }
+                    Thread.sleep(forTimeInterval: 0.035)
                 }
                 if pass == 0 { Thread.sleep(forTimeInterval: 0.025) }
             }
@@ -370,10 +522,14 @@ private final class WindowWorker: @unchecked Sendable {
     }
 
     func setMinimized(_ target: AXWindowTarget, value: Bool, completion: @escaping @Sendable () -> Void) {
-        actionQueue.async {
+        submit(pid: target.id.process.pid, priority: .interactive, cancelled: completion) {
             if Self.valid(target) { AXUIElementSetAttributeValue(target.element, kAXMinimizedAttribute as CFString, value ? kCFBooleanTrue : kCFBooleanFalse) }
             completion()
         }
+    }
+
+    private static func geometryText(_ rect: WindowRect) -> String {
+        "x:\(rect.x),y:\(rect.y),w:\(rect.width),h:\(rect.height)"
     }
 
     private static func sameFrame(_ actual: WindowRect, _ requested: WindowRect) -> Bool {
@@ -385,13 +541,14 @@ private final class WindowWorker: @unchecked Sendable {
         return AXUIElementGetPid(target.element, &pid) == .success && pid == target.id.process.pid
     }
 
-    private static func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
+    private static func attribute(_ element: AXUIElement, _ name: String, deadline: TimeInterval = .infinity) -> CFTypeRef? {
+        guard ProcessInfo.processInfo.systemUptime < deadline else { return nil }
         var value: CFTypeRef?
         return AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success ? value : nil
     }
 
-    private static func frame(_ element: AXUIElement) -> WindowRect? {
-        guard let p = attribute(element, kAXPositionAttribute), let s = attribute(element, kAXSizeAttribute), CFGetTypeID(p) == AXValueGetTypeID(), CFGetTypeID(s) == AXValueGetTypeID() else { return nil }
+    private static func frame(_ element: AXUIElement, deadline: TimeInterval = .infinity) -> WindowRect? {
+        guard let p = attribute(element, kAXPositionAttribute, deadline: deadline), let s = attribute(element, kAXSizeAttribute, deadline: deadline), CFGetTypeID(p) == AXValueGetTypeID(), CFGetTypeID(s) == AXValueGetTypeID() else { return nil }
         var point = CGPoint.zero; var size = CGSize.zero
         guard AXValueGetValue(p as! AXValue, .cgPoint, &point), AXValueGetValue(s as! AXValue, .cgSize, &size) else { return nil }
         return WindowRect(x: point.x, y: point.y, width: size.width, height: size.height)
