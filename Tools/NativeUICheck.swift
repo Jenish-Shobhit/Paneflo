@@ -1,6 +1,7 @@
 import AppKit
 import PanefloCore
 import Darwin
+import CoreVideo
 
 /// Own-window AppKit regression host. Never posts global input or requests permission.
 @main
@@ -125,6 +126,9 @@ struct NativeUICheck {
             await settle()
         }
         try await checkFastSurfaces(desktop, service: service, records: records)
+        try await checkPreviews(desktop, service: service, records: records)
+        service.nativeCheckInstall(records(20))
+        await settle()
         try await checkInputRouting(desktop)
         desktop.present(mode: .switcher)
         await settle()
@@ -146,31 +150,24 @@ struct NativeUICheck {
             }
         }
         desktop.dismiss(restorePreviousApplication: false)
-        var previewVisible = false
-        var thumbnailsVisible = false
         var selectionOwned = false
-        desktop.onPreviewSelection = { _, visible, _ in previewVisible = visible }
-        desktop.onThumbnailViewport = { _, visible, _ in thumbnailsVisible = visible }
+        let hidePreviews = FakePreviews()
+        desktop.previews = hidePreviews
         desktop.onVisibilityChanged = { selectionOwned = $0 }
         desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
         await settle()
-        let fixture = NSImage(size: NSSize(width: 2, height: 2))
-        fixture.lockFocus()
-        NSColor.systemBlue.setFill()
-        NSRect(x: 0, y: 0, width: 2, height: 2).fill()
-        fixture.unlockFocus()
-        guard let image = fixture.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-            throw Failure.check("Could not construct own synthetic preview")
-        }
-        desktop.nativeCheckInjectPreview(image)
-        try require(desktop.nativeCheckPayloadCount > 0 && previewVisible && thumbnailsVisible && selectionOwned,
-                    "Hide fixture must begin with visible panel and synthetic image")
+        guard let hideSelected = desktop.nativeCheckSelected else { throw Failure.check("Hide fixture needs a selection") }
+        hidePreviews.deliverSnapshot(fixtureImage(.systemBlue), for: hideSelected)
+        _ = hidePreviews.deliverLive(for: hideSelected)
+        try require(desktop.nativeCheckPayloadCount > 0 && hidePreviews.visible && hidePreviews.liveStreamCount == 1 && selectionOwned,
+                    "Hide fixture must begin with visible panel and synthetic preview")
         NSApp.hide(nil)
         await settle()
-        try require(!desktop.isVisible && desktop.nativeCheckPayloadCount == 0,
+        try require(!desktop.isVisible && desktop.nativeCheckPayloadCount == 0 && hidePreviews.budget.counts.current == 0,
                     "Hiding app must dismiss panel and release preview payload")
-        try require(!previewVisible && !thumbnailsVisible && !selectionOwned,
+        try require(!hidePreviews.visible && hidePreviews.liveStreamCount == 0 && !selectionOwned,
                     "Hiding app must release preview and keyboard ownership")
+        desktop.previews = nil
         NSApp.unhideWithoutActivation()
         desktop.setStatus("Synthetic permission diagnostic")
         desktop.setShortcutsEnabled(true)
@@ -281,6 +278,232 @@ struct NativeUICheck {
         try require(outsideMonitors == 0, "Every dismissal path must remove the outside-click monitor")
         await settle()
         print("PASS fast surfaces")
+    }
+
+    // MARK: Previews
+
+    /// An injected preview backend. It follows the engine's card contract (emit each visible card
+    /// once per session, live frames only for the visible selection, nothing while hidden) on the
+    /// real Core cache and presentation types, and lets the check deliver updates deterministically.
+    @MainActor final class FakePreviews: PreviewProvider {
+        var onPreview: ((PreviewUpdate) -> Void)?
+        var cache = ThumbnailCache<CGImage>()
+        let budget = LiveFrameBudget()
+        private(set) var visible = false
+        private(set) var cards: [PreviewCard] = []
+        private(set) var selected: WindowIdentity?
+        private(set) var pixelSize: CGSize?
+        private(set) var hiddenCalls = 0
+        private var emitted: Set<WindowIdentity> = []
+        private var liveID: WindowIdentity?
+        /// At most one stream, only while visible, only for the selection.
+        var liveStreamCount: Int { visible && liveID != nil ? 1 : 0 }
+
+        func updateSurface(visible: Bool, cards: [PreviewCard], selected: WindowIdentity?, previewPixelSize: CGSize?) {
+            guard visible else {
+                self.visible = false; self.cards = []; self.selected = nil; liveID = nil; emitted.removeAll()
+                hiddenCalls += 1
+                return
+            }
+            if !self.visible { self.visible = true; emitted.removeAll() }
+            self.cards = cards
+            self.selected = selected
+            if let previewPixelSize { pixelSize = previewPixelSize }
+            for card in cards where !emitted.contains(card.id) { emitted.insert(card.id); onPreview?(preview(for: card)) }
+            if let live = liveID, live != selected {
+                liveID = nil
+                onPreview?(PreviewUpdate(id: live, content: .keep,
+                                         presentation: .snapshot(capturedAt: ProcessInfo.processInfo.systemUptime, note: nil)))
+            }
+        }
+
+        func preview(for card: PreviewCard) -> PreviewUpdate {
+            let entry = cache.entry(for: card.id, windowNumber: card.windowNumber)
+            let presentation = PreviewAvailability.presentation(cachedAt: entry?.capturedAt,
+                unavailable: card.isMinimized ? .minimized : nil, paused: nil, live: false)
+            return PreviewUpdate(id: card.id, content: entry.map { .snapshot($0.payload) } ?? .none, presentation: presentation)
+        }
+
+        /// A completed one-shot capture: cached even when the card is not visible.
+        func deliverSnapshot(_ image: CGImage, for id: WindowIdentity) {
+            let bytes = ThumbnailCache<CGImage>.payloadBytes(bytesPerRow: image.bytesPerRow, height: image.height) ?? 1
+            _ = cache.insert(id: id, windowNumber: id.number, payload: image, bytes: bytes,
+                             capturedAt: ProcessInfo.processInfo.systemUptime)
+            guard visible, cards.contains(where: { $0.id == id }) else { return }
+            onPreview?(PreviewUpdate(id: id, content: .snapshot(image),
+                                     presentation: .snapshot(capturedAt: ProcessInfo.processInfo.systemUptime, note: nil)))
+        }
+
+        /// Ignores the session rules, as a late or misrouted delivery would.
+        func forceDeliver(_ update: PreviewUpdate) { onPreview?(update) }
+
+        /// One live frame for the visible selection; nil (no stream) otherwise.
+        func deliverLive(for id: WindowIdentity) -> LiveFrame? {
+            guard visible, id == selected, let frame = LiveFrame.nativeCheck(buffer: makePixelBuffer(), budget: budget) else { return nil }
+            liveID = id
+            onPreview?(PreviewUpdate(id: id, content: .live(frame), presentation: .live))
+            return frame
+        }
+    }
+
+    /// Renders the panel's layer tree (card layers included, which view caching skips) to a PNG.
+    @MainActor static func writeLayerPNG(_ window: NSWindow, name: String) {
+        let output = CommandLine.arguments.dropFirst().first ?? NSTemporaryDirectory()
+        guard let view = window.contentView, let layer = view.layer else { return }
+        let scale = window.backingScaleFactor
+        let width = Int(view.bounds.width * scale), height = Int(view.bounds.height * scale)
+        guard width > 0, height > 0, let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+            bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+        context.setFillColor(NSColor.windowBackgroundColor.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        context.scaleBy(x: scale, y: scale)
+        layer.render(in: context)
+        guard let image = context.makeImage(),
+              let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return }
+        try? png.write(to: URL(fileURLWithPath: output).appendingPathComponent(name))
+    }
+
+    static func makePixelBuffer() -> CVPixelBuffer {
+        var buffer: CVPixelBuffer?
+        let attributes: [CFString: Any] = [kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary]
+        CVPixelBufferCreate(kCFAllocatorDefault, 16, 10, kCVPixelFormatType_32BGRA, attributes as CFDictionary, &buffer)
+        return buffer!
+    }
+
+    @MainActor static func fixtureImage(_ color: NSColor) -> CGImage {
+        let context = CGContext(data: nil, width: 32, height: 20, bitsPerComponent: 8, bytesPerRow: 32 * 4,
+                                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                bitmapInfo: CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue)!
+        context.setFillColor(color.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: 32, height: 20))
+        return context.makeImage()!
+    }
+
+    /// Wiring between the surfaces and an injected preview backend: snapshot and live updates
+    /// reach exactly the affected card, labels show, dismissal leaves zero streams and no pixels,
+    /// and the cache that survives dismissal paints snapshots synchronously on reopen.
+    @MainActor static func checkPreviews(_ desktop: DesktopController, service: WindowService,
+                                         records: (Int) -> [WindowRecord]) async throws {
+        print("START previews")
+        let previews = FakePreviews()
+        desktop.previews = previews
+        try require(previews.onPreview != nil, "Attaching previews must subscribe to updates")
+        service.nativeCheckInstall(records(20))
+        await settle()
+
+        // Open: visible cards, selection included, sized in backing pixels, honest loading labels.
+        desktop.present(mode: .switcher, fromShortcut: true)
+        guard let selected = desktop.nativeCheckSelected, let selectedCard = desktop.nativeCheckCard(for: selected) else {
+            throw Failure.check("Missing switcher selection")
+        }
+        try require(previews.visible && previews.selected == selected && previews.cards.contains { $0.id == selected },
+                    "Open must report the visible cards including the selection")
+        let scale = desktop.nativeCheckSwitcherWindow.backingScaleFactor
+        let area = selectedCard.previewRect.size
+        try require(previews.pixelSize == CGSize(width: (area.width * scale).rounded(), height: (area.height * scale).rounded()),
+                    "Preview pixel size must be the card preview area at backing scale, got \(String(describing: previews.pixelSize))")
+        try require(previews.cards.allSatisfy { desktop.nativeCheckCard(for: $0.id)?.nativeCheckStatusText == "Loading preview…" },
+                    "Uncached cards must be labelled as loading")
+        await settle()
+
+        // Snapshots replace the icon layer and update only their card's layers: no card redraws.
+        guard let other = previews.cards.first(where: { $0.id != selected })?.id, let otherCard = desktop.nativeCheckCard(for: other) else {
+            throw Failure.check("Missing a second visible card")
+        }
+        let firstImage = fixtureImage(.systemOrange), secondImage = fixtureImage(.systemTeal)
+        CardView.invalidations = 0
+        previews.deliverSnapshot(firstImage, for: other)
+        try require(CardView.invalidations == 0 && otherCard.nativeCheckLayerContents === firstImage,
+                    "A first snapshot must reach its card without redrawing any card, redrew \(CardView.invalidations)")
+        try require(previews.cards.filter { $0.id != other }.allSatisfy { desktop.nativeCheckCard(for: $0.id)?.pixels.hasContent == false },
+                    "A snapshot must reach only its own card")
+        try require(otherCard.nativeCheckStatusText?.hasPrefix("Snapshot · ") == true && !otherCard.nativeCheckLiveDotVisible,
+                    "A snapshot must be labelled with its age, got \(otherCard.nativeCheckStatusText ?? "nil")")
+        CardView.invalidations = 0
+        previews.deliverSnapshot(secondImage, for: other)
+        try require(CardView.invalidations == 0 && otherCard.nativeCheckLayerContents === secondImage,
+                    "A refreshed snapshot must update the layer without redrawing cards")
+
+        // Live: the layer samples the frame's IOSurface; frames after the first redraw nothing.
+        CardView.invalidations = 0
+        do {
+            guard let frame = previews.deliverLive(for: selected) else { throw Failure.check("Live frame was refused") }
+            try require(selectedCard.nativeCheckLayerContents === frame.surface, "Live frames must be shown zero-copy")
+            try require(selectedCard.nativeCheckStatusText == "Live" && selectedCard.nativeCheckLiveDotVisible,
+                        "A live card must show the Live label and dot")
+            try require(CardView.invalidations == 0 && previews.liveStreamCount == 1, "The first live frame must not redraw any card")
+        }
+        CardView.invalidations = 0
+        _ = previews.deliverLive(for: selected)
+        try require(CardView.invalidations == 0, "Live frames must never redraw cards")
+        try require(previews.budget.counts.current == 1, "A card must release the live frame it replaced")
+        try require(previews.deliverLive(for: other) == nil, "Only the selection may stream")
+        writeLayerPNG(desktop.nativeCheckSwitcherWindow, name: "native-previews.png")
+
+        // Tab with previews attached: still two redraws; the outgoing card keeps its last frame as a snapshot.
+        CardView.invalidations = 0
+        desktop.switchStep(backwards: false)
+        try require(CardView.invalidations == 2, "A Tab step with previews must redraw exactly two cards, redrew \(CardView.invalidations)")
+        try require(previews.selected == desktop.nativeCheckSelected && previews.liveStreamCount == 0,
+                    "A selection change must move the single stream")
+        try require(selectedCard.pixels.hasContent && selectedCard.nativeCheckStatusText?.hasPrefix("Snapshot · ") == true
+                    && !selectedCard.nativeCheckLiveDotVisible, "The outgoing card must keep its last frame, labelled as a snapshot")
+
+        // Dismiss: hidden, zero streams, no pixels, no frames, no labels.
+        desktop.dismiss(restorePreviousApplication: false)
+        try require(!previews.visible && previews.liveStreamCount == 0, "Dismissal must leave zero live streams")
+        try require(desktop.nativeCheckPayloadCount == 0 && desktop.nativeCheckLabelledCount == 0 && previews.budget.counts.current == 0,
+                    "Dismissal must release every preview pixel, frame and label")
+        previews.forceDeliver(PreviewUpdate(id: other, content: .snapshot(firstImage), presentation: .live))
+        try require(desktop.nativeCheckPayloadCount == 0, "Updates after dismissal must be dropped")
+
+        // Reopen: the surviving cache paints synchronously, before the next run-loop turn.
+        desktop.present(mode: .switcher, fromShortcut: true)
+        guard let reopened = desktop.nativeCheckCard(for: other) else { throw Failure.check("Missing reopened card") }
+        try require(reopened.nativeCheckLayerContents === secondImage && reopened.nativeCheckStatusText?.hasPrefix("Snapshot · ") == true,
+                    "Reopening must show the cached snapshot instantly")
+        desktop.dismiss(restorePreviousApplication: false)
+
+        // A card view rebuilt mid-session (search) asks the engine for its current state.
+        desktop.present(mode: .switcher)
+        await settle()
+        let cachedID = other
+        desktop.nativeCheckQuery("a query with no synthetic match 987654")
+        try require(desktop.nativeCheckCard(for: cachedID) == nil && previews.cards.isEmpty, "A no-match search must report no cards")
+        desktop.nativeCheckQuery("")
+        try require(desktop.nativeCheckCard(for: cachedID)?.nativeCheckLayerContents === secondImage,
+                    "A card rebuilt mid-session must show the engine's current snapshot")
+        desktop.dismiss(restorePreviousApplication: false)
+        await settle()
+
+        // Overview: only cards in the viewport (plus margin) are reported; dimmed search misses are not.
+        service.nativeCheckInstall(records(100))
+        await settle()
+        desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
+        await settle()
+        let viewport = desktop.nativeCheckViewport.insetBy(dx: 0, dy: -desktop.nativeCheckCardHeight / 2)
+        try require(previews.visible && !previews.cards.isEmpty && previews.cards.count < 100,
+                    "The Overview must report only visible cards, reported \(previews.cards.count)")
+        try require(previews.cards.allSatisfy { desktop.nativeCheckCard(for: $0.id)?.frame.intersects(viewport) == true },
+                    "Reported Overview cards must lie in the viewport")
+        desktop.nativeCheckQuery("document 12")
+        try require(previews.cards.map(\.id.number) == [12], "Search must report only matching cards, got \(previews.cards.map(\.id.number))")
+        desktop.nativeCheckQuery("")
+        desktop.dismiss(restorePreviousApplication: false)
+
+        // Arrange mode shows no previews; turning previews off detaches and clears.
+        desktop.present(mode: .tiling)
+        try require(!previews.visible, "Arrange mode must not report preview cards")
+        desktop.dismiss(restorePreviousApplication: false)
+        desktop.present(mode: .switcher, fromShortcut: true)
+        try require(previews.visible, "Fixture needs a visible preview session")
+        desktop.previews = nil
+        try require(!previews.visible && previews.onPreview == nil && desktop.nativeCheckLabelledCount == 0 && desktop.nativeCheckPayloadCount == 0,
+                    "Turning previews off must end the session and clear every card")
+        desktop.dismiss(restorePreviousApplication: false)
+        await settle()
+        print("PASS previews")
     }
 
     /// Synthetic, never-posted CGEvents go through the real tap callback and main-queue hop.

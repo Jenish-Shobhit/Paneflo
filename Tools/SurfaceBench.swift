@@ -106,9 +106,16 @@ struct SurfaceBench {
         // Never install a real global mouse monitor from the bench.
         desktop.nativeCheckReplaceOutsideClickMonitor(install: { _ in NSObject() }, remove: { _ in })
         #endif
+        #if SURFACE_BENCH_PREVIEWS
+        // As in the app with previews on: a provider that serves warm cached snapshots synchronously,
+        // like the engine on open, so card-side preview work is part of every measurement.
+        let previews = SyntheticPreviews()
+        desktop.previews = previews
+        #else
         // The real app always installs these hooks; without them the per-selection work is skipped.
         desktop.onPreviewSelection = { _, _, _ in }
         desktop.onThumbnailViewport = { _, _, _ in }
+        #endif
         desktop.onVisibilityChanged = { _ in }
         desktop.onSurfaceVisibilityChanged = { _ in }
         desktop.onCompositionChanged = { _ in }
@@ -204,6 +211,40 @@ struct SurfaceBench {
         await settle(1000)
         recorder.add("hidden.idle.busy1s", final.stop())
     }
+
+    #if SURFACE_BENCH_PREVIEWS
+    /// Mirrors the engine's synchronous behaviour: each visible card is emitted once per session
+    /// (a cached snapshot), and a selection change relabels the outgoing card. No capture runs.
+    @MainActor final class SyntheticPreviews: PreviewProvider {
+        var onPreview: ((PreviewUpdate) -> Void)?
+        private var emitted: Set<WindowIdentity> = []
+        private var selected: WindowIdentity?
+        private var visible = false
+        private let image: CGImage? = {
+            let context = CGContext(data: nil, width: 340, height: 152, bitsPerComponent: 8, bytesPerRow: 340 * 4,
+                                    space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                    bitmapInfo: CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue)
+            context?.setFillColor(CGColor(red: 0.2, green: 0.4, blue: 0.8, alpha: 1))
+            context?.fill(CGRect(x: 0, y: 0, width: 340, height: 152))
+            return context?.makeImage()
+        }()
+
+        func updateSurface(visible: Bool, cards: [PreviewCard], selected: WindowIdentity?, previewPixelSize: CGSize?) {
+            guard visible else { self.visible = false; emitted.removeAll(); self.selected = nil; return }
+            if !self.visible { self.visible = true; emitted.removeAll() }
+            for card in cards where !emitted.contains(card.id) { emitted.insert(card.id); onPreview?(preview(for: card)) }
+            if let previous = self.selected, previous != selected {
+                onPreview?(PreviewUpdate(id: previous, content: .keep, presentation: .snapshot(capturedAt: ProcessInfo.processInfo.systemUptime, note: nil)))
+            }
+            self.selected = selected
+        }
+
+        func preview(for card: PreviewCard) -> PreviewUpdate {
+            PreviewUpdate(id: card.id, content: image.map { .snapshot($0) } ?? .none,
+                          presentation: .snapshot(capturedAt: ProcessInfo.processInfo.systemUptime - 3, note: nil))
+        }
+    }
+    #endif
 
     // MARK: - Report
 
