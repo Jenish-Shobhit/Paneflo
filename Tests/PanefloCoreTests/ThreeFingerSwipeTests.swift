@@ -27,23 +27,26 @@ struct ThreeFingerSwipeTests {
         _ = swipe.update(timestamp: 1.04, contacts: contacts(0.35, count: 4))
         #expect(swipe.update(timestamp: 1.12, contacts: contacts(0.6)) == nil)
     }
-    @Test func stationaryStaggeredLandingArmsButScrollingAndLateThirdDoNot() {
+    @Test func staggeredLandingWithinWindowArmsEvenWhileMovingButLateThirdDoesNot() {
         var swipe = ThreeFingerSwipe()
         _ = swipe.update(timestamp: 1, contacts: contacts(0.3, count: 1))
         _ = swipe.update(timestamp: 1.03, contacts: contacts(0.305, count: 2))
         _ = swipe.update(timestamp: 1.06, contacts: contacts(0.31))
         #expect(swipe.update(timestamp: 1.14, contacts: contacts(0.5)) == .up)
-        for thirdTime in [1.08, 1.12] {
-            var scrolling = ThreeFingerSwipe()
-            _ = scrolling.update(timestamp: 1, contacts: contacts(0.3, count: 2))
-            _ = scrolling.update(timestamp: 1.04, contacts: contacts(0.4, count: 2))
-            _ = scrolling.update(timestamp: thirdTime, contacts: contacts(0.4))
-            #expect(scrolling.update(timestamp: thirdTime + 0.08, contacts: contacts(0.6)) == nil)
+        // Fingers may already move while the third lands; travel counts from each landing.
+        for thirdTime in [1.08, 1.12, 1.18] {
+            var moving = ThreeFingerSwipe()
+            _ = moving.update(timestamp: 1, contacts: contacts(0.3, count: 2))
+            _ = moving.update(timestamp: 1.04, contacts: contacts(0.34, count: 2))
+            _ = moving.update(timestamp: thirdTime, contacts: contacts(0.36))
+            #expect(moving.update(timestamp: thirdTime + 0.08, contacts: contacts(0.56)) == .up)
         }
+        // A third finger landing after the 200 ms window never arms, even if all three then move.
         var late = ThreeFingerSwipe()
         _ = late.update(timestamp: 1, contacts: contacts(0.3, count: 2))
-        _ = late.update(timestamp: 1.12, contacts: contacts(0.3))
-        #expect(late.update(timestamp: 1.2, contacts: contacts(0.6)) == nil)
+        _ = late.update(timestamp: 1.1, contacts: contacts(0.3, count: 2))
+        _ = late.update(timestamp: 1.21, contacts: contacts(0.3))
+        #expect(late.update(timestamp: 1.3, contacts: contacts(0.6)) == nil)
     }
     @Test func palmInvalidCoordinatesAndChangedIdentityCancel() {
         var palm = contacts(0.3); palm[1].isPalm = true
@@ -83,11 +86,12 @@ struct ThreeFingerSwipeTests {
         _ = swipe.update(timestamp: 0.9, contacts: contacts(0.7))
         #expect(swipe.update(timestamp: 0.98, contacts: contacts(0.5)) == nil)
     }
-    @Test func diagonalOpposingAndUnequalMotionAreRejected() {
-        var diagonal = contacts(0.5, x: 0.4)
+    @Test func diagonalOpposingAndOneSidedMotionAreRejected() {
+        var diagonal = contacts(0.5, x: 0.5)
         var opposing = contacts(0.5); opposing[2].y = 0.1
-        var unequal = contacts(0.5); unequal[2].y = 0.7
-        for frame in [diagonal, opposing, unequal] {
+        var resting = contacts(0.6); resting[2].y = 0.3
+        var leading = contacts(0.3); leading[0].y = 0.75
+        for frame in [diagonal, opposing, resting, leading] {
             var swipe = ThreeFingerSwipe()
             _ = swipe.update(timestamp: 1, contacts: contacts(0.3))
             #expect(swipe.update(timestamp: 1.08, contacts: frame) == nil)
