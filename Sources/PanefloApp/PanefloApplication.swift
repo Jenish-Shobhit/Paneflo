@@ -84,7 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             switch direction {
             case .up:
-                if self.desktop?.isOverviewVisible != true { self.desktop?.present(mode: .overview, fromShortcut: true) }
+                self.desktop?.focusOverview()
             case .down:
                 if self.desktop?.isOverviewVisible == true { self.desktop?.dismiss() }
             }
@@ -254,6 +254,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .restore: windows.undo()
         }
     }
+
+    func applicationDidBecomeActive(_ notification: Notification) { desktop?.updateKeyboardOwnership() }
+    func applicationDidResignActive(_ notification: Notification) { desktop?.updateKeyboardOwnership() }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if desktop?.isVisible != true { desktop?.present(mode: .switcher) }

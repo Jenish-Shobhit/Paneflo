@@ -33,6 +33,8 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
     private var commitGate = SelectionCommitGate()
     private var latestPlacement: UInt64?
     private var presentationGeneration: UInt64 = 0
+    private var overviewReturnApplication: NSRunningApplication?
+    private var lastKeyboardDiagnostic: String?
     private var columnCount = 4
     private var overviewCardHeight: CGFloat = 220
     private var viewportObserver: NSObjectProtocol?
@@ -117,9 +119,14 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         rebuildCards()
         panel.center()
         fitToVisibleScreen()
-        panel.makeKeyAndOrderFront(nil)
-        onVisibilityChanged?(panel.isKeyWindow)
-        if !fromShortcut { panel.makeFirstResponder(search) }
+        // Persistent Overview needs actual application keyboard focus. The held
+        // Command–Tab picker deliberately remains nonactivating.
+        if mode == .overview { acquireOverviewKeyboard() }
+        else {
+            panel.makeKeyAndOrderFront(nil)
+            if !fromShortcut { panel.makeFirstResponder(search) }
+            updateKeyboardOwnership()
+        }
         RuntimeDiagnostics.mark("desktop mode=\(mode.rawValue) visible=\(panel.isVisible)")
         updatePreviewSelection()
     }
@@ -157,15 +164,36 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
     }
 
     func commitShortcut() { if shortcutSession { activateSelected() } }
-    func dismiss() {
+    func focusOverview() {
+        if isOverviewVisible { acquireOverviewKeyboard() }
+        else { present(mode: .overview, fromShortcut: true) }
+    }
+
+    private func acquireOverviewKeyboard() {
+        if let previous = NSWorkspace.shared.frontmostApplication,
+           previous.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+            overviewReturnApplication = previous
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
+        panel.makeFirstResponder(search)
+        updateKeyboardOwnership()
+    }
+
+    func dismiss(restorePreviousApplication: Bool = true) {
+        let previous = overviewReturnApplication
+        overviewReturnApplication = nil
         commitGate.cancelCommit()
         session.cancel(); shortcutSession = false
         panel.orderOut(nil)
-        onVisibilityChanged?(false)
+        updateKeyboardOwnership()
         for card in cards { card.preview = nil; card.previewLabel = "Icon preview" }
         for card in cards { card.thumbnail = nil }
         onThumbnailViewport?([], false, Set(service.snapshot.records.map(\.id)))
         onPreviewSelection?(nil, false, nil); onDismiss?()
+        if restorePreviousApplication, NSApp.isActive, let previous, !previous.isTerminated {
+            previous.activate(options: [])
+        }
     }
 
     func updateSnapshot() {
@@ -321,7 +349,7 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
     }
 
     func showPreferences() {
-        dismiss()
+        dismiss(restorePreviousApplication: false)
         preferences?.center(); preferences?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -546,6 +574,10 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
     }
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         switch NSStringFromSelector(selector) {
+        case "moveLeft:" where mode == .overview && search.stringValue.isEmpty && !textView.hasMarkedText():
+            navigate(.backward); return true
+        case "moveRight:" where mode == .overview && search.stringValue.isEmpty && !textView.hasMarkedText():
+            navigate(.forward); return true
         case "moveUp:": navigateRows(-1); return true
         case "moveDown:": navigateRows(1); return true
         case "insertNewline:": activateSelected(); return true
@@ -553,10 +585,17 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         default: return false
         }
     }
-    func windowDidBecomeKey(_ notification: Notification) {
-        onVisibilityChanged?(panel.isVisible && panel.isKeyWindow)
+    func updateKeyboardOwnership() {
+        let owned = panel.isVisible && panel.isKeyWindow && (shortcutSession || NSApp.isActive)
+        onVisibilityChanged?(owned)
+        let state = "desktop keyboard visible=\(panel.isVisible) key=\(panel.isKeyWindow) appActive=\(NSApp.isActive) selectionOwned=\(owned) mode=\(mode.rawValue)"
+        if state != lastKeyboardDiagnostic {
+            lastKeyboardDiagnostic = state
+            RuntimeDiagnostics.mark(state)
+        }
     }
-    func windowDidResignKey(_ notification: Notification) { onVisibilityChanged?(false) }
+    func windowDidBecomeKey(_ notification: Notification) { updateKeyboardOwnership() }
+    func windowDidResignKey(_ notification: Notification) { updateKeyboardOwnership() }
     func windowShouldClose(_ sender: NSWindow) -> Bool { dismiss(); return false }
 
     private func handleKey(_ event: NSEvent) -> Bool {
@@ -582,7 +621,7 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
     private func activateSelected() {
         guard let selectedID, eligibleSelectionIDs().contains(selectedID) else { if shortcutSession { dismiss() }; return }
         if mode == .switcher { _ = session.commit() }
-        dismiss()
+        dismiss(restorePreviousApplication: false)
         if let focus = commitGate.commit(selectedID) { service.focus(focus) }
     }
     private func saveSlots() { if let metadata = try? slots.encodedMetadata(), metadata != lastSavedMetadata { defaults.set(metadata, forKey: "overview.slots.v1"); lastSavedMetadata = metadata } }

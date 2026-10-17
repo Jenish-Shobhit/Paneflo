@@ -97,6 +97,25 @@ struct ShortcutSessionTests {
         #expect(!router.route(kind: .up, keyCode: 48, modifiers: []).suppress)
     }
 
+    @Test func persistentKeyContextOwnsEscapeAndItsPairOnlyWhileActive() {
+        var router = ShortcutSession(configuration: .init(switcherEnabled: true))
+        let inactive = router.route(kind: .down, keyCode: 53, modifiers: [])
+        #expect(!inactive.suppress && inactive.action == nil)
+        let inactiveRepeat = router.route(kind: .down, keyCode: 53, modifiers: [], isRepeat: true)
+        #expect(!inactiveRepeat.suppress && inactiveRepeat.action == nil)
+        router.selectionContextActive = true
+        let owned = router.route(kind: .down, keyCode: 53, modifiers: [])
+        #expect(owned.suppress)
+        guard case .cancel? = owned.action else { Issue.record("Missing persistent-context cancel"); return }
+        let repeated = router.route(kind: .down, keyCode: 53, modifiers: [], isRepeat: true)
+        #expect(repeated.suppress && repeated.action == nil)
+        router.selectionContextActive = false
+        #expect(router.route(kind: .up, keyCode: 53, modifiers: []).suppress)
+        #expect(!router.route(kind: .down, keyCode: 53, modifiers: []).suppress)
+        router.selectionContextActive = true
+        #expect(!router.route(kind: .down, keyCode: 53, modifiers: .option).suppress)
+    }
+
     @Test func dedicatedChordDoesNotRepeatOrMatchExtraModifiers() {
         let chord = ShortcutChord(keyCode: 49, modifiers: [.control, .option])
         var router = ShortcutSession(configuration: .init(overview: chord))

@@ -69,6 +69,9 @@ public struct ShortcutSession: Sendable {
             action = modifiers.contains(.shift) ? .switchBackward : .switchForward
         } else if switching && keyCode == 53 && modifiers.subtracting([.command, .shift]).isEmpty {
             switching = false; action = .cancel
+        } else if selectionContextActive && keyCode == 53 && modifiers.isEmpty {
+            if isRepeat { return ShortcutRoute(suppress: ownedKeys.contains(keyCode)) }
+            action = .cancel
         } else if (switching || selectionContextActive) && modifiers == .command {
             if keyCode == 123 { action = .tileSelected(.leftHalf) }
             if keyCode == 124 { action = .tileSelected(.rightHalf) }
