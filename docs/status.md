@@ -6,12 +6,12 @@ Updated 2026-10-17. Source checks, signed-app launch, and local permission verif
 
 - One native Swift 6.2+ menu-bar app with an icon-only menu item, compact Command–Tab window picker, separate Settings, keyboard tiling, and a larger organized Overview.
 - Accessibility-backed window discovery, identity validation, focus, half-screen/fill placement, and geometry undo. Remote window control requires Accessibility access.
-- In the picker, Command–Left/Right places the chosen window in a half and Command–Up fills the display. Releasing Command waits for placement before focusing that selection; Escape cancels deferred focus.
+- In the picker, Command–arrows move the selection; Command–Option–Left/Right places the chosen window in a half, Command–Option–Up fills the display, and Command–Option–Down undoes the latest placement; the Overview uses the same Command–Option–arrows. Releasing Command waits for placement before focusing that selection; Escape cancels deferred focus.
 - Stable Overview slots, pinning, spatial arrow selection, and in-place search, independent of recent-use switch order. Slot metadata is saved locally. Hidden Overview content can be prepared for reopening.
 - Explicit shortcut, preview, and gesture enable choices are saved. Configured startup stays quiet when permissions are ready; first launch or missing permissions opens Settings without automatic permission prompts.
-- Opt-in global shortcut replacement with HID-first/session fallback and explicit failure recovery. Standalone tile, restore, and Overview actions queued for over 250 ms expire; switcher commit remains paired with its session. Installation does not certify precedence over every competing input handler.
+- Opt-in global shortcut replacement with HID-first/session fallback and explicit failure recovery. The tap runs on a dedicated thread with bounded re-enable (three per 10 s). Escape is owned whenever a Paneflo surface is visible, except during input-method composition; queued actions no longer expire. Installation does not certify precedence over every competing input handler.
 - Opt-in previews with at most one selected live stream and bounded static thumbnails: at most 12 entries/6 MiB, 30-second expiry, and one outstanding snapshot request. Explicit dismissal and app hide invalidate work and purge images.
-- An optional native built-in trackpad adapter, gated to Apple silicon/macOS 27 and a validated framework revision. It uses an unsupported interface and requires conflicting native swipe bindings to be disabled separately. Lifecycle suspension preserves enable intent and permits one restart after all wake reasons clear and physical shutdown succeeds; failure clears intent. The recognizer handles finger-free idle gaps, requires fresh-contact evidence on a new observation, and drops gestures queued over 250 ms.
+- An optional native built-in trackpad adapter, gated to Apple silicon/macOS 27 and a validated framework revision. It uses an unsupported interface and requires conflicting native swipe bindings to be disabled separately. Lifecycle suspension preserves enable intent and permits one restart after all wake reasons clear and physical shutdown succeeds; failure clears intent. The recognizer handles finger-free idle gaps and requires fresh-contact evidence on a new observation. Late gestures are delivered rather than dropped.
 
 ## Validation
 
@@ -32,6 +32,7 @@ Three-finger down dismissal is a reported failure under investigation. The curre
 - Durable window matching across relaunches and settings migration.
 - Pointer-edge snapping, coordinated multi-window layouts, native Spaces/fullscreen modification, and Mission Control internals.
 - Shortcut precedence and immediate emergency recovery across supported systems and competing tools.
+- While a Paneflo surface is visible but another app has keyboard focus, an Escape meant to end input-method composition in that app is taken by Paneflo (accepted; the picker shows only while ⌘ is held).
 - A supported OS/architecture matrix, project license, distribution identity, and notarization. Local app assembly uses an ad-hoc signature.
 - Repeatable app/system memory, CPU, energy, latency, and correctness measurements. No comparative performance claim is established.
 

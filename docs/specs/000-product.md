@@ -26,7 +26,7 @@ Private development artifacts remain in gitignored `dev_acrtifacts/`. The public
 - Quick repeated use toggles the previous eligible window. Navigation order freezes for each session; window removals preserve selection when possible.
 - A compact picker for Command–Tab, with app-name/window-title local search and keyboard/pointer selection. Keep settings and the larger Overview outside this fast switching surface.
 - Immediate icons or cached static thumbnails; asynchronous selected-window live preview when permitted and available.
-- While Command remains held in the picker, Left/Right places the chosen window in a half and Up fills its usable display area. Command release focuses that selection after its placement completes; Escape cancels deferred focus. A late placement cannot focus a superseded selection.
+- While Command remains held in the picker, the arrow keys choose a window; Option–Left/Right places the chosen window in a half, Option–Up fills its usable display area, and Option–Down undoes the latest placement. The Overview arranges its selection with the same Command–Option–arrows. Command release focuses that selection after its placement completes; Escape cancels deferred focus. A late placement cannot focus a superseded selection.
 - Filters for display, current app, and logical workspace; configurable treatment of minimized and hidden windows.
 - Actions on the selection: focus, close, minimize, maximize, snap, and move to a display. Closing a window requires an explicit action, never modifier release alone.
 
