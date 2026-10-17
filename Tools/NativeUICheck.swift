@@ -27,6 +27,8 @@ struct NativeUICheck {
     }
 
     enum Failure: Error { case check(String) }
+    @MainActor static var outsideClick: (@MainActor (NSPoint) -> Void)?
+    @MainActor static var outsideMonitors = 0
     @MainActor static func require(_ value: Bool, _ message: String) throws {
         if !value { throw Failure.check(message) }
     }
@@ -36,6 +38,10 @@ struct NativeUICheck {
         let output = CommandLine.arguments.dropFirst().first ?? NSTemporaryDirectory()
         let service = WindowService()
         let desktop = DesktopController(service: service)
+        // Never install a real global mouse monitor during checks; record install/remove instead.
+        desktop.nativeCheckReplaceOutsideClickMonitor(install: { handler in
+            outsideClick = handler; outsideMonitors += 1; return NSObject()
+        }, remove: { _ in outsideMonitors -= 1; outsideClick = nil })
         try require(!desktop.nativeCheckPreferencesConstructed, "Settings must remain lazy at controller initialization")
         desktop.enablePreviewControl()
         try require(desktop.nativeCheckPreviewControlEnabled, "Preview control must enable before Settings construction")
@@ -48,18 +54,26 @@ struct NativeUICheck {
                     title: "Synthetic document \(index + 1)", frame: WindowRect(x: 0, y: 0, width: 440, height: 288))
             }
         }
+        // LaunchServices may still be delivering the launch activation; let it land first.
+        try? await Task.sleep(for: .milliseconds(600))
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        func panefloFrontmost() -> Bool { NSWorkspace.shared.frontmostApplication?.processIdentifier == ownPID }
+        print("launch appActive=\(NSApp.isActive) frontmost=\(panefloFrontmost())")
         for count in [20, 100] {
             print("START cards=\(count)")
             service.nativeCheckInstall(records(count))
             await settle()
             var timings: [Double] = []
             for _ in 0..<5 {
+                let wasFrontmost = panefloFrontmost()
                 let begin = ProcessInfo.processInfo.systemUptime
                 desktop.focusOverview()
                 desktop.nativeCheckSuppressExternalRestore()
                 timings.append((ProcessInfo.processInfo.systemUptime - begin) * 1000)
                 await settle()
-                try require(desktop.nativeCheckWindow.isKeyWindow && NSApp.isActive, "Overview must gain real key ownership")
+                try require(desktop.nativeCheckWindow.isKeyWindow, "Overview must gain real key ownership")
+                // A key non-activating panel reports NSApp.isActive, but the frontmost application must not change.
+                try require(wasFrontmost || !panefloFrontmost(), "Overview must not activate Paneflo")
                 let slots = desktop.nativeCheckSlots
                 desktop.nativeCheckQuery("document 12")
                 try require(desktop.nativeCheckSlots == slots, "Search must preserve Overview slots")
@@ -110,6 +124,7 @@ struct NativeUICheck {
             try require(!desktop.isVisible, "Next Escape after composition must close Overview")
             await settle()
         }
+        try await checkFastSurfaces(desktop, service: service, records: records)
         try await checkInputRouting(desktop)
         desktop.present(mode: .switcher)
         await settle()
@@ -166,6 +181,106 @@ struct NativeUICheck {
         try require(desktop.nativeCheckShortcutsEnabled && desktop.nativeCheckGestureEnabled
                     && desktop.nativeCheckStatus == "Synthetic permission diagnostic",
                     "Lazy Settings must retain prepared toggle and status state")
+        try require(desktop.nativeCheckGestureGuidanceStatus == GestureGuidance.status(for: SystemGestureSettings.current().conflict),
+                    "Settings must show the live system-gesture status when opened")
+        try require(outsideMonitors == 0, "No outside-click monitor may remain while surfaces are hidden")
+    }
+
+    /// Two pre-created panels, diff-based cards, no hidden rebuilds, two-card selection redraws,
+    /// lazy menus, and Overview dismissal when another application activates.
+    @MainActor static func checkFastSurfaces(_ desktop: DesktopController, service: WindowService,
+                                             records: (Int) -> [WindowRecord]) async throws {
+        print("START fast surfaces")
+        try require(desktop.nativeCheckSwitcherWindow !== desktop.nativeCheckOverviewWindow, "Switcher and Overview must use separate panels")
+        service.nativeCheckInstall(records(20))
+        await settle()
+        desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
+        await settle()
+        let overviewFrame = desktop.nativeCheckOverviewWindow.frame
+        desktop.dismiss(restorePreviousApplication: false)
+        await settle()
+        desktop.present(mode: .switcher, fromShortcut: true)
+        await settle()
+        let switcherFrame = desktop.nativeCheckSwitcherWindow.frame
+        try require(!desktop.nativeCheckSwitcherWindow.isKeyWindow, "The held switcher must not take key focus")
+        try require(switcherFrame.size != overviewFrame.size, "Switcher must keep its own size")
+        try require(desktop.nativeCheckOverviewWindow.frame == overviewFrame, "Presenting the switcher must not touch the Overview panel")
+
+        // Selection redraws only the previous and the new card.
+        CardView.invalidations = 0
+        desktop.switchStep(backwards: false)
+        try require(CardView.invalidations == 2, "A Tab step must redraw exactly two cards, redrew \(CardView.invalidations)")
+        guard let reusedID = desktop.nativeCheckSelected, let reusedCard = desktop.nativeCheckCard(for: reusedID) else {
+            throw Failure.check("Missing selected switcher card")
+        }
+
+        // Dismissal schedules no hidden rebuild; registry churn while hidden is coalesced.
+        let appliedBeforeDismiss = desktop.nativeCheckOverviewApplyCount
+        desktop.dismiss(restorePreviousApplication: false)
+        try await Task.sleep(for: .milliseconds(1300))
+        try require(desktop.nativeCheckOverviewApplyCount == appliedBeforeDismiss, "Dismissal must not rebuild the hidden Overview")
+        var churned = records(20)
+        for revision in 1...10 {
+            churned[0] = WindowRecord(id: churned[0].id, appIdentifier: churned[0].appIdentifier, appName: churned[0].appName,
+                                      title: "Synthetic document 1 · revision \(revision)", frame: churned[0].frame)
+            service.nativeCheckInstall(Array(churned[1...]) + [churned[0]])
+        }
+        try require(desktop.nativeCheckOverviewApplyCount == appliedBeforeDismiss, "Hidden registry changes must not run synchronously")
+        try await Task.sleep(for: .milliseconds(1300))
+        let coalesced = desktop.nativeCheckOverviewApplyCount - appliedBeforeDismiss
+        try require(coalesced == 1, "Ten hidden registry changes must coalesce into one diff, ran \(coalesced)")
+
+        // Cards are reused across sessions even when the MRU order changes.
+        desktop.present(mode: .switcher, fromShortcut: true)
+        await settle()
+        try require(desktop.nativeCheckCard(for: reusedID) === reusedCard, "A surviving window must keep its card view")
+        desktop.dismiss(restorePreviousApplication: false)
+
+        // A change pending at open is applied before the Overview shows.
+        churned[0] = WindowRecord(id: churned[0].id, appIdentifier: churned[0].appIdentifier, appName: churned[0].appName,
+                                  title: "Synthetic document 1 · applied on open", frame: churned[0].frame)
+        service.nativeCheckInstall(churned)
+        desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
+        try require(desktop.nativeCheckCard(for: churned[0].id)?.record?.title == "Synthetic document 1 · applied on open",
+                    "Opening the Overview must apply a pending registry change")
+        try require(desktop.nativeCheckOverviewWindow.frame == overviewFrame, "The Overview panel must not resize between opens")
+        await settle()
+
+        // Context menus exist only on request.
+        guard let card = desktop.nativeCheckCard(for: churned[0].id) else { throw Failure.check("Missing Overview card") }
+        try require(card.menu == nil, "Card menus must be built lazily")
+        let rightClick = NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: desktop.nativeCheckWindow.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        try require(card.menu(for: rightClick)?.items.count == 3, "A right-click must build the slot menu")
+
+        // A mouse-down outside the panel closes the Overview; the monitor exists only while it is visible.
+        try require(desktop.nativeCheckOutsideClickMonitorInstalled && outsideMonitors == 1, "Visible Overview must install one outside-click monitor")
+        let panelFrame = desktop.nativeCheckOverviewWindow.frame
+        outsideClick?(NSPoint(x: panelFrame.midX, y: panelFrame.midY))
+        try require(desktop.isOverviewVisible, "A mouse-down inside the panel must not dismiss the Overview")
+        outsideClick?(NSPoint(x: panelFrame.minX - 40, y: panelFrame.minY - 40))
+        try require(!desktop.isVisible, "A mouse-down outside the panel must dismiss the Overview")
+        try require(!desktop.nativeCheckOutsideClickMonitorInstalled && outsideMonitors == 0, "Dismissal must remove the outside-click monitor")
+        desktop.present(mode: .switcher, fromShortcut: true)
+        try require(outsideMonitors == 0, "The switcher must not install the outside-click monitor")
+        desktop.dismiss(restorePreviousApplication: false)
+        desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
+        await settle()
+
+        // Another application's activation dismisses the Overview; Paneflo's own does not.
+        let center = NSWorkspace.shared.notificationCenter
+        center.post(name: NSWorkspace.didActivateApplicationNotification, object: NSWorkspace.shared,
+                    userInfo: [NSWorkspace.applicationUserInfoKey: NSRunningApplication.current])
+        try require(desktop.isOverviewVisible, "Paneflo's own activation must not dismiss the Overview")
+        guard let other = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first else {
+            throw Failure.check("Missing a second running application for the activation fixture")
+        }
+        center.post(name: NSWorkspace.didActivateApplicationNotification, object: NSWorkspace.shared,
+                    userInfo: [NSWorkspace.applicationUserInfoKey: other])
+        try require(!desktop.isVisible, "Another application's activation must dismiss the Overview")
+        try require(outsideMonitors == 0, "Every dismissal path must remove the outside-click monitor")
+        await settle()
+        print("PASS fast surfaces")
     }
 
     /// Synthetic, never-posted CGEvents go through the real tap callback and main-queue hop.

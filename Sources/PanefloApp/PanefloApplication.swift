@@ -114,6 +114,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         preferences.set(true, forKey: "startup.completed.v1")
         windows.start()
         if missingPermission || firstLaunch { controller.showPreferences() }
+        // Pay both panels' first-display cost now, so the first ⌘Tab and Overview are warm.
+        DispatchQueue.main.async { [weak controller] in controller?.prewarm() }
         // updates hook: isBusy defers automatic checks and offers while a switcher or overview session is showing.
         UpdateController.shared.start(isBusy: { [weak self] in self?.desktop?.isVisible == true },
                                       report: { [weak self] in self?.desktop?.setStatus($0) })
