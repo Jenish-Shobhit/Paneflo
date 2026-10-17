@@ -228,6 +228,11 @@ enum WindowSearch {
         return terms.allSatisfy { text.contains($0) }
     }
 
+    static func matches(_ query: String, text: String) -> Bool {
+        let haystack = normalized(text)
+        return normalized(query).split(whereSeparator: \.isWhitespace).allSatisfy { haystack.contains($0) }
+    }
+
     private static func normalized(_ string: String) -> String {
         string.folding(options: [.caseInsensitive, .diacriticInsensitive],
                        locale: Locale(identifier: "en_US_POSIX"))
