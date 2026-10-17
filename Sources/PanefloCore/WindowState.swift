@@ -65,11 +65,24 @@ public struct WindowSnapshot: Equatable, Sendable {
     }
 }
 
-/// A deterministic reducer. Only confirmed focus changes MRU; failed reads need no mutation.
+/// A deterministic reducer. Focus requests and focus observations change MRU; failed reads need
+/// no mutation.
+///
+/// MRU order is the confirmed focus history followed by every never-focused window in window
+/// server stacking order (front to back), followed by windows with no stacking rank (minimized,
+/// hidden, or on another Space) in stable discovery order.
+///
+/// A focus request moves its window to the front immediately (optimistic) and holds a pending
+/// intent. While the intent is pending, observations of any other window are treated as
+/// transitional and ignored. Observations that began before the latest request (a lower
+/// sequence) are always stale.
 public struct WindowRegistry: Sendable {
     private var records: [WindowIdentity: WindowRecord] = [:]
     private var insertionOrder: [WindowIdentity] = []
     private var mostRecent: [WindowIdentity] = []
+    private var stackRank: [WindowIdentity: Int] = [:]
+    private var focusFloor: UInt64 = 0
+    private var pendingFocus: PendingFocus?
     private var latestLaunch: [Int32: UInt64] = [:]
     private var latestIncarnation: [NumberKey: UInt64] = [:]
     private var latestRevision: [NumberKey: UInt64] = [:]
@@ -79,6 +92,11 @@ public struct WindowRegistry: Sendable {
     private struct NumberKey: Hashable, Sendable {
         let process: ProcessIdentity
         let number: UInt32
+    }
+
+    private struct PendingFocus: Sendable {
+        let id: WindowIdentity
+        let sequence: UInt64
     }
 
     public init() {}
@@ -130,8 +148,11 @@ public struct WindowRegistry: Sendable {
         records.removeValue(forKey: id)
         insertionOrder.removeAll { $0 == id }
         mostRecent.removeAll { $0 == id }
+        stackRank.removeValue(forKey: id)
+        if pendingFocus?.id == id { pendingFocus = nil }
     }
 
+    /// Unconditional move to front. Adapters prefer `requestFocus` and `observeFocus`.
     @discardableResult
     public mutating func commitFocus(_ id: WindowIdentity) -> Bool {
         guard records[id] != nil else { return false }
@@ -140,8 +161,43 @@ public struct WindowRegistry: Sendable {
         return true
     }
 
+    /// Replaces the window server stacking order (front to back) used to rank windows that have
+    /// never been focused. Unknown and repeated identities are ignored.
+    public mutating func updateStacking(frontToBack ids: [WindowIdentity]) {
+        var rank: [WindowIdentity: Int] = [:]
+        for id in ids where records[id] != nil && rank[id] == nil { rank[id] = rank.count }
+        stackRank = rank
+    }
+
+    /// Optimistic MRU for a user-issued focus or commit. `sequence` must increase per request.
+    @discardableResult
+    public mutating func requestFocus(_ id: WindowIdentity, sequence: UInt64) -> Bool {
+        guard records[id] != nil, sequence >= focusFloor else { return false }
+        focusFloor = sequence
+        pendingFocus = PendingFocus(id: id, sequence: sequence)
+        return commitFocus(id)
+    }
+
+    /// An observed focus change (AX notification, focused-window query, scan, or activation).
+    /// `sequence` is the latest request sequence the observer had seen when it started.
+    @discardableResult
+    public mutating func observeFocus(_ id: WindowIdentity, sequence: UInt64) -> Bool {
+        guard records[id] != nil, sequence >= focusFloor else { return false }
+        if let pendingFocus, pendingFocus.id != id { return false }
+        return commitFocus(id)
+    }
+
+    /// Ends the transitional period of a request. Later observations are accepted as truth.
+    public mutating func finishFocusRequest(sequence: UInt64) {
+        if pendingFocus?.sequence == sequence { pendingFocus = nil }
+    }
+
+    public var hasPendingFocus: Bool { pendingFocus != nil }
+
     public var snapshot: WindowSnapshot {
-        WindowSnapshot(records: insertionOrder.compactMap { records[$0] }, mostRecent: mostRecent)
+        let confirmed = Set(mostRecent)
+        let ranked = stackRank.keys.filter { !confirmed.contains($0) }.sorted { stackRank[$0]! < stackRank[$1]! }
+        return WindowSnapshot(records: insertionOrder.compactMap { records[$0] }, mostRecent: mostRecent + ranked)
     }
 
     private mutating func admitLifetime(_ process: ProcessIdentity) -> Bool {
