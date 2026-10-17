@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Paneflo for macOS</title>
+<meta name="description" content="Paneflo is a native macOS menu bar app for finding, arranging and switching between individual windows. Every window. In its place.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b6b61'/%3E%3Crect x='6' y='6' width='9' height='20' rx='2' fill='%23fff'/%3E%3Crect x='17' y='6' width='9' height='9' rx='2' fill='%23fff' opacity='.85'/%3E%3Crect x='17' y='17' width='9' height='9' rx='2' fill='%23fff' opacity='.6'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --ink: #14211f;
+    --muted: #4f625f;
+    --paper: #f3f6f5;
+    --surface: #ffffff;
+    --line: #d5dedc;
+    --tint: #e3efec;
+    --accent: #0b6b61;
+    --accent-ink: #0b6b61;
+    --button: #0b6b61;
+    --button-ink: #ffffff;
+    --coral: #e2603f;
+    --desk: #dfe9e6;
+    --win-shadow: 0 1px 2px rgba(20, 33, 31, 0.14), 0 10px 26px rgba(20, 33, 31, 0.16);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #e6f0ee;
+      --muted: #9db3af;
+      --paper: #0e1514;
+      --surface: #16201f;
+      --line: #2a3a38;
+      --tint: #1b2d2a;
+      --accent: #4fd1bd;
+      --accent-ink: #5fdcc8;
+      --button: #2fb7a3;
+      --button-ink: #06201c;
+      --coral: #ff8a6b;
+      --desk: #101b19;
+      --win-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 12px 30px rgba(0, 0, 0, 0.5);
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html { overflow-x: clip; -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 17px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  }
+  a { color: var(--accent-ink); text-underline-offset: 0.18em; }
+  a:focus-visible, .button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+  code {
+    font: 0.92em/1 ui-monospace, "SF Mono", Menlo, monospace;
+    background: var(--tint); padding: 0.12em 0.32em; border-radius: 5px;
+  }
+  kbd {
+    display: inline-block; min-width: 1.9em; padding: 2px 7px; margin-right: 3px;
+    font: 600 14px/1.4 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    text-align: center; color: var(--ink);
+    background: var(--surface); border: 1px solid var(--line); border-bottom-width: 2.5px; border-radius: 7px;
+  }
+
+  .wrap { max-width: 68rem; margin: 0 auto; padding: 0 16px; }
+
+  header.top { padding: 28px 0 0; }
+  .brand { display: flex; align-items: center; gap: 12px; font-weight: 650; font-size: 19px; letter-spacing: -0.01em; }
+  .brand svg { width: 34px; height: 34px; flex: none; }
+
+  .hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 48px; align-items: center; padding: 56px 0 24px; }
+  h1 {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
+    font-size: clamp(38px, 6vw, 64px); line-height: 1.02; letter-spacing: -0.03em; font-weight: 750; margin: 0 0 20px;
+  }
+  h1 em { font-style: normal; color: var(--accent-ink); }
+  .lede { font-size: 19px; margin: 0 0 28px; max-width: 31em; }
+
+  .get { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
+  .button {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 13px 22px; border-radius: 12px;
+    font-weight: 600; font-size: 17px; text-decoration: none;
+    background: var(--button); color: var(--button-ink);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.2) inset, 0 6px 18px rgba(11, 107, 97, 0.28);
+  }
+  .button:hover { filter: brightness(1.08); }
+  .button svg { width: 18px; height: 18px; flex: none; }
+  .button.quiet { background: transparent; color: var(--accent-ink); box-shadow: inset 0 0 0 1.5px var(--line); }
+  .button.quiet:hover { box-shadow: inset 0 0 0 1.5px var(--accent); filter: none; }
+  .meta { color: var(--muted); font-size: 15px; margin: 14px 0 0; max-width: 34em; }
+
+  /* The illustration: a desktop whose panes settle into a grid. Abstract; no real windows or titles. */
+  .desk {
+    position: relative; aspect-ratio: 16 / 11; border-radius: 18px; background: var(--desk);
+    border: 1px solid var(--line); overflow: hidden;
+    box-shadow: var(--win-shadow);
+  }
+  .desk::before {
+    content: ""; position: absolute; left: 0; right: 0; top: 0; height: 22px;
+    background: linear-gradient(var(--line), var(--line)) 0 100% / 100% 1px no-repeat;
+    opacity: 0.9;
+  }
+  .desk::after {
+    content: ""; position: absolute; left: 12px; top: 8px; width: 38px; height: 6px; border-radius: 3px;
+    background: var(--muted); opacity: 0.45;
+  }
+  .pane {
+    position: absolute; border-radius: 10px; background: var(--surface); border: 1px solid var(--line);
+    box-shadow: var(--win-shadow); overflow: hidden;
+    transition: left 0.7s cubic-bezier(.2,.8,.2,1), top 0.7s cubic-bezier(.2,.8,.2,1),
+                width 0.7s cubic-bezier(.2,.8,.2,1), height 0.7s cubic-bezier(.2,.8,.2,1), transform 0.7s cubic-bezier(.2,.8,.2,1);
+  }
+  .pane i { position: absolute; left: 0; right: 0; top: 0; height: 16px; background: var(--tint); }
+  .pane i::before {
+    content: ""; position: absolute; left: 7px; top: 5px; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--coral); box-shadow: 9px 0 var(--muted), 18px 0 var(--muted); opacity: 0.8;
+  }
+  .pane b { position: absolute; left: 10px; right: 28%; top: 28px; height: 6px; border-radius: 3px; background: var(--line); }
+  .pane b + b { top: 42px; right: 12%; }
+  .pane b + b + b { top: 56px; right: 40%; }
+  .pane.hot { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent), var(--win-shadow); }
+  .pane.hot i { background: var(--accent); opacity: 0.9; }
+  .pane.hot i::before { background: var(--button-ink); box-shadow: 9px 0 var(--button-ink), 18px 0 var(--button-ink); opacity: 0.8; }
+
+  /* Scattered, as windows pile up. */
+  .pane:nth-child(1) { left: 6%;  top: 14%; width: 46%; height: 52%; transform: rotate(-3deg); }
+  .pane:nth-child(2) { left: 30%; top: 24%; width: 44%; height: 50%; transform: rotate(2deg); z-index: 2; }
+  .pane:nth-child(3) { left: 50%; top: 12%; width: 42%; height: 46%; transform: rotate(-1.5deg); }
+  .pane:nth-child(4) { left: 14%; top: 50%; width: 40%; height: 40%; transform: rotate(2.5deg); z-index: 3; }
+  .pane:nth-child(5) { left: 52%; top: 52%; width: 40%; height: 38%; transform: rotate(-2deg); z-index: 4; }
+  /* Placed. */
+  .desk.placed .pane:nth-child(1) { left: 3%;  top: 12%; width: 45%; height: 85%; transform: none; }
+  .desk.placed .pane:nth-child(2) { left: 50%; top: 12%; width: 23%; height: 41%; transform: none; }
+  .desk.placed .pane:nth-child(3) { left: 75%; top: 12%; width: 22%; height: 41%; transform: none; }
+  .desk.placed .pane:nth-child(4) { left: 50%; top: 56%; width: 23%; height: 41%; transform: none; }
+  .desk.placed .pane:nth-child(5) { left: 75%; top: 56%; width: 22%; height: 41%; transform: none; }
+  .caption { color: var(--muted); font-size: 13px; margin: 10px 4px 0; }
+
+  section { margin: 88px 0 0; }
+  h2 { font-size: 28px; line-height: 1.2; letter-spacing: -0.02em; margin: 0 0 8px; }
+  .sub { color: var(--muted); margin: 0 0 28px; max-width: 40em; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 22px; }
+  .card h3 { margin: 0 0 6px; font-size: 18px; letter-spacing: -0.01em; }
+  .card p { margin: 0; color: var(--muted); font-size: 16px; }
+  .card .keys { margin: 14px 0 0; }
+  .tag { display: inline-block; margin-top: 12px; font-size: 13px; font-weight: 600; color: var(--accent-ink); background: var(--tint); padding: 2px 9px; border-radius: 99px; }
+
+  ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: step; display: grid; gap: 22px; max-width: 44rem; }
+  ol.steps > li { counter-increment: step; position: relative; padding-left: 50px; }
+  ol.steps > li::before {
+    content: counter(step); position: absolute; left: 0; top: -1px;
+    width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center;
+    font-weight: 700; font-size: 15px; background: var(--tint); color: var(--accent-ink);
+  }
+  ol.steps ol { margin: 8px 0 0; padding-left: 20px; color: var(--muted); }
+  ol.steps ol li { margin: 4px 0; }
+  .path { white-space: nowrap; }
+
+  .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); gap: 16px; }
+  dl.asks { margin: 0; display: grid; gap: 14px; }
+  dl.asks dt { font-weight: 600; }
+  dl.asks dd { margin: 2px 0 0; color: var(--muted); }
+  .note { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--coral); border-radius: 12px; padding: 14px 18px; margin: 20px 0 0; max-width: 44rem; font-size: 16px; }
+
+  ul.plain { margin: 0; padding-left: 20px; color: var(--muted); }
+  ul.plain li { margin: 6px 0; }
+  ul.plain strong { color: var(--ink); }
+
+  footer { margin: 96px 0 0; padding: 24px 0 56px; border-top: 1px solid var(--line); color: var(--muted); font-size: 15px; display: flex; flex-wrap: wrap; gap: 8px 24px; }
+
+  @media (max-width: 860px) {
+    .hero { grid-template-columns: 1fr; gap: 32px; padding-top: 36px; }
+  }
+  @media (max-width: 600px) {
+    body { font-size: 16px; }
+    .lede { font-size: 17px; }
+    .button { width: 100%; justify-content: center; }
+    section { margin-top: 64px; }
+    .path { white-space: normal; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .pane { transition: none; }
+    html { scroll-behavior: auto; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <rect width="32" height="32" rx="8" fill="#0b6b61"/>
+        <rect x="6" y="6" width="9" height="20" rx="2" fill="#fff"/>
+        <rect x="17" y="6" width="9" height="9" rx="2" fill="#fff" opacity=".85"/>
+        <rect x="17" y="17" width="9" height="9" rx="2" fill="#fff" opacity=".6"/>
+      </svg>
+      Paneflo
+    </div>
+  </header>
+
+  <div class="hero">
+    <div>
+      <h1>Every window.<br><em>In its place.</em></h1>
+      <p class="lede">Paneflo is a menu bar app for your Mac that finds, arranges and switches between individual windows: a ⌘Tab that lists windows instead of apps, keyboard tiling, and an organized overview that stays where you put things.</p>
+      <div class="get">
+        <a class="button" id="download" href="https://github.com/Jenish-Shobhit/Paneflo/releases/latest">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path fill="currentColor" d="M10 2a1 1 0 0 1 1 1v8.59l2.3-2.3a1 1 0 1 1 1.4 1.42l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 1 1 1.4-1.42l2.3 2.3V3a1 1 0 0 1 1-1ZM4 16a1 1 0 1 0 0 2h12a1 1 0 1 0 0-2H4Z"/></svg>
+          <span id="download-label">Download Paneflo</span>
+        </a>
+        <a class="button quiet" href="#install">Install steps</a>
+      </div>
+      <p class="meta" id="download-meta">A developer preview for macOS 26 or later on Apple silicon. Free and open source (MIT).</p>
+    </div>
+    <div>
+      <div class="desk" id="desk" role="img" aria-label="An illustration of five overlapping windows settling into a tidy grid">
+        <div class="pane"><i></i><b></b><b></b><b></b></div>
+        <div class="pane hot"><i></i><b></b><b></b><b></b></div>
+        <div class="pane"><i></i><b></b><b></b><b></b></div>
+        <div class="pane"><i></i><b></b><b></b><b></b></div>
+        <div class="pane"><i></i><b></b><b></b><b></b></div>
+      </div>
+      <p class="caption">Illustration: abstract panes, not real windows.</p>
+    </div>
+  </div>
+
+  <section aria-labelledby="what">
+    <h2 id="what">What it does</h2>
+    <p class="sub">Three modules that share one list of your windows. Turn on the ones you want.</p>
+    <div class="cards">
+      <div class="card">
+        <h3>A window switcher</h3>
+        <p>Hold <kbd>⌘</kbd> and press <kbd>Tab</kbd> to pick a single window, not just an app. The selected window can show a live preview while the picker is open; other cards use cached thumbnails and say so when one is out of date or unavailable.</p>
+      </div>
+      <div class="card">
+        <h3>Tiling inside ⌘Tab</h3>
+        <p>While the picker is open and ⌘ is held, <kbd>←</kbd> or <kbd>→</kbd> puts the chosen window in the left or right half, and <kbd>↑</kbd> fills the display. Release ⌘ and it comes forward, already placed.</p>
+      </div>
+      <div class="card">
+        <h3>An organized Overview</h3>
+        <p>Press <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd> for a panel of every window in slots you control. Arrow keys move through the slots, search keeps their places, and Return focuses the window.</p>
+        <span class="tag">Optional: three-finger swipe up</span>
+      </div>
+      <div class="card">
+        <h3>Keyboard tiling anywhere</h3>
+        <p><kbd>⌃</kbd><kbd>⌥</kbd> with the arrow keys tiles the focused window to a half, <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Return</kbd> fills its display, and <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Z</kbd> undoes the last move.</p>
+      </div>
+      <div class="card">
+        <h3>The menu bar entry</h3>
+        <p>Every view is also in Paneflo's menu bar menu (Switch windows, Arrange windows, Organized overview), so you can try it before turning any shortcut on. Shortcuts and the gesture are opt-in in Settings.</p>
+      </div>
+    </div>
+    <p class="note"><strong>Paneflo's own overview.</strong> It is a panel Paneflo draws; it does not change Apple's Mission Control or Spaces. The trackpad gesture is experimental: it uses an unsupported macOS interface and is limited to Apple silicon on a macOS version Paneflo has been checked against, so Settings tells you when it is unavailable.</p>
+  </section>
+
+  <section aria-labelledby="install">
+    <h2 id="install">Install</h2>
+    <p class="sub">About a minute, plus the permissions macOS asks for.</p>
+    <ol class="steps">
+      <li>Download <span id="zip-name">the zip</span> from the button above and open it. You get <strong>Paneflo.app</strong>.</li>
+      <li>Move Paneflo.app to your <strong>Applications</strong> folder and keep it there: macOS ties Paneflo's permissions to that copy, and updates replace that copy.</li>
+      <li>Open Paneflo. It isn't notarized by Apple yet, so macOS blocks the first launch once:
+        <ol>
+          <li>In the "Paneflo" Not Opened dialog, click <strong>Done</strong>.</li>
+          <li>Open <span class="path"><strong>System Settings › Privacy &amp; Security</strong></span> and scroll to Security.</li>
+          <li>Next to "Paneflo" was blocked, click <strong>Open Anyway</strong>, then confirm with your password or Touch ID.</li>
+        </ol>
+      </li>
+      <li>Paneflo opens its Settings. Grant the permissions below, then turn on shortcuts (and previews, if you want them).</li>
+      <li>For the optional gesture: in <span class="path"><strong>System Settings › Trackpad › More Gestures</strong></span>, turn off the three-finger <strong>Mission Control</strong> and <strong>App Exposé</strong> swipes (or move them to four fingers). Paneflo doesn't change them for you. Then turn on the gesture in Paneflo's Settings.</li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="asks">
+    <h2 id="asks">What it asks for</h2>
+    <div class="two">
+      <dl class="asks">
+        <div><dt>Accessibility</dt><dd>To find other apps' windows, focus them and move or resize them. Without it Paneflo can't see or place anything. <span class="path">Privacy &amp; Security › Accessibility</span>.</dd></div>
+        <div><dt>Input Monitoring</dt><dd>To catch ⌘Tab, the tiling shortcuts and the trackpad gesture.<span class="path">Privacy &amp; Security › Input Monitoring</span>.</dd></div>
+        <div><dt>Screen Recording</dt><dd>Only if you turn on previews, for window thumbnails and the one live preview. Without it the switcher still works, with no pictures. <span class="path">Privacy &amp; Security › Screen &amp; System Audio Recording</span>.</dd></div>
+      </dl>
+      <div>
+        <h3 style="margin:0 0 8px;font-size:18px">Requirements</h3>
+        <ul class="plain">
+          <li><strong>macOS 26 or later</strong> on a Mac with <strong>Apple silicon</strong>.</li>
+          <li>Free, open source under the MIT license, no account and no analytics.</li>
+          <li>A developer preview: expect rough edges, and check the <a href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/docs/status.md">implementation status</a> for what has and hasn't been verified.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="updates">
+    <h2 id="updates">Updates</h2>
+    <p class="sub">Paneflo updates itself from GitHub releases, and only when you say so.</p>
+    <div class="two">
+      <ul class="plain">
+        <li>Choose <strong>Check for Updates…</strong> in Paneflo's menu bar menu. If a newer version exists you see its release notes and can <strong>Install and Relaunch</strong>, choose <strong>Later</strong>, or <strong>Skip This Version</strong>.</li>
+        <li>Paneflo also checks once a day, quietly, and never while the switcher or Overview is open. Turn that off with <strong>Check for Updates Automatically</strong> in the same menu; with it off, nothing is requested until you ask.</li>
+      </ul>
+      <ul class="plain">
+        <li><strong>Verified before it's installed.</strong> Paneflo checks the download's size and SHA-256, its bundle ID and version, and that its code signature is valid and made with the same certificate as the copy you're running. Anything else is refused.</li>
+        <li>The old copy goes to the Trash, the new one takes its place and opens, and your permissions carry over because the signing certificate is the same. A check sends nothing about you.</li>
+        <li>A copy built locally without the "Paneflo Dev" certificate can't verify a download; install from the <a id="releases-link" href="https://github.com/Jenish-Shobhit/Paneflo/releases/latest">releases page</a> instead.</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    <a href="https://github.com/Jenish-Shobhit/Paneflo">Source on GitHub</a>
+    <a id="notes" href="https://github.com/Jenish-Shobhit/Paneflo/releases/latest">Release notes</a>
+    <a href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/CHANGELOG.md">Changelog</a>
+    <a href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/docs/specs/000-product.md">Product spec</a>
+    <span>MIT license</span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var repo = "Jenish-Shobhit/Paneflo";
+  var api = "https://api.github.com/repos/" + repo + "/releases/latest";
+  var ghHost = /^https:\/\/github\.com\//;
+
+  // The desk: panes settle into a grid once, shortly after load. Static when motion is reduced.
+  var desk = document.getElementById("desk");
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduce) {
+    desk.classList.add("placed");
+  } else {
+    window.addEventListener("load", function () { setTimeout(function () { desk.classList.add("placed"); }, 450); });
+  }
+
+  // The newest release: its version on the button, its zip as the link. Without an answer (no release yet, a rate
+  // limit, offline, a script blocker) the button keeps pointing at the latest release's page on GitHub.
+  if (!window.fetch) return;
+  fetch(api, { headers: { Accept: "application/vnd.github+json" } })
+    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(function (release) {
+      var version = String(release.tag_name || "").replace(/^v/i, "");
+      if (!/^\d+(\.\d+){0,2}$/.test(version)) return;
+      var name = "Paneflo-" + version + ".zip";
+      var zip = (release.assets || []).filter(function (a) { return a.name === name; })[0];
+      if (!zip || !ghHost.test(zip.browser_download_url)) return;
+      document.getElementById("download").href = zip.browser_download_url;
+      document.getElementById("download-label").textContent = "Download Paneflo " + version;
+      document.getElementById("zip-name").textContent = name;
+      if (ghHost.test(release.html_url || "")) {
+        document.getElementById("notes").href = release.html_url;
+        document.getElementById("releases-link").href = release.html_url;
+      }
+      var meta = "Version " + version;
+      if (release.published_at) {
+        var date = new Date(release.published_at);
+        if (!isNaN(date)) meta += ", released " + date.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
+      }
+      var mb = zip.size / 1048576;
+      meta += ". A " + (mb >= 10 ? Math.round(mb) : mb.toFixed(1)) + " MB zip for macOS 26 or later on Apple silicon, a developer preview.";
+      document.getElementById("download-meta").textContent = meta;
+    })
+    .catch(function () {});
+})();
+</script>
+</body>
+</html>
