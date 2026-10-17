@@ -29,6 +29,8 @@ open build/Paneflo.app --args --diagnostics
 sh ./Tools/test-capture-ownership.sh
 ```
 
+To measure surface latency on your host, `sh Tools/build-surface-bench.sh build/bench --runs 5` builds an own-window bench, runs it with 20 and 60 synthetic cards, and prints median/p90/min/max for switcher and Overview presentation, selection steps, Escape, and main-thread work while hidden. `--source <checkout>` measures another revision with the same bench. It shows its own panels briefly and installs no event tap.
+
 Use LaunchServices (`open`) or Finder to launch the native app. `--diagnostics` prints title-free startup phases to stderr. `build/Paneflo.app/Contents/MacOS/Paneflo --version` exits without initializing AppKit.
 
 Build caches live under ignored `.build/`. The test script runs bundled Swift Testing and derives its framework search path from the selected Command Line Tools or Xcode installation. In an executor that blocks SwiftPM's manifest sandbox for this dependency-free package, prefix a script with `PANEFLO_SPM_DISABLE_SANDBOX=1`.
