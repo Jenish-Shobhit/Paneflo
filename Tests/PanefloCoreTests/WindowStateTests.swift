@@ -91,4 +91,109 @@ struct WindowStateTests {
                                       mostRecent: [windowID(99), windowID(2), windowID(2)])
         #expect(snapshot.orderedRecords.map(\.id) == [windowID(2), windowID(1)])
     }
+
+    private func seeded(_ numbers: [UInt32]) -> WindowRegistry {
+        var registry = WindowRegistry()
+        for number in numbers { registry.upsert(record(number)) }
+        return registry
+    }
+
+    @Test
+    func testLaunchMRUFollowsStackingThenStableDiscoveryOrder() {
+        // Discovered in AX/app order 1...5; window server front-to-back is 3, 1, 4.
+        // 2 and 5 are off screen (minimized, hidden, or another Space).
+        var registry = seeded([1, 2, 3, 4, 5])
+        registry.updateStacking(frontToBack: [windowID(3), windowID(1), windowID(99), windowID(4), windowID(3)])
+        #expect(registry.snapshot.orderedRecords.map(\.id.number) == [3, 1, 4, 2, 5])
+        // The frontmost app's focused window is confirmed by the first scan.
+        let observed = registry.observeFocus(windowID(1), sequence: 0)
+        #expect(observed)
+        #expect(registry.snapshot.orderedRecords.map(\.id.number) == [1, 3, 4, 2, 5])
+        // A later stacking change reorders only never-focused windows.
+        registry.updateStacking(frontToBack: [windowID(4), windowID(1), windowID(3)])
+        #expect(registry.snapshot.orderedRecords.map(\.id.number) == [1, 4, 3, 2, 5])
+        registry.remove(windowID(4))
+        #expect(registry.snapshot.orderedRecords.map(\.id.number) == [1, 3, 2, 5])
+    }
+
+    @Test
+    func testOptimisticCommitMovesWindowToFrontBeforeConfirmation() {
+        var registry = seeded([1, 2, 3])
+        registry.updateStacking(frontToBack: [windowID(1), windowID(2), windowID(3)])
+        let requested = registry.requestFocus(windowID(3), sequence: 1)
+        #expect(requested)
+        #expect(registry.snapshot.orderedRecords.first?.id == windowID(3))
+        #expect(registry.hasPendingFocus)
+        // A scan that began before the request still reports the old focus: stale.
+        let stale = registry.observeFocus(windowID(1), sequence: 0)
+        #expect(!stale)
+        // Transitional focus on another window while the request is pending is ignored.
+        let transitional = registry.observeFocus(windowID(2), sequence: 1)
+        #expect(!transitional)
+        let confirmed = registry.observeFocus(windowID(3), sequence: 1)
+        #expect(confirmed)
+        registry.finishFocusRequest(sequence: 1)
+        #expect(!registry.hasPendingFocus)
+        #expect(registry.snapshot.orderedRecords.map(\.id.number) == [3, 1, 2])
+        let missing = registry.requestFocus(windowID(42), sequence: 2)
+        #expect(!missing)
+    }
+
+    @Test
+    func testRapidToggleAlternatesBetweenTwoWindows() {
+        var registry = seeded([1, 2, 3])
+        registry.updateStacking(frontToBack: [windowID(1), windowID(2), windowID(3)])
+        _ = registry.observeFocus(windowID(1), sequence: 0)
+        var expectedFront = windowID(1)
+        var sequence: UInt64 = 0
+        for _ in 0..<20 {
+            // A Command-Tab session freezes the order and selects ordered[1].
+            let session = SwitcherSession(snapshot: registry.snapshot)
+            let target = session.selectedID!
+            #expect(target != expectedFront)
+            #expect(Set([target, expectedFront]) == Set([windowID(1), windowID(2)]))
+            sequence += 1
+            let requested = registry.requestFocus(target, sequence: sequence)
+            #expect(requested)
+            // Late notifications from the previous request are rejected.
+            let late = registry.observeFocus(expectedFront, sequence: sequence - 1)
+            #expect(!late)
+            let transitional = registry.observeFocus(expectedFront, sequence: sequence)
+            #expect(!transitional)
+            expectedFront = target
+            #expect(registry.snapshot.orderedRecords.prefix(2).map(\.id) == [target, target == windowID(1) ? windowID(2) : windowID(1)])
+        }
+        // Requests that finish out of order never resurrect an older intent.
+        registry.finishFocusRequest(sequence: sequence - 1)
+        #expect(registry.hasPendingFocus)
+        registry.finishFocusRequest(sequence: sequence)
+        #expect(!registry.hasPendingFocus)
+        let older = registry.requestFocus(windowID(3), sequence: sequence - 1)
+        #expect(!older)
+    }
+
+    @Test
+    func testFocusNotificationsReorderWithoutARescan() {
+        var registry = seeded([1, 2, 3])
+        registry.updateStacking(frontToBack: [windowID(1), windowID(2), windowID(3)])
+        _ = registry.observeFocus(windowID(1), sequence: 0)
+        // The user clicks window 3, then window 2 (no Paneflo request involved).
+        let third = registry.observeFocus(windowID(3), sequence: 0)
+        #expect(third)
+        let second = registry.observeFocus(windowID(2), sequence: 0)
+        #expect(second)
+        #expect(registry.snapshot.orderedRecords.map(\.id.number) == [2, 3, 1])
+        // After a request finishes, observations are accepted as truth again.
+        _ = registry.requestFocus(windowID(1), sequence: 5)
+        registry.finishFocusRequest(sequence: 5)
+        let click = registry.observeFocus(windowID(3), sequence: 5)
+        #expect(click)
+        #expect(registry.snapshot.orderedRecords.map(\.id.number) == [3, 1, 2])
+        // A closed pending target releases the hold.
+        _ = registry.requestFocus(windowID(2), sequence: 6)
+        registry.remove(windowID(2))
+        #expect(!registry.hasPendingFocus)
+        let afterClose = registry.observeFocus(windowID(1), sequence: 6)
+        #expect(afterClose)
+    }
 }

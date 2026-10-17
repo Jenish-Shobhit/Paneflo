@@ -1,7 +1,14 @@
 /// Pure admission for finite per-PID Accessibility work. Running calls are never logically
 /// timed out to admit replacement work: only physical worker completion releases a slot.
+///
+/// Three lanes share one coordinator:
+/// - `interactive` (focus, placement, minimize) has its own worker slots and is serialized only
+///   against other interactive work for the same PID. It never waits behind a scan or an update.
+/// - `background` (full per-PID window scans) is serialized per PID against scans and updates.
+/// - `update` (coalesced single-record refreshes and focused-window queries driven by AX
+///   notifications) is serialized per PID like scans, with its own slots.
 public struct AXWorkAdmission: Sendable {
-    public enum Priority: Sendable { case interactive, background }
+    public enum Priority: Sendable { case interactive, background, update }
     public struct Ticket: Equatable, Sendable {
         public let id: UInt64
         public let pid: Int32
@@ -13,9 +20,12 @@ public struct AXWorkAdmission: Sendable {
     public private(set) var pending: [Ticket] = []
     public private(set) var active: [Ticket] = []
     public let maximumPending: Int
+    public static let interactiveSlots = 2
+    public static let backgroundSlots = 2
+    public static let updateSlots = 2
     public init(maximumPending: Int = 64) { self.maximumPending = max(1, maximumPending) }
 
-    /// Coalesce each PID/priority lane. Interactive work can evict queued background work.
+    /// Coalesce each PID/priority lane. Interactive work can evict queued non-interactive work.
     /// Returned IDs must have their cancellation completions delivered by the adapter.
     @discardableResult public mutating func enqueue(_ ticket: Ticket) -> [UInt64] {
         guard !active.contains(where: { $0.id == ticket.id }), !pending.contains(where: { $0.id == ticket.id }) else { return [] }
@@ -24,7 +34,7 @@ public struct AXWorkAdmission: Sendable {
             dropped.append(pending.remove(at: index).id)
         }
         if pending.count >= maximumPending {
-            if ticket.priority == .interactive, let index = pending.firstIndex(where: { $0.priority == .background }) {
+            if ticket.priority == .interactive, let index = pending.firstIndex(where: { $0.priority != .interactive }) {
                 dropped.append(pending.remove(at: index).id)
             } else {
                 dropped.append(ticket.id)
@@ -37,17 +47,33 @@ public struct AXWorkAdmission: Sendable {
 
     public mutating func takeReady() -> [Ticket] {
         var admitted: [Ticket] = []
-        while active.count < 4 {
-            let busyPIDs = Set(active.map(\.pid))
-            let interactive = pending.firstIndex { $0.priority == .interactive && !busyPIDs.contains($0.pid) }
-            let background = active.filter { $0.priority == .background }.count < 2
-                ? pending.firstIndex { $0.priority == .background && !busyPIDs.contains($0.pid) } : nil
-            guard let index = interactive ?? background else { break }
+        while let index = nextReadyIndex() {
             let ticket = pending.remove(at: index)
             active.append(ticket); admitted.append(ticket)
         }
         return admitted
     }
+
+    /// Interactive first, then scans, then notification-driven updates.
+    private func nextReadyIndex() -> Int? {
+        let interactivePIDs = Set(active.filter { $0.priority == .interactive }.map(\.pid))
+        let scanningPIDs = Set(active.filter { $0.priority != .interactive }.map(\.pid))
+        if count(.interactive) < Self.interactiveSlots,
+           let index = pending.firstIndex(where: { $0.priority == .interactive && !interactivePIDs.contains($0.pid) }) {
+            return index
+        }
+        if count(.background) < Self.backgroundSlots,
+           let index = pending.firstIndex(where: { $0.priority == .background && !scanningPIDs.contains($0.pid) }) {
+            return index
+        }
+        if count(.update) < Self.updateSlots,
+           let index = pending.firstIndex(where: { $0.priority == .update && !scanningPIDs.contains($0.pid) }) {
+            return index
+        }
+        return nil
+    }
+
+    private func count(_ priority: Priority) -> Int { active.lazy.filter { $0.priority == priority }.count }
 
     @discardableResult public mutating func finish(_ id: UInt64) -> Bool {
         guard let index = active.firstIndex(where: { $0.id == id }) else { return false }
