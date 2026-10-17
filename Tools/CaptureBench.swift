@@ -145,6 +145,24 @@ import PanefloCore
         close(); recorder.frames.removeAll()
         _ = await waitUntil(3) { capture.liveStreamCount == 0 }
 
+        // Memory pressure: critical stops live and purges; warning resumes degraded; normal restores.
+        let realLevel = CaptureController.currentPressureLevel()
+        recorder.reset(); open(selected: 2)
+        _ = await waitUntil(3) { recorder.firstLive[cards[2].id] != nil }
+        capture.applyPressure(.critical)
+        let criticalZero = await waitUntil(3) { capture.liveStreamCount == 0 }
+        let pausedLabel = recorder.lastLabels[cards[3].id] ?? "?"
+        print("RESULT pressureCritical liveStreamsZeroAfterMs=\(ms(criticalZero)) cacheEntries=\(capture.cacheCount) label=\(pausedLabel)")
+        recorder.reset(); recorder.frames.removeAll()
+        capture.applyPressure(.warning)
+        _ = await waitUntil(3) { recorder.firstLive[cards[2].id] != nil }
+        _ = await waitUntil(5) { recorder.snapshots.count >= cards.count - 1 }
+        print("RESULT pressureWarningResume firstLiveFrameMs=\(ms(recorder.firstLive[cards[2].id])) snapshotsRefreshed=\(recorder.snapshots.count) cacheMiB=\(mib(capture.cacheBytes)) liveFrameWidth=\(recorder.frames[cards[2].id]?.width ?? 0)")
+        capture.applyPressure(.normal)
+        close(); recorder.frames.removeAll()
+        _ = await waitUntil(3) { capture.liveStreamCount == 0 }
+        capture.applyPressure(realLevel)
+
         // Rapid churn: 50 open/select/close cycles faster than capture.
         for cycle in 0..<50 {
             open(selected: cycle % cards.count)

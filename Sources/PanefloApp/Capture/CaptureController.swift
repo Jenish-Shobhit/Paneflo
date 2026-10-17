@@ -611,7 +611,9 @@ final class CaptureController {
         return MemoryPressureLevel(kernelLevel: Int(value))
     }
 
-    private func applyPressure(_ level: MemoryPressureLevel) {
+    /// Driven by the memory-pressure source and re-synced from the kernel level on every open.
+    /// Internal (not private) so Tools/CaptureBench can exercise the transitions.
+    func applyPressure(_ level: MemoryPressureLevel) {
         let transition = pressure.apply(level)
         guard transition.qualityChanged else { return }
         RuntimeDiagnostics.mark("capture pressure=\(level) thumbnailByteLimit=\(pressure.quality.thumbnailByteLimit) liveFPS=\(pressure.quality.liveFramesPerSecond)")
