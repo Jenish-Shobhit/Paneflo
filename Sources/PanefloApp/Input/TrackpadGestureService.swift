@@ -11,6 +11,11 @@ struct TrackpadGestureDiagnostics: Sendable {
     var palmOrRimContacts: UInt64 = 0
 }
 
+struct TrackpadGestureEvent: Sendable {
+    let direction: ThreeFingerSwipeDirection
+    let recognizedAtUptimeNanoseconds: UInt64
+}
+
 /// Optional private-API adapter. Initial scope: the default built-in trackpad on macOS 27.
 /// A native conflicting gesture must be changed separately by the user.
 @MainActor
@@ -21,6 +26,7 @@ final class TrackpadGestureService {
     enum Availability: Equatable { case experimental, unavailable(String) }
     private(set) var state: State = .disabled { didSet { onStateChange?(state) } }
     var onGesture: ((ThreeFingerSwipeDirection) -> Void)?
+    var onGestureEvent: ((TrackpadGestureEvent) -> Void)?
     var onStateChange: ((State) -> Void)?
     /// Counters contain no contact positions, identifiers, application or window data.
     var onDiagnostics: ((TrackpadGestureDiagnostics) -> Void)?
@@ -37,6 +43,7 @@ final class TrackpadGestureService {
     private var observers: [NSObjectProtocol] = []
     private var lifecycle = TrackpadLifecycleGate()
     private var lastFailure: String?
+    private var permissionRevoked = false
     /// User intent remains enabled while physical observation is paused for sleep/session changes.
     var isEnabled: Bool { lifecycle.isEnabled }
 
@@ -51,6 +58,7 @@ final class TrackpadGestureService {
     func start() -> Bool {
         if isEnabled { return true }
         guard validateEnvironment() else { return false }
+        permissionRevoked = false
         lastFailure = nil
         observeLifecycle()
         apply(lifecycle.send(.enable))
@@ -59,8 +67,16 @@ final class TrackpadGestureService {
 
     /// User disable clears intent and prevents any pending automatic resume.
     func stop() {
+        permissionRevoked = false
         removeLifecycleObservers()
         apply(lifecycle.send(.disable))
+    }
+
+    private func stopAfterPermissionRevocation() {
+        permissionRevoked = true
+        removeLifecycleObservers()
+        apply(lifecycle.send(.disable))
+        publishState()
     }
 
     func suspendForLifecycleChange(_ reason: TrackpadLifecycleGate.Reason = .sessionInactive) {
@@ -90,10 +106,17 @@ final class TrackpadGestureService {
         }
         generation &+= 1
         let token = generation
-        TrackpadBackend.shared.start(onGesture: { [weak self] direction in
+        TrackpadBackend.shared.start(onGesture: { [weak self] event in
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.generation == token, self.state == .active, self.isEnabled else { return }
-                self.onGesture?(direction)
+                guard GestureDeliveryDeadline.isFresh(recognizedAt: event.recognizedAtUptimeNanoseconds,
+                                                     now: DispatchTime.now().uptimeNanoseconds) else { return }
+                guard CGPreflightListenEventAccess() else {
+                    self.stopAfterPermissionRevocation()
+                    return
+                }
+                if let onGestureEvent = self.onGestureEvent { onGestureEvent(event) }
+                else { self.onGesture?(event.direction) }
             }
         }, completion: { [weak self] result in
             DispatchQueue.main.async { [weak self] in
@@ -140,7 +163,9 @@ final class TrackpadGestureService {
 
     private func publishState() {
         switch lifecycle.phase {
-        case .disabled: state = .disabled
+        case .disabled:
+            state = permissionRevoked
+                ? .unavailable("Input Monitoring permission is required for native trackpad gestures.") : .disabled
         case .starting: state = .starting
         case .active: state = .active
         case .stopping: state = .stopping
@@ -197,8 +222,9 @@ private final class TrackpadBackend: @unchecked Sendable {
     private var observing = false
     private var activationEpoch: UInt64 = 0
     private var recognizer = ThreeFingerSwipe()
+    private var freshContacts = FreshContactGate()
     private var diagnostics = TrackpadGestureDiagnostics()
-    private var gestureHandler: (@Sendable (ThreeFingerSwipeDirection) -> Void)?
+    private var gestureHandler: (@Sendable (TrackpadGestureEvent) -> Void)?
     private var failureHandler: (@Sendable (TrackpadStartResult) -> Void)?
     private var lastTimestamp: Double?
     // Queue-confined state. The resource is never released or dlclosed during the process.
@@ -218,7 +244,7 @@ private final class TrackpadBackend: @unchecked Sendable {
         let running: @convention(c) (UnsafeMutableRawPointer) -> Bool
     }
 
-    func start(onGesture: @escaping @Sendable (ThreeFingerSwipeDirection) -> Void,
+    func start(onGesture: @escaping @Sendable (TrackpadGestureEvent) -> Void,
                completion: @escaping @Sendable (TrackpadStartResult) -> Void) {
         lock.lock(); let requestEpoch = activationEpoch; lock.unlock()
         queue.async { [self] in
@@ -232,7 +258,7 @@ private final class TrackpadBackend: @unchecked Sendable {
             guard activationEpoch == requestEpoch else {
                 lock.unlock(); completion(.failed("Trackpad start was canceled.")); return
             }
-            diagnostics = .init(); recognizer.reset(); lastTimestamp = nil
+            diagnostics = .init(); recognizer = ThreeFingerSwipe(); freshContacts.reset(); lastTimestamp = nil
             gestureHandler = onGesture; failureHandler = completion
             observing = true
             lock.unlock()
@@ -258,7 +284,7 @@ private final class TrackpadBackend: @unchecked Sendable {
     func cancel() {
         lock.lock()
         activationEpoch &+= 1
-        observing = false; recognizer.reset(); gestureHandler = nil; failureHandler = nil
+        observing = false; recognizer.reset(); freshContacts.reset(); gestureHandler = nil; failureHandler = nil
         lock.unlock()
     }
     func stop(completion: @escaping @Sendable (TrackpadStopResult) -> Void) {
@@ -337,6 +363,7 @@ private final class TrackpadBackend: @unchecked Sendable {
         }
         lastTimestamp = timestamp
         var contacts = ContactFrame()
+        var evidence = ContactEvidenceFrame()
         if let bytes {
             for index in 0..<Int(count) {
                 let sample = bytes.advanced(by: index * 96)
@@ -354,6 +381,7 @@ private final class TrackpadBackend: @unchecked Sendable {
                 }
                 guard (3...5).contains(state) else { continue }
                 let id = sample.loadUnaligned(fromByteOffset: 16, as: Int32.self)
+                evidence.append(.init(id: id, phase: state == 3 ? .began : .continuing))
                 // Conservative starting scope: oversized or rim contacts cancel the entire
                 // sequence, rather than hiding a fourth finger and creating a false swipe.
                 let palm = size > 1.5 || x < 0.035 || x > 0.965 || y < 0.035
@@ -362,8 +390,13 @@ private final class TrackpadBackend: @unchecked Sendable {
                 diagnostics.contacts &+= 1
             }
         }
-        let direction = recognizer.update(timestamp: timestamp, contacts: contacts)
+        let isFresh = freshContacts.accepts(evidence)
+        if !isFresh { recognizer.reset() }
+        else if contacts.isEmpty { _ = recognizer.update(timestamp: timestamp, contacts: contacts) }
+        let direction = isFresh && !contacts.isEmpty
+            ? recognizer.update(timestamp: timestamp, contacts: contacts) : nil
         let handler = direction == nil ? nil : gestureHandler
+        let recognizedAt = direction == nil ? 0 : DispatchTime.now().uptimeNanoseconds
         if let direction {
             diagnostics.gestures &+= 1
             switch direction {
@@ -372,13 +405,15 @@ private final class TrackpadBackend: @unchecked Sendable {
             }
         }
         lock.unlock()
-        if let direction, let handler { handler(direction) }
+        if let direction, let handler {
+            handler(.init(direction: direction, recognizedAtUptimeNanoseconds: recognizedAt))
+        }
     }
 
     /// Called with lock held. Quarantine corrupt ABI data and shut down on lifecycle queue.
     private func rejectFrame() {
         diagnostics.rejectedFrames &+= 1
-        observing = false; recognizer.reset()
+        observing = false; recognizer.reset(); freshContacts.reset()
         let handler = failureHandler
         gestureHandler = nil; failureHandler = nil
         lock.unlock()
@@ -387,6 +422,24 @@ private final class TrackpadBackend: @unchecked Sendable {
             poisoned = true
             handler?(.failed("Unexpected trackpad contact data. Native gestures have been stopped; restart Paneflo before trying again."))
         }
+    }
+}
+
+/// Stores no more than three identifiers; a fourth increments count and is
+/// rejected by FreshContactGate before any indexed read.
+private struct ContactEvidenceFrame: RandomAccessCollection {
+    typealias Index = Int
+    private var first: SwipeContactEvidence?
+    private var second: SwipeContactEvidence?
+    private var third: SwipeContactEvidence?
+    private(set) var endIndex = 0
+    var startIndex: Int { 0 }
+    mutating func append(_ contact: SwipeContactEvidence) {
+        switch endIndex { case 0: first = contact; case 1: second = contact; case 2: third = contact; default: break }
+        endIndex += 1
+    }
+    subscript(index: Int) -> SwipeContactEvidence {
+        switch index { case 0: return first!; case 1: return second!; case 2: return third!; default: preconditionFailure("Only three contacts may be inspected") }
     }
 }
 
