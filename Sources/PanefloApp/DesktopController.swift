@@ -24,7 +24,8 @@ private final class DesktopPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override func keyDown(with event: NSEvent) { if onKey?(event) != true { super.keyDown(with: event) } }
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if event.modifierFlags.contains(.command), [123, 124, 126].contains(event.keyCode), onKey?(event) == true { return true }
+        let chord = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        if chord == .command || chord == [.command, .option], (123...126).contains(event.keyCode), onKey?(event) == true { return true }
         return super.performKeyEquivalent(with: event)
     }
 }
@@ -63,7 +64,8 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
     var onThumbnailViewport: (([WindowThumbnailRequest], Bool, Set<WindowIdentity>) -> Void)?
     var onVisibilityChanged: ((Bool) -> Void)?
     var onCompositionChanged: ((Bool) -> Void)?
-    var onPresentationChanged: (() -> Void)?
+    /// Any Paneflo surface on screen, regardless of key or active state. Escape ownership follows this.
+    var onSurfaceVisibilityChanged: ((Bool) -> Void)?
     private let modes = NSSegmentedControl(labels: ["Switch", "Arrange", "Overview"], trackingMode: .selectOne, target: nil, action: nil)
     private let search = NSSearchField()
     private let status = NSTextField(wrappingLabelWithString: "")
@@ -128,7 +130,6 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
 
     func present(mode: DesktopMode, fromShortcut: Bool = false, backwards: Bool = false) {
         let started = ProcessInfo.processInfo.systemUptime
-        onPresentationChanged?()
         firstPreviewStarted = started
         let visibleFrame = (panel.screen ?? NSScreen.main)?.visibleFrame
         let reuseOverview = mode == .overview && self.mode == .overview
@@ -141,7 +142,9 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         failureFeedback.isHidden = true
         commitGate.cancelCommit()
         heading.stringValue = mode == .overview ? "Your overview" : mode == .tiling ? "Arrange a window" : "Switch windows"
-        keyboardHint.stringValue = mode == .overview ? "arrows select   ⌘← → tile   ⌘↑ fill   return open   esc close" : "⇥ switch   ⇧⇥ reverse   ⌘← → tile   ⌘↑ fill   esc cancel"
+        keyboardHint.stringValue = mode == .overview ? "arrows select   ⌘⌥← → tile   ⌘⌥↑ fill   ⌘⌥↓ undo   return open   esc close"
+            : shortcutSession ? "⇥ or arrows select   ⌥← → tile   ⌥↑ fill   ⌥↓ undo   release ⌘ to open   esc cancel"
+            : "arrows select   ⌘⌥← → tile   ⌘⌥↑ fill   ⌘⌥↓ undo   return open   esc close"
         search.isHidden = shortcutSession
         search.stringValue = ""
         if mode == .switcher {
@@ -182,6 +185,7 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
     }
 
     func navigate(_ direction: CycleDirection) {
+        guard panel.isVisible else { return }
         if mode == .switcher { session.advance(direction); selectedID = session.selectedID }
         else {
             let eligible = eligibleSelectionIDs()
@@ -196,8 +200,23 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         refreshSelection()
     }
 
+    func navigateRow(_ direction: CycleDirection) {
+        guard panel.isVisible else { return }
+        navigateRows(direction == .forward ? 1 : -1)
+    }
+
     private func navigateRows(_ delta: Int) {
-        guard mode != .switcher else { navigate(delta > 0 ? .forward : .backward); return }
+        if mode == .switcher {
+            // Rows exist only when the picker wraps; a single row has nothing above or below.
+            let current = displayed.firstIndex(where: { $0 != nil && $0 == selectedID })
+            if let next = GridNavigation.vertical(from: current, columns: columnCount, count: displayed.count,
+                                                   eligible: Array(displayed.indices), direction: delta),
+               let id = displayed[next], session.select(id) {
+                selectedID = session.selectedID
+                refreshSelection()
+            }
+            return
+        }
         let eligible = Set(eligibleSelectionIDs())
         let indices = displayed.indices.filter { displayed[$0].map { eligible.contains($0) } ?? false }
         let current = displayed.firstIndex(where: { $0 != nil && $0 == selectedID })
@@ -211,7 +230,7 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
     func commitShortcut() { if shortcutSession { activateSelected() } }
     func focusOverview(recognizedAtUptimeNanoseconds: UInt64? = nil) {
         pendingGestureRecognizedAt = recognizedAtUptimeNanoseconds
-        if isOverviewVisible { onPresentationChanged?(); acquireOverviewKeyboard() }
+        if isOverviewVisible { acquireOverviewKeyboard() }
         else { present(mode: .overview, fromShortcut: true) }
     }
 
@@ -438,7 +457,7 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         button("Undo arrangement", #selector(undoLayout), undo); stack.addArrangedSubview(undo)
         stack.addArrangedSubview(status); status.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         if status.stringValue.isEmpty {
-            status.stringValue = "⌘Tab picks a window. Hold ⌘ and use ← → or ↑ to arrange it before releasing."
+            status.stringValue = "⌘Tab picks a window. Keep holding ⌘: Tab or the arrow keys choose, ⌥← → ↑ arrange it, ⌥↓ undoes. Release ⌘ to open it. In Overview, ⌘⌥ with the arrows arranges the selected window."
         }
         preferences = window
     }
@@ -722,7 +741,9 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
             }
         }
         onVisibilityChanged?(owned)
-        let composing = owned && (panel.firstResponder as? NSTextView)?.hasMarkedText() == true
+        onSurfaceVisibilityChanged?(panel.isVisible)
+        // Marked text can exist only in Paneflo's own key field; that is the one Escape exception.
+        let composing = panel.isVisible && panel.isKeyWindow && (panel.firstResponder as? NSTextView)?.hasMarkedText() == true
         onCompositionChanged?(composing)
         let state = "desktop keyboard visible=\(panel.isVisible) key=\(panel.isKeyWindow) appActive=\(NSApp.isActive) selectionOwned=\(owned) composing=\(composing) mode=\(mode.rawValue)"
         if state != lastKeyboardDiagnostic {
@@ -737,11 +758,27 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
     private func handleKey(_ event: NSEvent) -> Bool {
         if event.keyCode == 53 { dismiss(); return true }
         let commandModifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
-        if commandModifiers == .command, [123, 124, 126].contains(event.keyCode) {
-            if event.isARepeat { return true }
-            if event.keyCode == 123 { tileSelected(.leftHalf); return true }
-            if event.keyCode == 124 { tileSelected(.rightHalf); return true }
-            if event.keyCode == 126 { tileSelected(.maximize); return true }
+        if (123...126).contains(event.keyCode) {
+            // Every surface: Command–arrows select (like plain arrows); Command–Option–arrows arrange.
+            if commandModifiers == [.command, .option] {
+                if event.isARepeat { return true }
+                switch event.keyCode {
+                case 123: tileSelected(.leftHalf)
+                case 124: tileSelected(.rightHalf)
+                case 126: tileSelected(.maximize)
+                default: service.undo()
+                }
+                return true
+            }
+            if commandModifiers == .command {
+                switch event.keyCode {
+                case 123: navigate(.backward)
+                case 124: navigate(.forward)
+                case 126: navigateRows(-1)
+                default: navigateRows(1)
+                }
+                return true
+            }
         }
         guard event.modifierFlags.intersection([.command, .control, .option]).isEmpty else { return false }
         switch event.keyCode {

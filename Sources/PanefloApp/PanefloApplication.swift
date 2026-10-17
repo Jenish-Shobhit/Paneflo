@@ -69,7 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         controller.onCompositionChanged = { [weak self] in self?.shortcuts.compositionActive = $0 }
         controller.onVisibilityChanged = { [weak self] in self?.shortcuts.selectionContextActive = $0 }
-        controller.onPresentationChanged = { [weak self] in self?.shortcuts.invalidateSelectionPresentation() }
+        controller.onSurfaceVisibilityChanged = { [weak self] in self?.shortcuts.surfaceVisible = $0 }
         controller.onToggleGesture = { [weak self] in self?.setGestures($0) }
         controller.onToggleShortcuts = { [weak self] in self?.setShortcuts($0) }
         shortcuts.onAction = { [weak self] in self?.handle($0) }
@@ -249,13 +249,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = shortcuts.start(configuration: .init(switcherEnabled: true, overview: ShortcutChord(keyCode: 49, modifiers: modifiers), tiling: tiling))
     }
 
+    /// Queued actions never expire. One is dropped only when the surface it targets is gone;
+    /// the controller methods guard their own surface state.
     private func handle(_ action: ShortcutAction) {
         switch action {
         case .switchForward: desktop?.switchStep(backwards: false)
         case .switchBackward: desktop?.switchStep(backwards: true)
         case .commit: desktop?.commitShortcut()
-        case .cancel: desktop?.dismiss()
+        case .cancel: if desktop?.isVisible == true { desktop?.dismiss() }
         case .navigate(let direction): desktop?.navigate(direction)
+        case .navigateRow(let direction): desktop?.navigateRow(direction)
         case .overview:
             if desktop?.isVisible == true { desktop?.dismiss() } else { desktop?.present(mode: .overview, fromShortcut: true) }
         case .tileSelected(let zone): desktop?.tileSelected(zone)

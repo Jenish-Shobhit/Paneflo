@@ -48,40 +48,6 @@ struct NativeUICheck {
                     title: "Synthetic document \(index + 1)", frame: WindowRect(x: 0, y: 0, width: 440, height: 288))
             }
         }
-        let input = GlobalShortcutService()
-        var canceled = 0
-        var deliveredStandalone = 0
-        var deliveredCommit = 0
-        input.onAction = { action in
-            switch action {
-            case .cancel:
-                canceled += 1
-                if desktop.isVisible { desktop.dismiss(restorePreviousApplication: false) }
-            case .commit: deliveredCommit += 1
-            case .overview, .tile, .restore: deliveredStandalone += 1
-            default: break
-            }
-        }
-        desktop.onPresentationChanged = { input.invalidateSelectionPresentation() }
-        input.selectionContextActive = true
-        input.nativeCheckQueueCancel()
-        input.selectionContextActive = false
-        input.selectionContextActive = true
-        await settle()
-        try require(canceled == 0, "Old queued cancel must not close newly owned panel")
-        input.nativeCheckQueueCancel()
-        await settle()
-        try require(canceled == 1, "Current queued cancel must deliver once")
-        input.nativeCheckQueue(.overview, ageSeconds: 1)
-        input.nativeCheckQueue(.tile(.leftHalf), ageSeconds: 1)
-        input.nativeCheckQueue(.restore, ageSeconds: 1)
-        input.nativeCheckQueue(.commit, ageSeconds: 1)
-        await settle()
-        try require(deliveredStandalone == 0, "Delayed standalone actions must expire")
-        try require(deliveredCommit == 1, "Held switcher commit must survive queue delay")
-        input.nativeCheckQueue(.overview, ageSeconds: 0)
-        await settle()
-        try require(deliveredStandalone == 1, "Fresh standalone action must deliver")
         for count in [20, 100] {
             print("START cards=\(count)")
             service.nativeCheckInstall(records(count))
@@ -94,14 +60,6 @@ struct NativeUICheck {
                 timings.append((ProcessInfo.processInfo.systemUptime - begin) * 1000)
                 await settle()
                 try require(desktop.nativeCheckWindow.isKeyWindow && NSApp.isActive, "Overview must gain real key ownership")
-                if count == 20 {
-                    input.nativeCheckQueueCancel()
-                    desktop.present(mode: .switcher, fromShortcut: true)
-                    await settle()
-                    try require(desktop.isVisible && canceled == 1, "Queued old Escape must not close a new picker")
-                    desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
-                    await settle()
-                }
                 let slots = desktop.nativeCheckSlots
                 desktop.nativeCheckQuery("document 12")
                 try require(desktop.nativeCheckSlots == slots, "Search must preserve Overview slots")
@@ -152,6 +110,7 @@ struct NativeUICheck {
             try require(!desktop.isVisible, "Next Escape after composition must close Overview")
             await settle()
         }
+        try await checkInputRouting(desktop)
         desktop.present(mode: .switcher)
         await settle()
         let view = desktop.nativeCheckWindow.contentView!
@@ -207,5 +166,136 @@ struct NativeUICheck {
         try require(desktop.nativeCheckShortcutsEnabled && desktop.nativeCheckGestureEnabled
                     && desktop.nativeCheckStatus == "Synthetic permission diagnostic",
                     "Lazy Settings must retain prepared toggle and status state")
+    }
+
+    /// Synthetic, never-posted CGEvents go through the real tap callback and main-queue hop.
+    /// No event tap is installed and no global input is observed or posted.
+    @MainActor static func checkInputRouting(_ desktop: DesktopController) async throws {
+        let input = GlobalShortcutService()
+        var actions: [String] = []
+        input.onAction = { action in
+            switch action {
+            case .switchForward: desktop.switchStep(backwards: false)
+            case .switchBackward: desktop.switchStep(backwards: true)
+            case .navigate(let direction): desktop.navigate(direction)
+            case .navigateRow(let direction): desktop.navigateRow(direction)
+            // Synthetic records belong to this process: record intents, never focus or move windows.
+            case .commit: actions.append("commit"); if desktop.isVisible { desktop.dismiss(restorePreviousApplication: false) }
+            case .cancel: actions.append("cancel"); if desktop.isVisible { desktop.dismiss(restorePreviousApplication: false) }
+            case .tileSelected: actions.append("tileSelected")
+            case .restore: actions.append("restore")
+            case .overview: actions.append("overview")
+            case .tile: actions.append("tile")
+            }
+        }
+        desktop.onSurfaceVisibilityChanged = { input.surfaceVisible = $0 }
+        desktop.onVisibilityChanged = { input.selectionContextActive = $0 }
+        desktop.onCompositionChanged = { input.compositionActive = $0 }
+        let overview = ShortcutChord(keyCode: 49, modifiers: [.control, .option])
+        let tileLeft = ShortcutChord(keyCode: 123, modifiers: [.control, .option])
+        input.nativeCheckAttach(configuration: .init(switcherEnabled: true, overview: overview, tiling: [tileLeft: .tile(.leftHalf)]))
+        let command: CGEventFlags = .maskCommand
+        let commandOption: CGEventFlags = [.maskCommand, .maskAlternate]
+
+        // Held switcher: arrows select, Option–arrows arrange without moving the selection.
+        try require(input.nativeCheckRoute(keyCode: 48, flags: command), "Command–Tab must be owned")
+        await settle()
+        try require(desktop.isVisible && !desktop.isOverviewVisible, "Command–Tab must open the switcher")
+        let first = desktop.nativeCheckSelected
+        try require(input.nativeCheckRoute(keyCode: 124, flags: command), "Command–Right must be owned while switching")
+        await settle()
+        let second = desktop.nativeCheckSelected
+        try require(second != nil && second != first, "Command–Right must move the selection")
+        input.nativeCheckRoute(keyCode: 124, down: false, flags: command)
+        try require(input.nativeCheckRoute(keyCode: 123, flags: command), "Command–Left must be owned while switching")
+        await settle()
+        try require(desktop.nativeCheckSelected == first, "Command–Left must move the selection back")
+        input.nativeCheckRoute(keyCode: 123, down: false, flags: command)
+        try require(input.nativeCheckRoute(keyCode: 125, flags: command), "Command–Down must be owned while switching")
+        await settle()
+        try require(desktop.nativeCheckSelected != first, "Command–Down must move by a row when the picker wraps")
+        input.nativeCheckRoute(keyCode: 125, down: false, flags: command)
+        let beforeArrange = desktop.nativeCheckSelected
+        try require(input.nativeCheckRoute(keyCode: 123, flags: commandOption), "Command–Option–Left must be owned")
+        input.nativeCheckRoute(keyCode: 123, down: false, flags: commandOption)
+        try require(input.nativeCheckRoute(keyCode: 125, flags: commandOption), "Command–Option–Down must be owned")
+        await settle()
+        try require(actions == ["tileSelected", "restore"], "Option–arrows must arrange and undo, got \(actions)")
+        try require(desktop.isVisible && desktop.nativeCheckSelected == beforeArrange, "Arranging must keep the session and selection")
+        input.nativeCheckRoute(keyCode: 125, down: false, flags: commandOption)
+
+        // Missed Command release: the next key without Command commits and is not eaten.
+        actions.removeAll()
+        try require(!input.nativeCheckRoute(keyCode: 0), "A key after a missed release must pass through")
+        await settle()
+        try require(actions == ["commit"] && !desktop.isVisible, "A missed Command release must commit the session")
+
+        // Visible but not key: Escape is still Paneflo's.
+        desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
+        await settle()
+        let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 140), styleMask: [.titled], backing: .buffered, defer: false)
+        other.isReleasedWhenClosed = false
+        other.makeKeyAndOrderFront(nil)
+        await settle()
+        try require(desktop.isOverviewVisible && !desktop.nativeCheckWindow.isKeyWindow, "Fixture needs a visible, non-key Overview")
+        actions.removeAll()
+        try require(input.nativeCheckRoute(keyCode: 53), "Escape must be owned while a surface is visible but not key")
+        await settle()
+        try require(actions == ["cancel"] && !desktop.isVisible, "Escape on a non-key Overview must close it")
+        other.orderOut(nil)
+
+        // A suppressed Escape is never discarded because the presentation changed meanwhile.
+        desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
+        await settle()
+        try require(input.nativeCheckRoute(keyCode: 53), "Escape must be owned while Overview is visible")
+        desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
+        await settle()
+        try require(!desktop.isVisible, "Suppressed Escape must act even after a presentation change")
+        try require(!input.nativeCheckRoute(keyCode: 53), "Escape must pass through when nothing is visible")
+
+        // The IME exception: the first Escape belongs to the input method.
+        desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
+        await settle()
+        guard let editor = desktop.nativeCheckSearch.currentEditor() as? NSTextView else { throw Failure.check("Missing search editor") }
+        editor.setMarkedText("synthetic", selectedRange: NSRange(location: 9, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        await settle()
+        try require(!input.nativeCheckRoute(keyCode: 53), "Escape during composition must go to the input method")
+        input.nativeCheckRoute(keyCode: 53, down: false)
+        editor.unmarkText()
+        desktop.nativeCheckQuery("")
+        await settle()
+        try require(desktop.isVisible && input.nativeCheckRoute(keyCode: 53), "Escape after composition must be owned again")
+        await settle()
+        try require(!desktop.isVisible, "Escape after composition must close Overview")
+
+        // Overview: Command–Option–arrows arrange and undo; Command–arrows select in the panel.
+        desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
+        await settle()
+        actions.removeAll()
+        try require(!input.nativeCheckRoute(keyCode: 123, flags: command), "Command–Left must not be a tap chord in Overview")
+        try require(input.nativeCheckRoute(keyCode: 124, flags: commandOption), "Command–Option–Right must be owned in a focused Overview")
+        input.nativeCheckRoute(keyCode: 124, down: false, flags: commandOption)
+        try require(input.nativeCheckRoute(keyCode: 125, flags: commandOption), "Command–Option–Down must be owned in a focused Overview")
+        input.nativeCheckRoute(keyCode: 125, down: false, flags: commandOption)
+        await settle()
+        try require(actions == ["tileSelected", "restore"], "Overview arranging must tile and undo, got \(actions)")
+        let overviewSelected = desktop.nativeCheckSelected
+        let commandRight = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: desktop.nativeCheckWindow.windowNumber, context: nil, characters: "\u{F703}", charactersIgnoringModifiers: "\u{F703}", isARepeat: false, keyCode: 124)!
+        NSApp.sendEvent(commandRight)
+        try require(desktop.isOverviewVisible && desktop.nativeCheckSelected != overviewSelected, "Command–Right must select in Overview")
+        desktop.dismiss(restorePreviousApplication: false)
+        await settle()
+
+        // No expiry: actions delayed by a blocked main thread are still delivered.
+        actions.removeAll()
+        try require(input.nativeCheckRoute(keyCode: 49, flags: [.maskControl, .maskAlternate]), "Overview chord must be owned")
+        try require(input.nativeCheckRoute(keyCode: 123, flags: [.maskControl, .maskAlternate]), "Tiling chord must be owned")
+        usleep(350_000) // Deliberately block main past the old 250 ms expiry.
+        await settle()
+        try require(actions == ["overview", "tile"], "Delayed standalone actions must still be delivered, got \(actions)")
+        input.stop()
+        desktop.onSurfaceVisibilityChanged = nil
+        desktop.onCompositionChanged = nil
     }
 }
