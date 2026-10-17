@@ -52,8 +52,10 @@ public struct ThreeFingerSwipe: Sendable {
     public mutating func update<C: Collection>(timestamp: Double, contacts: C) -> ThreeFingerSwipeDirection?
         where C.Element == SwipeContact {
         guard timestamp.isFinite else { reset(); return nil }
+        // Finger-free idle may produce no callbacks; only an in-flight sequence expires.
+        // A regressed clock still quarantines even a fresh stroke.
         if let previousTimestamp,
-           timestamp <= previousTimestamp || timestamp - previousTimestamp > configuration.maximumFrameGap {
+           timestamp <= previousTimestamp || (phase != .idle && timestamp - previousTimestamp > configuration.maximumFrameGap) {
             reset()
         }
         previousTimestamp = timestamp

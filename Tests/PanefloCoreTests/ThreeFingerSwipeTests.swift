@@ -71,6 +71,18 @@ struct ThreeFingerSwipeTests {
             #expect(swipe.update(timestamp: 2.1, contacts: contacts(0.6)) == .up)
         }
     }
+    @Test func freshStrokeAfterFingerFreeIdleRecognizesButRegressedClockDoesNot() {
+        for (start, finish, direction) in [(0.3, 0.5, ThreeFingerSwipeDirection.up), (0.7, 0.5, .down)] {
+            var swipe = ThreeFingerSwipe()
+            _ = swipe.update(timestamp: 0, contacts: [SwipeContact]())
+            _ = swipe.update(timestamp: 1, contacts: contacts(start))
+            #expect(swipe.update(timestamp: 1.08, contacts: contacts(finish)) == direction)
+        }
+        var swipe = ThreeFingerSwipe()
+        _ = swipe.update(timestamp: 1, contacts: [SwipeContact]())
+        _ = swipe.update(timestamp: 0.9, contacts: contacts(0.7))
+        #expect(swipe.update(timestamp: 0.98, contacts: contacts(0.5)) == nil)
+    }
     @Test func diagonalOpposingAndUnequalMotionAreRejected() {
         var diagonal = contacts(0.5, x: 0.4)
         var opposing = contacts(0.5); opposing[2].y = 0.1
