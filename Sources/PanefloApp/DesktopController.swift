@@ -11,6 +11,16 @@ private final class FlippedDesktopDocument: NSView { override var isFlipped: Boo
 @MainActor
 private final class DesktopPanel: NSPanel {
     var onKey: ((NSEvent) -> Bool)?
+    var onEscape: (() -> Void)?
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, event.keyCode == 53, isKeyWindow,
+           event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
+           (firstResponder as? NSTextView)?.hasMarkedText() != true {
+            if !event.isARepeat { onEscape?() }
+            return
+        }
+        super.sendEvent(event)
+    }
     override var canBecomeKey: Bool { true }
     override func keyDown(with event: NSEvent) { if onKey?(event) != true { super.keyDown(with: event) } }
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -34,13 +44,26 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
     private var latestPlacement: UInt64?
     private var presentationGeneration: UInt64 = 0
     private var overviewReturnApplication: NSRunningApplication?
+    private var preparedOverviewRecords: [WindowRecord]?
+    private var preparedOverviewSlots: [OverviewSlot]?
+    private var preparedOverviewVisibleFrame: NSRect?
+    private var rowTopology: [WindowIdentity?] = []
+    private var rowColumns = 0
+    private var rowHeight: CGFloat = 0
     private var lastKeyboardDiagnostic: String?
     private var columnCount = 4
     private var overviewCardHeight: CGFloat = 220
     private var viewportObserver: NSObjectProtocol?
+    private var hideObserver: NSObjectProtocol?
+    private var textObservers: [NSObjectProtocol] = []
+    private var firstPreviewStarted: Double?
+    private var pendingGestureRecognizedAt: UInt64?
+    private var overviewActivationMilliseconds: (activate: Double, key: Double, responder: Double) = (0, 0, 0)
     private var thumbnailViewportQueued = false
     var onThumbnailViewport: (([WindowThumbnailRequest], Bool, Set<WindowIdentity>) -> Void)?
     var onVisibilityChanged: ((Bool) -> Void)?
+    var onCompositionChanged: ((Bool) -> Void)?
+    var onPresentationChanged: (() -> Void)?
     private let modes = NSSegmentedControl(labels: ["Switch", "Arrange", "Overview"], trackingMode: .selectOne, target: nil, action: nil)
     private let search = NSSearchField()
     private let status = NSTextField(wrappingLabelWithString: "")
@@ -82,6 +105,8 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
     }
     isolated deinit {
         if let viewportObserver { NotificationCenter.default.removeObserver(viewportObserver) }
+        if let hideObserver { NotificationCenter.default.removeObserver(hideObserver) }
+        for observer in textObservers { NotificationCenter.default.removeObserver(observer) }
     }
     private let zones: [(String, LayoutZone)] = [
         ("Left half", .leftHalf), ("Right half", .rightHalf), ("Top half", .topHalf), ("Bottom half", .bottomHalf),
@@ -95,10 +120,20 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         if let data = defaults.data(forKey: "overview.slots.v1"), let stored = try? OverviewSlotStore(metadata: data) { slots = stored }
         super.init()
         configure()
+        hideObserver = NotificationCenter.default.addObserver(forName: NSApplication.didHideNotification, object: NSApp, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.dismiss(restorePreviousApplication: false) }
+        }
         updateSnapshot()
     }
 
     func present(mode: DesktopMode, fromShortcut: Bool = false, backwards: Bool = false) {
+        let started = ProcessInfo.processInfo.systemUptime
+        onPresentationChanged?()
+        firstPreviewStarted = started
+        let visibleFrame = (panel.screen ?? NSScreen.main)?.visibleFrame
+        let reuseOverview = mode == .overview && self.mode == .overview
+            && preparedOverviewRecords == service.snapshot.records && preparedOverviewSlots == slots.slots
+            && preparedOverviewVisibleFrame == visibleFrame
         self.mode = mode
         presentationGeneration &+= 1
         shortcutSession = fromShortcut && mode == .switcher
@@ -116,9 +151,14 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
             if selectedSlot == nil { selectedSlot = slots.slots.first(where: { $0.binding != nil })?.id }
             selectedID = slots.slots.first(where: { $0.id == selectedSlot })?.binding
         } else { selectedID = service.focusedID ?? service.snapshot.orderedRecords.first?.id }
-        rebuildCards()
+        if reuseOverview {
+            for card in cards { card.layoutBadge = nil }
+            refreshSelection()
+        } else { rebuildCards() }
+        let cardsReady = ProcessInfo.processInfo.systemUptime
         panel.center()
         fitToVisibleScreen()
+        let fitted = ProcessInfo.processInfo.systemUptime
         // Persistent Overview needs actual application keyboard focus. The held
         // Command–Tab picker deliberately remains nonactivating.
         if mode == .overview { acquireOverviewKeyboard() }
@@ -127,8 +167,13 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
             if !fromShortcut { panel.makeFirstResponder(search) }
             updateKeyboardOwnership()
         }
-        RuntimeDiagnostics.mark("desktop mode=\(mode.rawValue) visible=\(panel.isVisible)")
+        let focused = ProcessInfo.processInfo.systemUptime
         updatePreviewSelection()
+        let complete = ProcessInfo.processInfo.systemUptime
+        if RuntimeDiagnostics.isEnabled {
+            let activation = mode == .overview ? overviewActivationMilliseconds : (0, 0, 0)
+            RuntimeDiagnostics.mark("desktop mode=\(mode.rawValue) visible=\(panel.isVisible) reused=\(reuseOverview) cardsMilliseconds=\((cardsReady - started) * 1000) fitMilliseconds=\((fitted - cardsReady) * 1000) focusMilliseconds=\((focused - fitted) * 1000) activateMilliseconds=\(activation.0) keyMilliseconds=\(activation.1) responderMilliseconds=\(activation.2) previewSelectionMilliseconds=\((complete - focused) * 1000) presentationMilliseconds=\((complete - started) * 1000)")
+        }
     }
 
     func switchStep(backwards: Bool) {
@@ -164,25 +209,33 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
     }
 
     func commitShortcut() { if shortcutSession { activateSelected() } }
-    func focusOverview() {
-        if isOverviewVisible { acquireOverviewKeyboard() }
+    func focusOverview(recognizedAtUptimeNanoseconds: UInt64? = nil) {
+        pendingGestureRecognizedAt = recognizedAtUptimeNanoseconds
+        if isOverviewVisible { onPresentationChanged?(); acquireOverviewKeyboard() }
         else { present(mode: .overview, fromShortcut: true) }
     }
 
     private func acquireOverviewKeyboard() {
+        let started = ProcessInfo.processInfo.systemUptime
         if let previous = NSWorkspace.shared.frontmostApplication,
            previous.processIdentifier != ProcessInfo.processInfo.processIdentifier {
             overviewReturnApplication = previous
         }
         NSApp.activate(ignoringOtherApps: true)
+        let activated = ProcessInfo.processInfo.systemUptime
         panel.makeKeyAndOrderFront(nil)
+        let keyed = ProcessInfo.processInfo.systemUptime
         panel.makeFirstResponder(search)
+        let responder = ProcessInfo.processInfo.systemUptime
+        overviewActivationMilliseconds = ((activated - started) * 1000, (keyed - activated) * 1000, (responder - keyed) * 1000)
         updateKeyboardOwnership()
     }
 
     func dismiss(restorePreviousApplication: Bool = true) {
         let previous = overviewReturnApplication
         overviewReturnApplication = nil
+        firstPreviewStarted = nil
+        pendingGestureRecognizedAt = nil
         commitGate.cancelCommit()
         session.cancel(); shortcutSession = false
         panel.orderOut(nil)
@@ -193,6 +246,26 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         onPreviewSelection?(nil, false, nil); onDismiss?()
         if restorePreviousApplication, NSApp.isActive, let previous, !previous.isTerminated {
             previous.activate(options: [])
+        }
+        DispatchQueue.main.async { [weak self] in self?.prepareHiddenOverview() }
+    }
+
+    private func prepareHiddenOverview() {
+        guard !panel.isVisible, !NSApp.isHidden else { return }
+        guard mode != .overview || preparedOverviewRecords != service.snapshot.records
+                || preparedOverviewSlots != slots.slots
+                || preparedOverviewVisibleFrame != (panel.screen ?? NSScreen.main)?.visibleFrame
+                || !search.stringValue.isEmpty else { return }
+        let started = ProcessInfo.processInfo.systemUptime
+        mode = .overview
+        search.isHidden = false; search.stringValue = ""
+        if !slots.slots.contains(where: { $0.id == selectedSlot && $0.binding != nil }) {
+            selectedSlot = slots.slots.first(where: { $0.binding != nil })?.id
+        }
+        selectedID = slots.slots.first(where: { $0.id == selectedSlot })?.binding
+        rebuildCards()
+        if RuntimeDiagnostics.isEnabled {
+            RuntimeDiagnostics.mark("desktop hiddenPreparationMilliseconds=\((ProcessInfo.processInfo.systemUptime - started) * 1000) records=\(service.snapshot.records.count)")
         }
     }
 
@@ -213,6 +286,7 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
             } else if mode == .overview { reconcileSelectionWithSearch() }
             rebuildCards()
         }
+        if !panel.isVisible { prepareHiddenOverview() }
         permissionBar.isHidden = service.hasAccessibility
     }
 
@@ -222,6 +296,10 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
     func refreshPreviewSelection() { updatePreviewSelection() }
     func setPreviewsEnabled(_ enabled: Bool) { previewButton.state = enabled ? .on : .off }
     func showPreview(_ image: CGImage?, label: String) {
+        if image != nil, panel.isVisible, let started = firstPreviewStarted {
+            firstPreviewStarted = nil
+            RuntimeDiagnostics.mark("desktop firstPreviewMilliseconds=\((ProcessInfo.processInfo.systemUptime - started) * 1000)")
+        }
         for card in cards where card.record?.id == selectedID { card.preview = image; card.previewLabel = label }
     }
 
@@ -241,6 +319,11 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.level = .floating
         panel.delegate = self
+        panel.onEscape = { [weak self] in
+            guard let self else { return }
+            RuntimeDiagnostics.mark("desktop escape source=window queryPresent=\(!self.search.stringValue.isEmpty)")
+            self.dismiss()
+        }
         panel.onKey = { [weak self] in self?.handleKey($0) ?? false }
         let root = NSVisualEffectView()
         root.material = .popover; root.blendingMode = .behindWindow; root.state = .active
@@ -259,8 +342,19 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         heading.font = .systemFont(ofSize: 13, weight: .semibold)
         heading.textColor = .secondaryLabelColor
         stack.addArrangedSubview(heading)
+        search.focusRingType = .none
         search.placeholderString = "Find a window"
         search.delegate = self; search.setAccessibilityLabel("Search windows")
+        for name in [NSText.didChangeNotification, NSTextView.didChangeSelectionNotification] {
+            textObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+                let editor = notification.object as? NSTextView
+                MainActor.assumeIsolated {
+                    guard let self, let editor,
+                          editor === self.panel.firstResponder else { return }
+                    self.updateKeyboardOwnership()
+                }
+            })
+        }
         stack.addArrangedSubview(search)
         search.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.drawsBackground = false
@@ -377,6 +471,20 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         }
     }
 
+    #if PANEFLO_NATIVE_CHECK
+    func nativeCheckSuppressExternalRestore() { overviewReturnApplication = nil }
+    var nativeCheckWindow: NSWindow { panel }
+    var nativeCheckSearch: NSSearchField { search }
+    var nativeCheckSelected: WindowIdentity? { selectedID }
+    var nativeCheckSlots: [WindowIdentity?] { displayed }
+    var nativeCheckPayloadCount: Int { cards.filter { $0.preview != nil || $0.thumbnail != nil }.count }
+    func nativeCheckInjectPreview(_ image: CGImage) { cards.first?.preview = image }
+    func nativeCheckQuery(_ value: String) {
+        search.stringValue = value
+        controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: search))
+    }
+    #endif
+
     private func button(_ title: String, _ selector: Selector, _ stack: NSStackView) {
         let view = NSButton(title: title, target: self, action: selector); view.bezelStyle = .rounded
         stack.addArrangedSubview(view)
@@ -397,7 +505,16 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         if mode == .overview { displayed = slots.slots.map(\.binding) }
         else if mode == .switcher { displayed = session.filteredIDs.map(Optional.some) }
         else { displayed = service.snapshot.orderedRecords.map { Optional($0.id) } }
-        for row in grid.arrangedSubviews { grid.removeArrangedSubview(row); row.removeFromSuperview() }
+        let usableWidth = (panel.screen ?? NSScreen.main)?.visibleFrame.width ?? 1000
+        let usableHeight = (panel.screen ?? NSScreen.main)?.visibleFrame.height ?? 900
+        overviewCardHeight = max(174, min(280, (usableHeight * 0.9 - 160) / 3))
+        columnCount = min(max(1, min(4, Int((usableWidth - 60) / 190))), max(1, displayed.count))
+        let height: CGFloat = mode == .overview ? overviewCardHeight : 142
+        let rebuildRows = rowTopology != displayed || rowColumns != columnCount || rowHeight != height || displayed.isEmpty
+        if rebuildRows {
+            for row in grid.arrangedSubviews { grid.removeArrangedSubview(row); row.removeFromSuperview() }
+            rowTopology = displayed; rowColumns = columnCount; rowHeight = height
+        }
         if cards.count > displayed.count {
             for card in cards[displayed.count...] {
                 card.record = nil
@@ -454,12 +571,7 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
             grid.addArrangedSubview(empty)
             empty.widthAnchor.constraint(equalTo: grid.widthAnchor).isActive = true
             empty.heightAnchor.constraint(equalToConstant: 100).isActive = true
-        } else {
-            let usableWidth = (panel.screen ?? NSScreen.main)?.visibleFrame.width ?? 1000
-            let usableHeight = (panel.screen ?? NSScreen.main)?.visibleFrame.height ?? 900
-            overviewCardHeight = max(174, min(280, (usableHeight * 0.9 - 160) / 3))
-            columnCount = max(1, min(4, Int((usableWidth - 60) / 190)))
-            columnCount = min(columnCount, max(1, displayed.count))
+        } else if rebuildRows {
             for start in stride(from: 0, to: displayed.count, by: columnCount) {
                 let row = NSStackView(); row.orientation = .horizontal; row.distribution = .fillEqually; row.spacing = 10
                 for index in start..<min(start + columnCount, displayed.count) { row.addArrangedSubview(cards[index]) }
@@ -472,6 +584,12 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         summary.stringValue = "\(records.count) real windows · " + (mode == .overview ? "Your slot order stays independent of recent use" : mode == .tiling ? "Select a window and choose its destination" : "Individual windows · frozen order for this session")
         fitToVisibleScreen()
         refreshSelection()
+        if mode == .overview {
+            preparedOverviewRecords = records; preparedOverviewSlots = slots.slots
+            preparedOverviewVisibleFrame = (panel.screen ?? NSScreen.main)?.visibleFrame
+        } else {
+            preparedOverviewRecords = nil; preparedOverviewSlots = nil; preparedOverviewVisibleFrame = nil
+        }
     }
 
     private func refreshSelection() {
@@ -563,6 +681,7 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
     }
 
     func controlTextDidChange(_ notification: Notification) {
+        updateKeyboardOwnership()
         if mode == .switcher {
             session.setSearchQuery(search.stringValue)
             selectedID = session.selectedID
@@ -581,14 +700,24 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         case "moveUp:": navigateRows(-1); return true
         case "moveDown:": navigateRows(1); return true
         case "insertNewline:": activateSelected(); return true
+        case "cancelOperation:" where textView.hasMarkedText(): return false
         case "cancelOperation:": dismiss(); return true
         default: return false
         }
     }
     func updateKeyboardOwnership() {
         let owned = panel.isVisible && panel.isKeyWindow && (shortcutSession || NSApp.isActive)
+        if owned, let recognizedAt = pendingGestureRecognizedAt {
+            pendingGestureRecognizedAt = nil
+            let now = DispatchTime.now().uptimeNanoseconds
+            if now >= recognizedAt {
+                RuntimeDiagnostics.mark("gesture recognitionToKeyReadyMilliseconds=\(Double(now - recognizedAt) / 1_000_000)")
+            }
+        }
         onVisibilityChanged?(owned)
-        let state = "desktop keyboard visible=\(panel.isVisible) key=\(panel.isKeyWindow) appActive=\(NSApp.isActive) selectionOwned=\(owned) mode=\(mode.rawValue)"
+        let composing = owned && (panel.firstResponder as? NSTextView)?.hasMarkedText() == true
+        onCompositionChanged?(composing)
+        let state = "desktop keyboard visible=\(panel.isVisible) key=\(panel.isKeyWindow) appActive=\(NSApp.isActive) selectionOwned=\(owned) composing=\(composing) mode=\(mode.rawValue)"
         if state != lastKeyboardDiagnostic {
             lastKeyboardDiagnostic = state
             RuntimeDiagnostics.mark(state)
@@ -769,8 +898,8 @@ private final class DesktopCard: NSButton {
     override func draw(_ dirtyRect: NSRect) {
         let rect = bounds.insetBy(dx: 2, dy: 2)
         let path = NSBezierPath(roundedRect: rect, xRadius: 12, yRadius: 12)
-        (selected ? NSColor.controlAccentColor.withAlphaComponent(0.12) : .controlBackgroundColor).setFill(); path.fill()
-        (selected ? NSColor.controlAccentColor : .separatorColor).setStroke(); path.lineWidth = selected ? 2 : 1; path.stroke()
+        (selected ? NSColor.controlAccentColor.withAlphaComponent(0.16) : .controlBackgroundColor).setFill(); path.fill()
+        (selected ? NSColor.controlAccentColor : .separatorColor).setStroke(); path.lineWidth = selected ? 3 : 1; path.stroke()
         NSGraphicsContext.saveGraphicsState(); NSGraphicsContext.current?.cgContext.setAlpha(matches ? 1 : 0.24)
         guard let record else {
             drawText(isVacancyPinned ? "Pinned vacancy" : "Vacant slot", in: NSRect(x: 18, y: 68, width: bounds.width - 36, height: 24), font: .systemFont(ofSize: 13), color: .secondaryLabelColor)

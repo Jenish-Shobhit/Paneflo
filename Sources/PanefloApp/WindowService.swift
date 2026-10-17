@@ -46,6 +46,14 @@ final class WindowService {
     var onStatus: ((String) -> Void)?
     var hasAccessibility: Bool { AXIsProcessTrusted() }
 
+    #if PANEFLO_NATIVE_CHECK
+    func nativeCheckInstall(_ records: [WindowRecord]) {
+        snapshot = WindowSnapshot(records: records)
+        focusedID = records.first?.id
+        onChange?()
+    }
+    #endif
+
     func start() {
         guard workspaceObservers.isEmpty else { refresh(); return }
         worker.onEvent = { [weak self] in Task { @MainActor in self?.scheduleRefresh() } }

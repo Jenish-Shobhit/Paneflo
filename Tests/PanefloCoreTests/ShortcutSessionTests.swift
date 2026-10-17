@@ -116,6 +116,29 @@ struct ShortcutSessionTests {
         #expect(!router.route(kind: .down, keyCode: 53, modifiers: .option).suppress)
     }
 
+    @Test func compositionEscapePassesThenNextPressClosesPersistentContext() {
+        var router = ShortcutSession(configuration: .init(switcherEnabled: true))
+        router.selectionContextActive = true
+        router.compositionActive = true
+        let composing = router.route(kind: .down, keyCode: 53, modifiers: [])
+        #expect(!composing.suppress && composing.action == nil)
+        #expect(!router.route(kind: .up, keyCode: 53, modifiers: []).suppress)
+        router.compositionActive = false
+        let closing = router.route(kind: .down, keyCode: 53, modifiers: [])
+        #expect(closing.suppress)
+        guard case .cancel? = closing.action else { Issue.record("Expected cancel after composition ends"); return }
+    }
+
+    @Test func resetRelinquishesPersistentKeyboardOwnership() {
+        var router = ShortcutSession(configuration: .init(switcherEnabled: true))
+        router.selectionContextActive = true
+        _ = router.route(kind: .down, keyCode: 53, modifiers: [])
+        router.reset()
+        #expect(!router.selectionContextActive)
+        #expect(!router.route(kind: .down, keyCode: 53, modifiers: []).suppress)
+        #expect(!router.route(kind: .up, keyCode: 53, modifiers: []).suppress)
+    }
+
     @Test func dedicatedChordDoesNotRepeatOrMatchExtraModifiers() {
         let chord = ShortcutChord(keyCode: 49, modifiers: [.control, .option])
         var router = ShortcutSession(configuration: .init(overview: chord))

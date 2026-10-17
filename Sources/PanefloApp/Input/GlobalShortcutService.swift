@@ -16,9 +16,21 @@ final class GlobalShortcutService {
     private var source: CFRunLoopSource?
     private var router = ShortcutSession(configuration: .init())
     private var generation: UInt64 = 0
+    private var ownershipGeneration: UInt64 = 0
+    func invalidateSelectionPresentation() { ownershipGeneration &+= 1 }
+    var compositionActive: Bool {
+        get { router.compositionActive }
+        set {
+            if router.compositionActive != newValue { ownershipGeneration &+= 1 }
+            router.compositionActive = newValue
+        }
+    }
     var selectionContextActive: Bool {
         get { router.selectionContextActive }
-        set { router.selectionContextActive = newValue }
+        set {
+            if router.selectionContextActive != newValue { ownershipGeneration &+= 1 }
+            router.selectionContextActive = newValue
+        }
     }
 
     isolated deinit {
@@ -102,16 +114,50 @@ final class GlobalShortcutService {
         if flags.contains(.maskAlternate) { modifiers.insert(.option) }
         if flags.contains(.maskControl) { modifiers.insert(.control) }
         if flags.contains(.maskSecondaryFn) { modifiers.insert(.function) }
+        let wasSwitching = router.switching
         let result = router.route(kind: kind,
             keyCode: UInt16(truncatingIfNeeded: event.getIntegerValueField(.keyboardEventKeycode)),
             modifiers: modifiers, isRepeat: event.getIntegerValueField(.keyboardEventAutorepeat) != 0)
-        if let action = result.action {
-            let token = generation
-            DispatchQueue.main.async { [weak self] in
-                guard let self, self.generation == token else { return }
-                self.onAction?(action)
-            }
+        if keyCodeForDiagnostics(type, event) {
+            RuntimeDiagnostics.mark("input escape owned=\(result.suppress) switching=\(router.switching) selectionOwned=\(router.selectionContextActive)")
         }
+        if let action = result.action { enqueue(action, wasSwitching: wasSwitching) }
         return result.suppress
+    }
+
+    private func enqueue(_ action: ShortcutAction, wasSwitching: Bool, queuedAt: Double = ProcessInfo.processInfo.systemUptime) {
+        let token = generation
+        let ownershipToken = ownershipGeneration
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.generation == token else { return }
+            let age = ProcessInfo.processInfo.systemUptime - queuedAt
+            switch action {
+            case .switchForward, .switchBackward, .commit, .cancel: break
+            case .navigate, .overview, .tile, .tileSelected, .restore:
+                if age > 0.25 {
+                    RuntimeDiagnostics.mark("input action discarded=expired ageMilliseconds=\(age * 1000)")
+                    return
+                }
+            }
+            if case .cancel = action, !wasSwitching, self.ownershipGeneration != ownershipToken {
+                RuntimeDiagnostics.mark("input cancel discarded=ownershipChanged")
+                return
+            }
+            if RuntimeDiagnostics.isEnabled {
+                RuntimeDiagnostics.mark("input action queuedMilliseconds=\(age * 1000)")
+            }
+            self.onAction?(action)
+        }
+    }
+
+    #if PANEFLO_NATIVE_CHECK
+    func nativeCheckQueueCancel() { enqueue(.cancel, wasSwitching: false) }
+    func nativeCheckQueue(_ action: ShortcutAction, ageSeconds: Double) {
+        enqueue(action, wasSwitching: false, queuedAt: ProcessInfo.processInfo.systemUptime - ageSeconds)
+    }
+    #endif
+
+    private func keyCodeForDiagnostics(_ type: CGEventType, _ event: CGEvent) -> Bool {
+        RuntimeDiagnostics.isEnabled && type == .keyDown && event.getIntegerValueField(.keyboardEventKeycode) == 53
     }
 }

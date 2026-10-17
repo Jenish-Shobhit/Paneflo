@@ -44,10 +44,11 @@ public struct ShortcutSession: Sendable {
     public var configuration: ShortcutConfiguration
     public private(set) var switching = false
     public var selectionContextActive = false
+    public var compositionActive = false
     private var ownedKeys: Set<UInt16> = []
     public init(configuration: ShortcutConfiguration) { self.configuration = configuration }
 
-    public mutating func reset() { switching = false; ownedKeys.removeAll() }
+    public mutating func reset() { switching = false; selectionContextActive = false; compositionActive = false; ownedKeys.removeAll() }
     public mutating func route(kind: ShortcutEventKind, keyCode: UInt16,
                                modifiers: ShortcutModifiers, isRepeat: Bool = false) -> ShortcutRoute {
         if kind == .up { return ShortcutRoute(suppress: ownedKeys.remove(keyCode) != nil) }
@@ -69,7 +70,7 @@ public struct ShortcutSession: Sendable {
             action = modifiers.contains(.shift) ? .switchBackward : .switchForward
         } else if switching && keyCode == 53 && modifiers.subtracting([.command, .shift]).isEmpty {
             switching = false; action = .cancel
-        } else if selectionContextActive && keyCode == 53 && modifiers.isEmpty {
+        } else if selectionContextActive && !compositionActive && keyCode == 53 && modifiers.isEmpty {
             if isRepeat { return ShortcutRoute(suppress: ownedKeys.contains(keyCode)) }
             action = .cancel
         } else if (switching || selectionContextActive) && modifiers == .command {

@@ -67,7 +67,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.preferences.set(enabled, forKey: "previews.enabled.v1")
             if enabled { controller.refreshPreviewSelection() } else { self.capture.stop() }
         }
+        controller.onCompositionChanged = { [weak self] in self?.shortcuts.compositionActive = $0 }
         controller.onVisibilityChanged = { [weak self] in self?.shortcuts.selectionContextActive = $0 }
+        controller.onPresentationChanged = { [weak self] in self?.shortcuts.invalidateSelectionPresentation() }
         controller.onToggleGesture = { [weak self] in self?.setGestures($0) }
         controller.onToggleShortcuts = { [weak self] in self?.setShortcuts($0) }
         shortcuts.onAction = { [weak self] in self?.handle($0) }
@@ -80,11 +82,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 controller?.setStatus(message)
             }
         }
-        gestures.onGesture = { [weak self] direction in
+        gestures.onGestureEvent = { [weak self] event in
             guard let self else { return }
-            switch direction {
+            switch event.direction {
             case .up:
-                self.desktop?.focusOverview()
+                self.desktop?.focusOverview(recognizedAtUptimeNanoseconds: event.recognizedAtUptimeNanoseconds)
             case .down:
                 if self.desktop?.isOverviewVisible == true { self.desktop?.dismiss() }
             }
@@ -99,11 +101,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startupShortcutRestorePending = preferences.bool(forKey: "shortcuts.enabled.v1")
         startupGestureRestorePending = preferences.bool(forKey: "gesture.enabled.v1")
         let savedPreviews = preferences.bool(forKey: "previews.enabled.v1")
-        previewsEnabled = savedPreviews && capture.hasPermission
+        let accessibilityReady = windows.hasAccessibility
+        let inputMonitoringReady = CGPreflightListenEventAccess()
+        let screenRecordingReady = capture.hasPermission
+        RuntimeDiagnostics.mark("permissions accessibility=\(accessibilityReady) inputMonitoring=\(inputMonitoringReady) screenRecording=\(screenRecordingReady)")
+        previewsEnabled = savedPreviews && screenRecordingReady
         controller.setPreviewsEnabled(previewsEnabled)
-        let missingPermission = !windows.hasAccessibility
-            || ((startupShortcutRestorePending || startupGestureRestorePending) && !CGPreflightListenEventAccess())
-            || (savedPreviews && !capture.hasPermission)
+        let missingPermission = !accessibilityReady
+            || ((startupShortcutRestorePending || startupGestureRestorePending) && !inputMonitoringReady)
+            || (savedPreviews && !screenRecordingReady)
         let firstLaunch = !preferences.bool(forKey: "startup.completed.v1")
         preferences.set(true, forKey: "startup.completed.v1")
         windows.start()
@@ -137,7 +143,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func installMenu() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = NSImage(systemSymbolName: "rectangle.3.group", accessibilityDescription: "Paneflo")
-        item.button?.title = " Paneflo"; item.button?.setAccessibilityLabel("Paneflo menu")
+        item.button?.title = ""; item.button?.toolTip = "Paneflo"
+        item.button?.setAccessibilityLabel("Paneflo menu")
         let menu = NSMenu()
         for (index, title) in ["Switch windows", "Arrange windows", "Organized overview"].enumerated() {
             let entry = NSMenuItem(title: title, action: #selector(openDesktop(_:)), keyEquivalent: "")
