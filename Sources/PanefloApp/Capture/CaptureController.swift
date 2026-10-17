@@ -229,18 +229,12 @@ final class CaptureController {
         observe(.default, NSApplication.didBecomeActiveNotification) { controller in
             if controller.previewsRequested, controller.screenRecordingStatus != .granted { controller.refreshScreenRecordingStatus() }
         }
-        // The first ScreenCaptureKit request in a process measured ~0.8 s; pay it after launch, not
-        // on the first Command-Tab. Only when previews were enabled and access is already granted.
-        if UserDefaults.standard.bool(forKey: "previews.enabled.v1"), CGPreflightScreenCaptureAccess() {
-            Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .seconds(2))
-                self?.prewarm()
-            }
-        }
     }
 
     /// Warms the ScreenCaptureKit connection and the shareable-content cache off the input path.
-    /// Safe to call repeatedly; it never prompts when access is not already granted.
+    /// The first request in a process measured ~0.8-1.0 s, so the app delegate should call this
+    /// shortly after launch when previews are enabled. Idempotent; a no-op without Screen Recording
+    /// access (it never prompts).
     func prewarm() {
         guard CGPreflightScreenCaptureAccess(), discovery == nil,
               ProcessInfo.processInfo.systemUptime - contentAt > Self.contentMaxAge else { return }
