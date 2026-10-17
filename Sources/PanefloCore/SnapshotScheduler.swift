@@ -26,6 +26,10 @@ public enum SnapshotCompletion: Equatable, Sendable {
     case discardPurged
     /// Not an outstanding ticket (duplicate or forged completion).
     case unknownTicket
+    /// The deadline passed: the slot is free, the OS request is still physically abandoned.
+    case timedOut
+    /// The OS finally completed a timed-out request; drop its result.
+    case lateAfterTimeout
 }
 
 /// Refresh-on-open planner for one-shot snapshots.
@@ -37,17 +41,24 @@ public enum SnapshotCompletion: Equatable, Sendable {
 ///   only a closed window or a purge discards them.
 public struct SnapshotScheduler: Sendable {
     public let concurrencyLimit: Int
+    /// Timed-out requests whose OS callbacks have not arrived. New work stops at this many, so
+    /// repeated timeouts cannot accumulate unbounded OS requests.
+    public let abandonedLimit: Int
     public private(set) var queue: [SnapshotRequest] = []
     public private(set) var epoch: UInt64 = 0
     public private(set) var sessionActive = false
     private var outstanding: [UInt64: SnapshotTicket] = [:]
+    private var abandoned: [UInt64: SnapshotTicket] = [:]
     private var refreshed: Set<WindowIdentity> = []
     private var closedInFlight: Set<WindowIdentity> = []
     private var serial: UInt64 = 0
 
-    public init(concurrencyLimit: Int = 3) {
+    public init(concurrencyLimit: Int = 3, abandonedLimit: Int? = nil) {
         self.concurrencyLimit = min(4, max(2, concurrencyLimit))
+        self.abandonedLimit = max(1, abandonedLimit ?? self.concurrencyLimit)
     }
+
+    public var abandonedCount: Int { abandoned.count }
 
     public var outstandingCount: Int { outstanding.count }
     public var outstandingTickets: [SnapshotTicket] { outstanding.values.sorted { $0.serial < $1.serial } }
@@ -86,9 +97,9 @@ public struct SnapshotScheduler: Sendable {
     }
 
     /// Issues tickets until the concurrency limit; each issued window counts as refreshed.
-    public mutating func nextTickets() -> [SnapshotTicket] {
+    public mutating func nextTickets(maximum: Int = Int.max) -> [SnapshotTicket] {
         var issued: [SnapshotTicket] = []
-        while sessionActive, outstanding.count < concurrencyLimit, !queue.isEmpty {
+        while sessionActive, issued.count < maximum, outstanding.count < concurrencyLimit, abandoned.count < abandonedLimit, !queue.isEmpty {
             let request = queue.removeFirst()
             serial &+= 1
             let ticket = SnapshotTicket(request: request, serial: serial, epoch: epoch)
@@ -101,12 +112,31 @@ public struct SnapshotScheduler: Sendable {
 
     /// Call exactly once per issued ticket, when the OS request actually finished (success or error).
     public mutating func complete(_ ticket: SnapshotTicket) -> SnapshotCompletion {
+        if abandoned[ticket.serial] == ticket {
+            abandoned.removeValue(forKey: ticket.serial)
+            return .lateAfterTimeout
+        }
         guard outstanding[ticket.serial] == ticket else { return .unknownTicket }
         outstanding.removeValue(forKey: ticket.serial)
         let closed = closedInFlight.contains(ticket.id)
         if closed, !outstanding.values.contains(where: { $0.id == ticket.id }) { closedInFlight.remove(ticket.id) }
         if ticket.epoch != epoch { return .discardPurged }
         return closed ? .discardClosed : .store
+    }
+
+    /// The deadline passed before the OS callback: free the concurrency slot, keep the request
+    /// counted as abandoned until `complete` reports its late callback.
+    public mutating func timeout(_ ticket: SnapshotTicket) -> SnapshotCompletion {
+        guard outstanding[ticket.serial] == ticket else { return .unknownTicket }
+        outstanding.removeValue(forKey: ticket.serial)
+        abandoned[ticket.serial] = ticket
+        if !outstanding.values.contains(where: { $0.id == ticket.id }) { closedInFlight.remove(ticket.id) }
+        return .timedOut
+    }
+
+    /// Makes windows eligible again in this session (after a circuit-breaker backoff).
+    public mutating func markForRetry(_ ids: Set<WindowIdentity>) {
+        refreshed.subtract(ids)
     }
 
     public mutating func windowClosed(_ id: WindowIdentity) {

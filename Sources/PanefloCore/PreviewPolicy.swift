@@ -98,6 +98,8 @@ public enum PreviewUnavailableReason: Equatable, Sendable {
 
 public enum PreviewPauseReason: Equatable, Sendable {
     case memoryPressure, sleeping, sessionInactive, previewsOff
+    /// Repeated capture failures or timeouts; backing off before the next attempt.
+    case retrying
 }
 
 /// What a card should show, independent of pixels.
@@ -121,6 +123,7 @@ public enum PreviewLabel {
             return note.map { base + " · " + short($0) } ?? base
         case .loading: return "Loading preview…"
         case .unavailable(let reason): return "Unavailable: " + short(reason)
+        case .paused(.retrying): return "Previews unavailable — retrying"
         case .paused(let reason): return "Paused: " + pause(reason)
         }
     }
@@ -150,6 +153,7 @@ public enum PreviewLabel {
         case .sleeping: "sleep"
         case .sessionInactive: "session inactive"
         case .previewsOff: "previews off"
+        case .retrying: "retrying"
         }
     }
 }

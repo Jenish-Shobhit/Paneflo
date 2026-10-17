@@ -117,7 +117,31 @@ private final class FrameSink: @unchecked Sendable {
         let counters = output.counters
         precondition(counters.received == 6 && counters.delivered == 1)
 
+        // 6. Deadline: a request that completes after its timeout hands its frame to `late`, which
+        // drops it; the caller resumed once with .timedOut and no frame slot leaks.
+        let done = DispatchSemaphore(value: 0)
+        let lateSeen = DispatchSemaphore(value: 0)
+        let racedBuffer = UncheckedSendable(makeBuffer())
+        nonisolated(unsafe) var timedOut = false
+        Task.detached {
+            let result = await Deadline.run(seconds: 0.02, operation: { () async throws -> LiveFrame in
+                try await Task.sleep(for: .milliseconds(150))
+                guard let frame = LiveFrame(buffer: racedBuffer.value, budget: budget, arrivedAt: 5) else { throw CancellationError() }
+                return frame
+            }, late: { late in
+                if case .success(let frame) = late { precondition(frame.width == 4) }
+                lateSeen.signal()
+            })
+            if case .timedOut = result { timedOut = true }
+            done.signal()
+        }
+        done.wait()
+        precondition(timedOut, "the caller resumes at the deadline")
+        precondition(lateSeen.wait(timeout: .now() + 2) == .success, "late completion delivered once")
+        Thread.sleep(forTimeInterval: 0.02)
+        precondition(budget.counts.current == 0, "the late frame was released")
+
         precondition(budget.counts.current == 0 && budget.counts.peak == LiveFrameBudget.limit)
-        print("PASS IOSurface zero-copy identity; non-IOSurface rejected; frame cap \(LiveFrameBudget.limit) with re-admission; legacy provider retains frame until released; live->snapshot conversion holds no frame; aspect-fit sizing; mailbox holds 1 pending, deactivate releases, no late delivery; final frames 0")
+        print("PASS IOSurface zero-copy identity; non-IOSurface rejected; frame cap \(LiveFrameBudget.limit) with re-admission; legacy provider retains frame until released; live->snapshot conversion holds no frame; aspect-fit sizing; mailbox holds 1 pending, deactivate releases, no late delivery; deadline timeout drops late frame; final frames 0")
     }
 }

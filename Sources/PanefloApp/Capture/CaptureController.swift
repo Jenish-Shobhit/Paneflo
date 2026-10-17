@@ -120,13 +120,27 @@ final class CaptureController {
     static let snapshotFreshAge = 1.0
     static let contentMaxAgeOnOpen = 0.5
     static let contentMaxAge = 1.0
+    static let discoveryTimeout = 2.0
+    static let screenshotTimeout = 1.5
+    static let liveFirstFrameTimeout = 1.5
     /// How long a listed window's SCWindow may be reused for capture without waiting for discovery.
     static let contentReuseAge = 5.0
 
     // MARK: State
 
     private var cache = ThumbnailCache<CGImage>()
-    private var scheduler = SnapshotScheduler(concurrencyLimit: 3)
+    private lazy var runner: SnapshotRunner<CGImage> = makeRunner()
+    private var scheduler: SnapshotScheduler {
+        get { runner.scheduler }
+        set { runner.scheduler = newValue }
+    }
+    private var failedThisSession: Set<WindowIdentity> = []
+    private var abandonedDiscoveries = 0
+    private var liveBreaker = CaptureCircuitBreaker()
+    private var liveRetryTask: Task<Void, Never>?
+    private var liveWatchdog: Task<Void, Never>?
+    private var liveFirstFrameSeen = false
+    private var sessionLiveKey: LiveKey?
     private var gate = StableSelectionGate<LiveKey>(delay: CaptureController.selectionStableDelay)
     private var gateTask: Task<Void, Never>?
     private var pressure: PreviewPressurePolicy
@@ -241,9 +255,26 @@ final class CaptureController {
         observers.append((center, token))
     }
 
+    private func makeRunner() -> SnapshotRunner<CGImage> {
+        let runner = SnapshotRunner<CGImage>(scheduler: SnapshotScheduler(concurrencyLimit: 3),
+                                             timeout: Self.screenshotTimeout) { [weak self] request in
+            guard let self else { throw SnapshotFailure.failed }
+            return try await self.screenshot(request)
+        }
+        runner.onOutcome = { [weak self] ticket, completion, outcome in self?.resolve(ticket, completion, outcome) }
+        runner.onLate = { ticket, _ in
+            // The late payload (an owned raster) is released here; nothing is stored.
+            RuntimeDiagnostics.mark("thumbnail state=lateAfterTimeout serial=\(ticket.serial)")
+        }
+        runner.onBreakerChange = { [weak self] open in self?.snapshotBreakerChanged(open: open) }
+        return runner
+    }
+
     isolated deinit {
         memoryPressureSource?.cancel()
         gateTask?.cancel()
+        liveRetryTask?.cancel()
+        liveWatchdog?.cancel()
         for (center, token) in observers { center.removeObserver(token) }
         output?.deactivate()
         if let stream {
@@ -375,10 +406,10 @@ final class CaptureController {
         if !sessionVisible {
             sessionVisible = true
             sessionOpenedAt = ProcessInfo.processInfo.systemUptime
-            emitted.removeAll(); unavailable.removeAll(); hiddenPIDs.removeAll()
+            emitted.removeAll(); unavailable.removeAll(); hiddenPIDs.removeAll(); failedThisSession.removeAll()
             scheduler.beginSession()
             applyPressure(Self.currentPressureLevel())
-            if pauseReason == nil, sessionOpenedAt - contentAt > Self.contentMaxAgeOnOpen {
+            if workPause == nil, sessionOpenedAt - contentAt > Self.contentMaxAgeOnOpen {
                 // Refresh shareable content in parallel with the panel's first display.
                 Task { _ = try? await refreshContent() }
             }
@@ -387,6 +418,7 @@ final class CaptureController {
         sessionCards = cards
         sessionIDs = Set(cards.map(\.id))
         selectedID = selected
+        sessionLiveKey = live
         for card in cards where !emitted.contains(card.id) {
             emitted.insert(card.id)
             emit(preview(for: card))
@@ -405,11 +437,17 @@ final class CaptureController {
         RuntimeDiagnostics.mark("capture session=closed liveStreams=\(liveStreamCount) outstandingSnapshots=\(scheduler.outstandingCount) cacheBytes=\(cache.totalBytes) cacheEntries=\(cache.count)")
     }
 
-    private var pauseReason: PreviewPauseReason? {
+    /// Conditions that stop capture work entirely.
+    private var workPause: PreviewPauseReason? {
         if !pressure.quality.snapshotsAllowed { return .memoryPressure }
         if sleeping { return .sleeping }
         if sessionInactive { return .sessionInactive }
         return nil
+    }
+
+    /// What cards show: a work pause, or the snapshot circuit breaker backing off.
+    private var pauseReason: PreviewPauseReason? {
+        workPause ?? (runner.isBackingOff ? .retrying : nil)
     }
 
     private func reason(for card: PreviewCard) -> PreviewUnavailableReason? {
@@ -460,13 +498,23 @@ final class CaptureController {
     }
 
     private func planSnapshots() {
-        guard sessionVisible, pauseReason == nil, pressure.quality.snapshotsAllowed, hasPermission else {
+        guard sessionVisible, workPause == nil, pressure.quality.snapshotsAllowed, hasPermission else {
             scheduler.plan([], selectedIndex: nil); return
         }
+        // Capture needs the window's SCWindow. Windows missing from content fetched in this session
+        // are not on screen; others wait for the (deadline-bounded) discovery to finish.
+        let age = ProcessInfo.processInfo.systemUptime - contentAt
+        let freshThisSession = contentAt >= sessionOpenedAt
+        var waiting = false
         let requests = sessionCards.compactMap { card -> SnapshotRequest? in
             guard !card.isMinimized, let number = card.windowNumber else { return nil }
-            return SnapshotRequest(id: card.id, windowNumber: number)
+            if content[number] != nil, age <= Self.contentReuseAge { return SnapshotRequest(id: card.id, windowNumber: number) }
+            if freshThisSession {
+                if unavailable[card.id] != .otherSpace { unavailable[card.id] = .otherSpace; emitState(card.id) }
+            } else { waiting = true }
+            return nil
         }
+        if waiting, discovery == nil { Task { _ = try? await refreshContent() } }
         let now = ProcessInfo.processInfo.systemUptime
         let fresh = Set(requests.filter { request in
             guard let entry = cache.peek(request.id) else { return false }
@@ -475,56 +523,67 @@ final class CaptureController {
         scheduler.plan(requests, selectedIndex: requests.firstIndex { $0.id == selectedID }, fresh: fresh)
     }
 
-    private func pump() {
-        for ticket in scheduler.nextTickets() {
-            Task { await self.capture(ticket) }
+    private func pump() { runner.pump() }
+
+    /// The snapshot backend: one bounded screenshot of a window already listed in shareable content.
+    private func screenshot(_ request: SnapshotRequest) async throws -> CGImage {
+        guard let window = content[request.windowNumber],
+              window.owningApplication.map({ $0.processID == request.id.process.pid }) ?? true,
+              window.isOnScreen, window.frame.width > 0, window.frame.height > 0 else { throw SnapshotFailure.notOnScreen }
+        let box = snapshotBox
+        let size = Self.fittedPixelSize(window.frame.size, box: box)
+        let config = SCStreamConfiguration()
+        config.width = size.width; config.height = size.height
+        config.pixelFormat = kCVPixelFormatType_32BGRA; config.colorSpaceName = CGColorSpace.sRGB
+        config.showsCursor = false; config.capturesAudio = false; config.scalesToFit = true
+        config.ignoreShadowsSingleWindow = true
+        let started = ProcessInfo.processInfo.systemUptime
+        let source: CGImage
+        do {
+            source = try await SCScreenshotManager.captureImage(
+                contentFilter: SCContentFilter(desktopIndependentWindow: window), configuration: config)
+        } catch {
+            throw Self.isPermissionError(error) ? SnapshotFailure.permissionDenied : SnapshotFailure.failed
+        }
+        RuntimeDiagnostics.mark("thumbnail screenshotMilliseconds=\((ProcessInfo.processInfo.systemUptime - started) * 1000) width=\(source.width) height=\(source.height)")
+        guard let image = await Task.detached(priority: .utility, operation: { Self.detachedSnapshot(source, fitting: box) }).value
+        else { throw SnapshotFailure.failed }
+        return image
+    }
+
+    private func resolve(_ ticket: SnapshotTicket, _ completion: SnapshotCompletion, _ outcome: SnapshotOutcome<CGImage>) {
+        RuntimeDiagnostics.mark("thumbnail state=\(completion) outstanding=\(scheduler.outstandingCount) abandoned=\(scheduler.abandonedCount) cacheBytes=\(cache.totalBytes) cacheEntries=\(cache.count)")
+        switch (completion, outcome) {
+        case (.store, .captured(let image)):
+            store(image, id: ticket.id, windowNumber: ticket.request.windowNumber,
+                  capturedAt: ProcessInfo.processInfo.systemUptime)
+        case (.store, .failed(let failure)):
+            switch failure {
+            case .notOnScreen: unavailable[ticket.id] = .otherSpace
+            case .permissionDenied: handlePermissionLoss(); unavailable[ticket.id] = .permissionRequired
+            case .failed: unavailable[ticket.id] = .captureFailed; failedThisSession.insert(ticket.id)
+            }
+            emitState(ticket.id)
+        case (.timedOut, _):
+            unavailable[ticket.id] = .captureFailed
+            failedThisSession.insert(ticket.id)
+            emitState(ticket.id)
+        default:
+            break
         }
     }
 
-    private func capture(_ ticket: SnapshotTicket) async {
-        let box = snapshotBox
-        var image: CGImage?
-        var failure: PreviewUnavailableReason?
-        RuntimeDiagnostics.mark("thumbnail state=requesting outstanding=\(scheduler.outstandingCount)")
-        do {
-            let windows = try await shareableWindows(containing: ticket.request.windowNumber)
-            if let window = windows[ticket.request.windowNumber],
-               window.owningApplication.map({ $0.processID == ticket.id.process.pid }) ?? true,
-               window.isOnScreen, window.frame.width > 0, window.frame.height > 0 {
-                let size = Self.fittedPixelSize(window.frame.size, box: box)
-                let config = SCStreamConfiguration()
-                config.width = size.width; config.height = size.height
-                config.pixelFormat = kCVPixelFormatType_32BGRA; config.colorSpaceName = CGColorSpace.sRGB
-                config.showsCursor = false; config.capturesAudio = false; config.scalesToFit = true
-                config.ignoreShadowsSingleWindow = true
-                let started = ProcessInfo.processInfo.systemUptime
-                let source = try await SCScreenshotManager.captureImage(
-                    contentFilter: SCContentFilter(desktopIndependentWindow: window), configuration: config)
-                RuntimeDiagnostics.mark("thumbnail screenshotMilliseconds=\((ProcessInfo.processInfo.systemUptime - started) * 1000) width=\(source.width) height=\(source.height)")
-                image = await Task.detached(priority: .utility) { Self.detachedSnapshot(source, fitting: box) }.value
-                if image == nil { failure = .captureFailed }
-            } else {
-                failure = .otherSpace
-            }
-        } catch {
-            failure = Self.isPermissionError(error) ? .permissionRequired : .captureFailed
+    private func snapshotBreakerChanged(open: Bool) {
+        RuntimeDiagnostics.mark("capture snapshotBreaker=\(open ? "open" : "retry") failures=\(runner.breaker.consecutiveFailures)")
+        if !open, sessionVisible {
+            // Backoff expired: retry the windows that failed or timed out in this session.
+            scheduler.markForRetry(failedThisSession)
+            for id in failedThisSession { unavailable[id] = nil }
+            failedThisSession.removeAll()
+            planSnapshots()
+            pump()
         }
-        // Exactly one completion per issued ticket, after the OS request really finished.
-        switch scheduler.complete(ticket) {
-        case .store:
-            if let image {
-                store(image, id: ticket.id, windowNumber: ticket.request.windowNumber,
-                      capturedAt: ProcessInfo.processInfo.systemUptime)
-            } else if let failure {
-                if failure == .permissionRequired { handlePermissionLoss() }
-                unavailable[ticket.id] = failure
-                emitState(ticket.id)
-            }
-        case .discardClosed, .discardPurged, .unknownTicket:
-            break
-        }
-        RuntimeDiagnostics.mark("thumbnail state=completed outstanding=\(scheduler.outstandingCount) stored=\(image != nil) cacheBytes=\(cache.totalBytes) cacheEntries=\(cache.count)")
-        pump()
+        if sessionVisible { for card in sessionCards { emitState(card.id) } }
     }
 
     private func store(_ image: CGImage, id: WindowIdentity, windowNumber: UInt32, capturedAt: Double) {
@@ -552,14 +611,38 @@ final class CaptureController {
         return try await refreshContent()
     }
 
+    private struct DiscoveryTimeout: Error {}
+
     private func refreshContent() async throws -> [CGWindowID: SCWindow] {
         if let discovery { return try await discovery.value }
+        guard abandonedDiscoveries < 2 else {
+            // Two timed-out discoveries are still physically outstanding: do not add a third.
+            runner.noteFailure()
+            throw DiscoveryTimeout()
+        }
         let task = Task { @MainActor [self] () throws -> [CGWindowID: SCWindow] in
             discoveryInFlight = true; transition("discovering")
             defer { discoveryInFlight = false }
             let started = ProcessInfo.processInfo.systemUptime
-            do {
-                let shareable = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+            let result = await Deadline.run(seconds: Self.discoveryTimeout, operation: {
+                UncheckedSendable(try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true))
+            }, late: { [weak self] late in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.abandonedDiscoveries -= 1
+                    RuntimeDiagnostics.mark("capture discovery=lateAfterTimeout")
+                    // A slow (typically first-in-process) discovery still yields valid content.
+                    if case .success(let boxed) = late, self.discovery == nil {
+                        var windows: [CGWindowID: SCWindow] = [:]
+                        for window in boxed.value.windows where windows[window.windowID] == nil { windows[window.windowID] = window }
+                        self.content = windows; self.contentAt = ProcessInfo.processInfo.systemUptime
+                        if self.sessionVisible { self.planSnapshots(); self.pump() }
+                    }
+                }
+            })
+            switch result {
+            case .value(let boxed):
+                let shareable = boxed.value
                 RuntimeDiagnostics.mark("capture discoveryMilliseconds=\((ProcessInfo.processInfo.systemUptime - started) * 1000) windows=\(shareable.windows.count)")
                 var windows: [CGWindowID: SCWindow] = [:]
                 for window in shareable.windows where windows[window.windowID] == nil { windows[window.windowID] = window }
@@ -567,17 +650,25 @@ final class CaptureController {
                 setPermissionStatus(.resolve(preflight: CGPreflightScreenCaptureAccess(), contentProbe: true))
                 transition("discoveryCompleted")
                 return windows
-            } catch {
+            case .failure(let error):
                 transition("discoveryFailed")
                 if Self.isPermissionError(error) {
                     setPermissionStatus(.resolve(preflight: CGPreflightScreenCaptureAccess(), contentProbe: false))
-                }
+                } else { runner.noteFailure() }
                 throw error
+            case .timedOut:
+                abandonedDiscoveries += 1
+                transition("discoveryTimedOut")
+                runner.noteFailure()
+                throw DiscoveryTimeout()
             }
         }
         discovery = task
         defer { discovery = nil }
-        return try await task.value
+        let windows = try await task.value
+        // Requests that waited for discovery can be planned now.
+        if sessionVisible { planSnapshots(); pump() }
+        return windows
     }
 
     // MARK: Permission
@@ -638,14 +729,10 @@ final class CaptureController {
 
     /// Resumes refresh and live work for a visible surface once nothing pauses it.
     private func resumeWork() {
-        guard sessionVisible, pauseReason == nil else { return }
+        guard sessionVisible, workPause == nil else { return }
         scheduler.beginSession()
         gate.reset()
-        let cards = sessionCards, selected = selectedID
-        let live = cards.first { $0.id == selected }.flatMap { card in
-            card.windowNumber.map { LiveKey(windowNumber: $0, pid: card.id.process.pid) }
-        } ?? (legacySelectionVisible ? legacySelection : nil)
-        updateLive(live, id: selected)
+        updateLive(sessionLiveKey, id: selectedID)
         planSnapshots()
         pump()
     }
@@ -670,8 +757,10 @@ final class CaptureController {
     // MARK: Live stream
 
     private func updateLive(_ key: LiveKey?, id: WindowIdentity?) {
-        let allowed = sessionVisible && pauseReason == nil && pressure.quality.liveAllowed && hasPermission
         let now = ProcessInfo.processInfo.systemUptime
+        let breakerAllows = liveBreaker.allows(now: now)
+        if !breakerAllows, key != nil, sessionVisible { scheduleLiveRetry() }
+        let allowed = sessionVisible && workPause == nil && pressure.quality.liveAllowed && hasPermission && breakerAllows
         let decision = gate.update(allowed ? key : nil, now: now)
         if decision.stopLive || (key == nil && desired != nil) || (desired.map { $0.key != key } ?? false) {
             convertLastLiveFrame()
@@ -690,6 +779,35 @@ final class CaptureController {
         } else if key == nil || !allowed {
             gateTask?.cancel(); gateTask = nil
         }
+    }
+
+    /// After a live-start failure backoff, retry the current selection if the surface is still up.
+    private func scheduleLiveRetry() {
+        guard liveRetryTask == nil, let retryAt = liveBreaker.retryAt else { return }
+        liveRetryTask = Task { @MainActor [weak self] in
+            let delay = retryAt - ProcessInfo.processInfo.systemUptime
+            if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
+            guard !Task.isCancelled, let self else { return }
+            self.liveRetryTask = nil
+            guard self.sessionVisible else { return }
+            self.gate.reset()
+            self.updateLive(self.sessionLiveKey, id: self.selectedID)
+        }
+    }
+
+    /// No first frame in time, or start failed: tear down, fall back to the snapshot, back off.
+    private func liveStartFailed(token: UInt64, target: LiveTarget, reason: String) {
+        guard generation == token, desired?.key == target.key else { return }
+        transition(reason)
+        liveBreaker.recordFailure(now: ProcessInfo.processInfo.systemUptime)
+        output?.deactivate()
+        desired = nil
+        gate.reset()
+        generation &+= 1
+        schedule()
+        if let id = target.id { emitState(id) }
+        publishLegacy(nil, "Selected preview unavailable; showing snapshot")
+        if sessionVisible, liveBreaker.retryAt != nil { scheduleLiveRetry() }
     }
 
     private func startLive(_ key: LiveKey) {
@@ -830,6 +948,13 @@ final class CaptureController {
             self.output = output; self.stream = stream; streamGeneration = token
             streamFramesPerSecond = target.framesPerSecond
             transition("starting")
+            liveFirstFrameSeen = false
+            liveWatchdog?.cancel()
+            liveWatchdog = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(Self.liveFirstFrameTimeout))
+                guard !Task.isCancelled, let self, self.streamGeneration == token, !self.liveFirstFrameSeen else { return }
+                self.liveStartFailed(token: token, target: target, reason: "liveFirstFrameTimeout")
+            }
             do {
                 try stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: frameQueue)
                 try await stream.startCapture()
@@ -838,10 +963,10 @@ final class CaptureController {
                 // A completed failed start does not reserve another live stream.
                 output.deactivate()
                 if self.stream === stream { detach(stream, reason: "startFailed") }
+                liveWatchdog?.cancel()
                 if generation == token {
                     if Self.isPermissionError(error) { handlePermissionLoss() }
-                    if let id = target.id { unavailable[id] = .captureFailed; emitState(id) }
-                    publishLegacy(nil, "Selected preview could not start")
+                    else { liveStartFailed(token: token, target: target, reason: "liveStartFailed") }
                     return
                 }
             }
@@ -850,6 +975,11 @@ final class CaptureController {
     }
 
     private func deliverLive(_ frame: LiveFrame, target: LiveTarget) {
+        if !liveFirstFrameSeen {
+            liveFirstFrameSeen = true
+            liveWatchdog?.cancel(); liveWatchdog = nil
+            liveBreaker.recordSuccess()
+        }
         if lastLiveFrame == nil, let requested = liveRequestedAt {
             RuntimeDiagnostics.mark("capture firstLiveFrameMilliseconds=\((frame.arrivedAt - requested) * 1000) width=\(frame.width) height=\(frame.height)")
         }
@@ -871,6 +1001,7 @@ final class CaptureController {
         }
         if stream === stopped {
             stream = nil; output = nil; streamGeneration = nil; streamFramesPerSecond = 0
+            liveWatchdog?.cancel(); liveWatchdog = nil
             transition(reason)
         }
     }
@@ -1058,4 +1189,10 @@ final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
         lock.unlock()
         if let frame { onFrame(frame) }
     }
+}
+
+/// Carries a non-Sendable framework result across the deadline race; only touched on the main actor.
+struct UncheckedSendable<Value>: @unchecked Sendable {
+    let value: Value
+    init(_ value: Value) { self.value = value }
 }
