@@ -59,7 +59,9 @@ class SurfacePanelController: NSObject, NSSearchFieldDelegate, NSWindowDelegate 
     /// Window → card for the cards on display, refreshed after every grid diff.
     private(set) var cardsByWindow: [WindowIdentity: CardView] = [:]
     private(set) var layoutFeedback: [WindowIdentity: String] = [:]
-    private var thumbnailCandidates: [WindowThumbnailRequest]?
+    /// Cards whose previews the engine should keep current; rebuilt after a diff, scroll or search.
+    private var previewCandidates: [PreviewCard]?
+    private var previewRows: ClosedRange<Int>?
     private var viewportObserver: NSObjectProtocol?
     private var prewarming = false
     private var prewarmToken = 0
@@ -201,7 +203,7 @@ class SurfacePanelController: NSObject, NSSearchFieldDelegate, NSWindowDelegate 
         panel.orderOut(nil)
         for card in grid.cards { card.releasePayload() }
         layoutFeedback.removeAll()
-        thumbnailCandidates = nil
+        previewCandidates = nil; previewRows = nil
     }
 
     /// Pays the first-display cost (window backing, vibrancy, field editor, card drawing)
@@ -240,18 +242,15 @@ class SurfacePanelController: NSObject, NSSearchFieldDelegate, NSWindowDelegate 
         map.reserveCapacity(ids.count)
         for (id, card) in zip(ids, grid.cards) { if let id { map[id] = card } }
         cardsByWindow = map
-        thumbnailCandidates = nil
+        previewCandidates = nil
     }
 
     /// Moves the selection: only the previous and new cards change appearance.
     func select(_ id: WindowIdentity?, notify: Bool = true) {
         let previous = selectedID
         selectedID = id
-        if let previous, previous != id, let card = cardsByWindow[previous] {
-            card.selected = false
-            card.preview = nil
-            card.previewLabel = "Icon preview"
-        }
+        // Preview content follows engine updates; the outgoing card keeps its last frame, relabelled.
+        if let previous, previous != id, let card = cardsByWindow[previous] { card.selected = false }
         if let id, let card = cardsByWindow[id] {
             card.selected = true
             if isShown { revealCard(card) }
@@ -278,28 +277,48 @@ class SurfacePanelController: NSObject, NSSearchFieldDelegate, NSWindowDelegate 
         if failureFeedback.isHidden { failureFeedback.isHidden = false; failureFeedbackChanged() }
     }
 
-    func showPreview(_ image: CGImage?, label: String) {
-        guard let id = selectedID, let card = cardsByWindow[id] else { return }
-        card.preview = image; card.previewLabel = label
+    func invalidatePreviewCandidates() { previewCandidates = nil }
+
+    /// Matching window cards in the scroll viewport plus half a row of margin, selection included.
+    /// Built from the prepared registry only (no AX or capture call); cached until the cards,
+    /// search or viewport change.
+    func previewCards() -> [PreviewCard] {
+        if let previewCandidates { return previewCandidates }
+        let viewport = scroll.contentView.documentVisibleRect
+            .insetBy(dx: 0, dy: -grid.metrics.cardHeight / 2)
+        previewRows = visibleRows()
+        let cards = grid.cards.compactMap { card -> PreviewCard? in
+            guard card.matches, let record = card.record, card.frame.intersects(viewport) else { return nil }
+            return PreviewCard(id: record.id, windowNumber: service?.captureWindowNumber(for: record.id),
+                               isMinimized: record.isMinimized)
+        }
+        previewCandidates = cards
+        return cards
     }
 
-    func invalidateThumbnailCandidates() { thumbnailCandidates = nil }
+    /// The card preview area in backing pixels (all cards in a grid share one size).
+    var previewPixelSize: CGSize? {
+        guard let card = grid.cards.first else { return nil }
+        let area = card.previewRect.size
+        guard area.width >= 1, area.height >= 1 else { return nil }
+        let scale = panel.backingScaleFactor
+        return CGSize(width: (area.width * scale).rounded(), height: (area.height * scale).rounded())
+    }
 
-    /// Visible, matching cards with a capture number, excluding the selection (which streams live).
-    func thumbnailRequests() -> [WindowThumbnailRequest] {
-        if thumbnailCandidates == nil {
-            let viewport = scroll.contentView.documentVisibleRect
-            thumbnailCandidates = grid.cards.compactMap { card in
-                guard card.matches, let record = card.record, card.frame.intersects(viewport),
-                      let number = service?.captureWindowNumber(for: record.id) else { return nil }
-                return WindowThumbnailRequest(id: record.id, windowNumber: number, ownerPID: record.id.process.pid)
-            }
-        }
-        return thumbnailCandidates!.filter { $0.id != selectedID }
+    /// Grid rows touched by the viewport plus margin; scrolling within a row changes nothing.
+    private func visibleRows() -> ClosedRange<Int>? {
+        let viewport = scroll.contentView.documentVisibleRect
+        let pitch = grid.metrics.cardHeight + grid.metrics.spacing
+        guard pitch > 0, grid.rows > 0 else { return nil }
+        let margin = grid.metrics.cardHeight / 2
+        let first = max(0, Int(((viewport.minY - margin) / pitch).rounded(.down)))
+        let last = min(grid.rows - 1, Int(((viewport.maxY + margin) / pitch).rounded(.down)))
+        return first <= last ? first...last : nil
     }
 
     private func viewportScrolled() {
-        thumbnailCandidates = nil
+        guard visibleRows() != previewRows || previewCandidates == nil else { return }
+        previewCandidates = nil
         if isShown { host?.surfaceSelectionChanged(self) }
     }
 

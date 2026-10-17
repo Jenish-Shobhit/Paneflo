@@ -88,9 +88,6 @@ final class SwitcherPanelController: SurfacePanelController {
             setSelectedID(session.selectedID)
         }
         rebuild(snapshot: snapshot)
-        for card in grid.cards where card.thumbnail != nil {
-            if let record = card.record, service.captureWindowNumber(for: record.id) == nil { card.thumbnail = nil }
-        }
         fit()
     }
 
@@ -122,7 +119,6 @@ final class SwitcherPanelController: SurfacePanelController {
                 || record.map { ($0.appName + " " + $0.title).localizedCaseInsensitiveContains(query) } ?? false
             card.matches = matches
             card.setEnabledIfChanged(matches)
-            if !card.selected, card.preview != nil { card.preview = nil; card.previewLabel = "Icon preview" }
         }
         indexCards(displayed)
         if displayed.isEmpty {

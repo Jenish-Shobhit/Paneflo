@@ -14,7 +14,6 @@ final class DesktopController: NSObject, SurfaceHost {
     private var presentationGeneration: UInt64 = 0
     private var overviewReturnApplication: NSRunningApplication?
     private var iconCache: [String: NSImage] = [:]
-    private var survivingIDs: Set<WindowIdentity>?
     private var lastKeyboardDiagnostic: String?
     private var firstPreviewStarted: Double?
     private var pendingGestureRecognizedAt: UInt64?
@@ -31,12 +30,25 @@ final class DesktopController: NSObject, SurfaceHost {
     }
     private var removeOutsideClickMonitor: (Any) -> Void = { NSEvent.removeMonitor($0) }
     private var workspaceObservers: [NSObjectProtocol] = []
-    var onThumbnailViewport: (([WindowThumbnailRequest], Bool, Set<WindowIdentity>) -> Void)?
+    /// The preview engine, or nil while previews are off. Cards render its updates; the visible
+    /// surface reports its visible cards and selection on open, Tab, scroll and search.
+    var previews: PreviewProvider? {
+        didSet {
+            guard previews !== oldValue else { return }
+            oldValue?.onPreview = nil
+            oldValue?.updateSurface(visible: false, cards: [], selected: nil, previewPixelSize: nil)
+            previewSessionOpen = false
+            for surface in [switcher, overview] as [SurfacePanelController] { for card in surface.grid.cards { card.clearPreview() } }
+            previews?.onPreview = { [weak self] update in self?.showPreview(update) }
+            if let surface = visibleSurface { surfaceSelectionChanged(surface) }
+        }
+    }
+    /// True between the first visible `updateSurface` of a presentation and its dismissal.
+    private var previewSessionOpen = false
     var onVisibilityChanged: ((Bool) -> Void)?
     var onCompositionChanged: ((Bool) -> Void)?
     /// Any Paneflo surface on screen, regardless of key or active state. Escape ownership follows this.
     var onSurfaceVisibilityChanged: ((Bool) -> Void)?
-    var onPreviewSelection: ((UInt32?, Bool, pid_t?) -> Void)?
     var onDismiss: (() -> Void)?
     var onToggleShortcuts: ((Bool) -> Void)? { get { settings.onToggleShortcuts } set { settings.onToggleShortcuts = newValue } }
     var onToggleGesture: ((Bool) -> Void)? { get { settings.onToggleGesture } set { settings.onToggleGesture = newValue } }
@@ -151,8 +163,8 @@ final class DesktopController: NSObject, SurfaceHost {
         overview.hide()
         stopOutsideClickMonitor()
         updateKeyboardOwnership()
-        onThumbnailViewport?([], false, surviving())
-        onPreviewSelection?(nil, false, nil); onDismiss?()
+        endPreviewSession()
+        onDismiss?()
         // A key non-activating panel makes NSApp.isActive true without taking the frontmost
         // position, so restore only when Paneflo itself really became frontmost meanwhile.
         if restorePreviousApplication, let previous, !previous.isTerminated,
@@ -189,7 +201,6 @@ final class DesktopController: NSObject, SurfaceHost {
     /// Registry change. Hidden surfaces do no work here: the switcher builds on present and the
     /// Overview coalesces into at most one diff per second.
     func updateSnapshot() {
-        survivingIDs = nil
         switcher.snapshotChanged()
         overview.snapshotChanged()
         settings.snapshotChanged()
@@ -254,23 +265,27 @@ final class DesktopController: NSObject, SurfaceHost {
         settings.previewButton.toolTip = "One live stream for the selected window while this overlay is visible."
     }
     func setPreviewsEnabled(_ enabled: Bool) { settings.previewButton.state = enabled ? .on : .off }
-    func refreshPreviewSelection() { if let surface = visibleSurface { surfaceSelectionChanged(surface) } }
+    /// Screen Recording guidance shown next to the previews toggle; nil hides it.
+    func setPreviewPermissionMessage(_ message: String?) { settings.setPreviewPermissionMessage(message) }
+    var onRefreshScreenRecording: (() -> Void)? {
+        get { settings.onRefreshScreenRecording } set { settings.onRefreshScreenRecording = newValue }
+    }
 
-    func showPreview(_ image: CGImage?, label: String) {
-        guard let surface = visibleSurface else { return }
-        if image != nil, let started = firstPreviewStarted {
+    /// Renders one engine update on the visible surface's card. Updates for hidden surfaces or
+    /// cards no longer displayed are dropped: hidden cards hold no window content.
+    private func showPreview(_ update: PreviewUpdate) {
+        guard let surface = visibleSurface, surface.showsPreviews, let card = surface.cardsByWindow[update.id] else { return }
+        card.showPreview(update)
+        if let started = firstPreviewStarted, card.pixels.hasContent {
             firstPreviewStarted = nil
             RuntimeDiagnostics.mark("desktop firstPreviewMilliseconds=\((ProcessInfo.processInfo.systemUptime - started) * 1000)")
         }
-        surface.showPreview(image, label: label)
     }
 
-    /// Late thumbnails for a hidden surface are dropped: hidden cards hold no window content.
-    func showThumbnail(_ image: CGImage, for id: WindowIdentity) {
-        visibleSurface?.cardsByWindow[id]?.thumbnail = image
-    }
-    func clearThumbnails() {
-        for surface in [switcher, overview] as [SurfacePanelController] { for card in surface.grid.cards { card.thumbnail = nil } }
+    private func endPreviewSession() {
+        guard previewSessionOpen else { return }
+        previewSessionOpen = false
+        previews?.updateSurface(visible: false, cards: [], selected: nil, previewPixelSize: nil)
     }
 
     func showPreferences() {
@@ -293,21 +308,24 @@ final class DesktopController: NSObject, SurfaceHost {
         iconCache = iconCache.filter { live.contains($0.key) }
     }
 
-    private func surviving() -> Set<WindowIdentity> {
-        if let survivingIDs { return survivingIDs }
-        let ids = Set(service.snapshot.records.map(\.id))
-        survivingIDs = ids
-        return ids
-    }
-
     func surfaceKeyboardChanged(_ surface: SurfacePanelController) { updateKeyboardOwnership() }
 
+    /// Open, Tab, arrows, scroll, search and registry changes all land here. Reads prepared state
+    /// only; the engine call does no capture, AX or window-server work synchronously.
     func surfaceSelectionChanged(_ surface: SurfacePanelController) {
-        guard surface === visibleSurface else { return }
-        let visible = surface.showsPreviews
-        let selected = surface.selectedID
-        onPreviewSelection?(selected.flatMap { service.captureWindowNumber(for: $0) }, visible, selected?.process.pid)
-        onThumbnailViewport?(visible ? surface.thumbnailRequests() : [], visible, surviving())
+        guard surface === visibleSurface, let previews else { return }
+        guard surface.showsPreviews else { endPreviewSession(); return }
+        let cards = surface.previewCards()
+        if previewSessionOpen {
+            // The engine emits each card once per session; a card view reused mid-session asks for
+            // the current state instead of waiting for the next change.
+            for card in cards {
+                if let view = surface.cardsByWindow[card.id], !view.hasPreviewState { view.showPreview(previews.preview(for: card)) }
+            }
+        }
+        previewSessionOpen = true
+        previews.updateSurface(visible: true, cards: cards, selected: surface.selectedID,
+                               previewPixelSize: surface.previewPixelSize)
     }
 
     func surfaceDismiss(_ surface: SurfacePanelController) { dismiss() }
@@ -346,10 +364,15 @@ final class DesktopController: NSObject, SurfaceHost {
         nativeCheckSurface === overview ? overview.slotBindings : switcher.displayed.map(Optional.some)
     }
     var nativeCheckPayloadCount: Int {
-        (switcher.grid.cards + overview.grid.cards).filter { $0.preview != nil || $0.thumbnail != nil }.count
+        (switcher.grid.cards + overview.grid.cards).filter { $0.pixels.hasContent }.count
+    }
+    var nativeCheckLabelledCount: Int {
+        (switcher.grid.cards + overview.grid.cards).filter { $0.previewLabel != nil }.count
     }
     func nativeCheckCard(for id: WindowIdentity) -> CardView? { nativeCheckSurface.cardsByWindow[id] }
-    func nativeCheckInjectPreview(_ image: CGImage) { nativeCheckSurface.grid.cards.first?.preview = image }
+    var nativeCheckCards: [CardView] { nativeCheckSurface.grid.cards }
+    var nativeCheckViewport: NSRect { nativeCheckSurface.scroll.contentView.documentVisibleRect }
+    var nativeCheckCardHeight: CGFloat { nativeCheckSurface.grid.metrics.cardHeight }
     func nativeCheckQuery(_ value: String) {
         let surface = nativeCheckSurface
         surface.search.stringValue = value

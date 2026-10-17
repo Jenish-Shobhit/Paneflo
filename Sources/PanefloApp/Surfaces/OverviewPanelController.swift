@@ -148,7 +148,6 @@ final class OverviewPanelController: SurfacePanelController {
             card.dragEnabled = true
             card.layoutBadge = record.flatMap { layoutFeedback[$0.id] }
             card.selected = record != nil && record?.id == selected
-            if !card.selected, card.preview != nil { card.preview = nil; card.previewLabel = "Icon preview" }
             let matches = matching.contains(slot.id)
             card.matches = matches
             card.setEnabledIfChanged(matches || (record == nil && query.isEmpty))
@@ -173,7 +172,7 @@ final class OverviewPanelController: SurfacePanelController {
             card.matches = matches
             card.setEnabledIfChanged(matches || (card.record == nil && query.isEmpty))
         }
-        invalidateThumbnailCandidates()
+        invalidatePreviewCandidates()
     }
 
     private func saveSlots() {

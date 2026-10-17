@@ -25,7 +25,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let preferences = UserDefaults.standard
     private var startupShortcutRestorePending = false
     private var startupGestureRestorePending = false
+    /// The user's previews choice. Capture runs only while this is on and Screen Recording is usable.
     private var previewsEnabled = false
+    /// The user asked for previews in this process, so re-probing Screen Recording is expected.
+    private var previewPermissionRequested = false
     private var desktop: DesktopController?
     private var sample: PreviewController?
 
@@ -34,38 +37,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = DesktopController(service: windows)
         desktop = controller
         windows.onChange = { [weak self, weak controller] in
+            if let self, self.previewsEnabled { self.capture.windowsChanged(alive: Set(self.windows.snapshot.records.map(\.id))) }
             controller?.updateSnapshot()
             self?.restoreStartupShortcutsIfReady()
             self?.restoreStartupGesturesIfReady()
         }
         windows.onStatus = { [weak controller] in controller?.setStatus($0) }
         controller.enablePreviewControl()
-        capture.onThumbnail = { [weak controller] request, image in controller?.showThumbnail(image, for: request.id) }
-        capture.onThumbnailsCleared = { [weak controller] in controller?.clearThumbnails() }
-        capture.isThumbnailCurrent = { [weak self] request in
-            guard let self else { return false }
-            return request.id.process.pid == request.ownerPID && self.windows.captureWindowNumber(for: request.id) == request.windowNumber
-        }
-        controller.onThumbnailViewport = { [weak self] requests, visible, surviving in
+        controller.onTogglePreviews = { [weak self] enabled in self?.setPreviews(enabled) }
+        capture.onScreenRecordingStatusChange = { [weak self] status in
             guard let self else { return }
-            self.capture.selectVisibleThumbnails(requests, visible: visible && self.previewsEnabled, surviving: surviving)
+            RuntimeDiagnostics.mark("previews screenRecording=\(status) enabled=\(self.previewsEnabled)")
+            self.updatePreviewState()
+            if status == .granted, self.previewsEnabled { self.capture.prewarm() }
         }
-        capture.onImage = { [weak controller] in controller?.showPreview($0, label: $1) }
-        controller.onPreviewSelection = { [weak self] number, visible, ownerPID in
-            guard let self else { return }
-            if self.previewsEnabled { self.capture.select(windowNumber: number, visible: visible, ownerPID: ownerPID) }
-            else { self.capture.stop() }
-        }
-        controller.onTogglePreviews = { [weak self] enabled in
-            guard let self else { return }
-            if enabled && !self.capture.hasPermission && !self.capture.requestPermission() {
-                controller.setPreviewsEnabled(false)
-                controller.setStatus("Enable Screen Recording for Paneflo in Privacy & Security, then enable previews again.")
-                return
-            }
-            self.previewsEnabled = enabled
-            self.preferences.set(enabled, forKey: "previews.enabled.v1")
-            if enabled { controller.refreshPreviewSelection() } else { self.capture.stop() }
+        controller.onRefreshScreenRecording = { [weak self] in
+            guard let self, self.previewsEnabled, self.previewPermissionRequested,
+                  self.capture.screenRecordingStatus != .granted else { return }
+            self.capture.refreshScreenRecordingStatus()
         }
         controller.onCompositionChanged = { [weak self] in self?.shortcuts.compositionActive = $0 }
         controller.onVisibilityChanged = { [weak self] in self?.shortcuts.selectionContextActive = $0 }
@@ -106,7 +95,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let screenRecordingReady = capture.hasPermission
         RuntimeDiagnostics.mark("permissions accessibility=\(accessibilityReady) inputMonitoring=\(inputMonitoringReady) screenRecording=\(screenRecordingReady)")
         previewsEnabled = savedPreviews && screenRecordingReady
-        controller.setPreviewsEnabled(previewsEnabled)
+        updatePreviewState()
+        if savedPreviews && !screenRecordingReady {
+            // Never prompt at launch: the user turns previews back on once access is granted.
+            controller.setPreviewPermissionMessage("Screen Recording access is off. Allow Paneflo under Privacy & Security › Screen Recording, then turn on Live previews.")
+        }
         let missingPermission = !accessibilityReady
             || ((startupShortcutRestorePending || startupGestureRestorePending) && !inputMonitoringReady)
             || (savedPreviews && !screenRecordingReady)
@@ -116,6 +109,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if missingPermission || firstLaunch { controller.showPreferences() }
         // Pay both panels' first-display cost now, so the first ⌘Tab and Overview are warm.
         DispatchQueue.main.async { [weak controller] in controller?.prewarm() }
+        // Warm ScreenCaptureKit (first request ~1 s) after startup, off the launch and input paths.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let self, self.previewsEnabled else { return }
+            self.capture.prewarm()
+        }
         // updates hook: isBusy defers automatic checks and offers while a switcher or overview session is showing.
         UpdateController.shared.start(isBusy: { [weak self] in self?.desktop?.isVisible == true },
                                       report: { [weak self] in self?.desktop?.setStatus($0) })
@@ -169,6 +167,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let quit = NSMenuItem(title: "Quit Paneflo", action: #selector(quit), keyEquivalent: "q")
         quit.target = self; menu.addItem(quit)
         item.menu = menu; statusItem = item
+    }
+
+    /// Previews toggle. First-time access: the system request is shown, the toggle stays on with
+    /// guidance, and previews start once Screen Recording is confirmed (re-checked when Paneflo or
+    /// its Settings window becomes active), or Settings says a restart is needed.
+    private func setPreviews(_ enabled: Bool) {
+        previewsEnabled = enabled
+        preferences.set(enabled, forKey: "previews.enabled.v1")
+        if enabled {
+            if !capture.hasPermission {
+                previewPermissionRequested = true
+                _ = capture.requestPermission()
+            }
+            capture.prewarm()
+        } else {
+            capture.stop()
+        }
+        updatePreviewState()
+    }
+
+    /// Attaches the engine to the surfaces only while previews are on and Screen Recording is usable.
+    private func updatePreviewState() {
+        guard let desktop else { return }
+        let status = capture.screenRecordingStatus
+        let ready = capture.hasPermission && status != .restartRequired
+        desktop.previews = previewsEnabled && ready ? capture : nil
+        desktop.setPreviewsEnabled(previewsEnabled)
+        desktop.setPreviewPermissionMessage(previewsEnabled && !ready
+            ? status.settingsMessage ?? ScreenRecordingStatus.unknown.settingsMessage : nil)
     }
 
     private func restoreStartupShortcutsIfReady() {

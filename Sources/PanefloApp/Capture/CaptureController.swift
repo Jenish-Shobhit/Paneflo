@@ -10,13 +10,6 @@ enum PreviewRenderer {
     static let usesReferenceRenderer = CommandLine.arguments.contains("--preview-reference-renderer")
 }
 
-/// Legacy request shape used by `DesktopController.onThumbnailViewport`.
-struct WindowThumbnailRequest: Hashable, Sendable {
-    let id: WindowIdentity
-    let windowNumber: UInt32
-    let ownerPID: pid_t
-}
-
 /// One card on a visible switching surface. Build it from the window registry:
 /// `PreviewCard(id: record.id, windowNumber: service.captureWindowNumber(for: record.id), isMinimized: record.isMinimized)`.
 struct PreviewCard: Hashable, Sendable {
@@ -75,6 +68,16 @@ struct PreviewUpdate {
     }
 }
 
+/// What the switching surfaces need from a preview engine. `CaptureController` is the real one;
+/// own-window checks and the surface bench inject synthetic providers.
+@MainActor
+protocol PreviewProvider: AnyObject {
+    /// Delivered on the main thread, only for cards passed to the current visible `updateSurface`.
+    var onPreview: ((PreviewUpdate) -> Void)? { get set }
+    func updateSurface(visible: Bool, cards: [PreviewCard], selected: WindowIdentity?, previewPixelSize: CGSize?)
+    func preview(for card: PreviewCard) -> PreviewUpdate
+}
+
 /// Capture engine for switching surfaces.
 ///
 /// - One persistent, byte-bounded LRU of card-sized snapshots that survives dismissal.
@@ -85,7 +88,7 @@ struct PreviewUpdate {
 ///   deactivates delivery and issues the stop at once; `liveStreamCount` reaches 0 when the
 ///   framework confirms the stop.
 ///
-/// Card-layer wiring (new API):
+/// Card-layer wiring (`DesktopController`):
 /// - Open, Tab, scroll, filter: `updateSurface(visible: true, cards:, selected:, previewPixelSize:)`.
 /// - Dismiss: `updateSurface(visible: false, cards: [], selected: nil, previewPixelSize: nil)`.
 /// - Render every `onPreview` update; `preview(for:)` gives the current state synchronously.
@@ -94,11 +97,10 @@ struct PreviewUpdate {
 final class CaptureController {
     // MARK: Public surface
 
-    /// Card-layer delivery (new API). Called on the main thread.
+    /// Card-layer delivery. Called on the main thread.
     var onPreview: ((PreviewUpdate) -> Void)?
     var onScreenRecordingStatusChange: ((ScreenRecordingStatus) -> Void)?
     private(set) var screenRecordingStatus: ScreenRecordingStatus
-    private(set) var status = "Previews off"
     var hasPermission: Bool { screenRecordingStatus == .granted || CGPreflightScreenCaptureAccess() }
     /// Physical live streams owned, including one whose stop has been issued but not confirmed.
     var liveStreamCount: Int { stream == nil ? 0 : 1 }
@@ -106,12 +108,6 @@ final class CaptureController {
     var cacheBytes: Int { cache.totalBytes }
     var cacheCount: Int { cache.count }
     var pressureLevel: MemoryPressureLevel { pressure.level }
-
-    // Legacy surface used by DesktopController/PanefloApplication until the card layer adopts `onPreview`.
-    var onImage: ((CGImage?, String) -> Void)?
-    var onThumbnail: ((WindowThumbnailRequest, CGImage) -> Void)?
-    var onThumbnailsCleared: (() -> Void)?
-    var isThumbnailCurrent: ((WindowThumbnailRequest) -> Bool)?
 
     // MARK: Tunables
 
@@ -189,11 +185,6 @@ final class CaptureController {
     private let frameBudget = LiveFrameBudget()
     private let frameQueue = DispatchQueue(label: "Paneflo.selected-preview", qos: .userInitiated)
 
-    // Legacy adapter state.
-    private var legacyRequests: [WindowThumbnailRequest] = []
-    private var legacyThumbnailsVisible = false
-    private var legacySelection: LiveKey?
-    private var legacySelectionVisible = false
     private var identityIndex: [LiveKey: WindowIdentity] = [:]
 
     private var memoryPressureSource: (any DispatchSourceMemoryPressure)?
@@ -278,7 +269,7 @@ final class CaptureController {
         }
     }
 
-    // MARK: New card-layer API
+    // MARK: Card-layer API
 
     /// Call on open and whenever the visible cards, selection, or card pixel size change; call with
     /// `visible: false` on dismiss. Cheap: no capture, AX, or window-server call runs synchronously.
@@ -332,64 +323,8 @@ final class CaptureController {
 
     /// Previews disabled or app quitting: end the session and purge every cached snapshot.
     func stop() {
-        legacyRequests = []; legacyThumbnailsVisible = false
-        legacySelection = nil; legacySelectionVisible = false
         endSession()
         purge(reason: "stopped")
-    }
-
-    // MARK: Legacy adapter (DesktopController today)
-
-    func selectVisibleThumbnails(_ requests: [WindowThumbnailRequest], visible: Bool, surviving: Set<WindowIdentity>) {
-        windowsChanged(alive: surviving)
-        for request in requests {
-            identityIndex[LiveKey(windowNumber: request.windowNumber, pid: request.ownerPID)] = request.id
-        }
-        legacyRequests = visible ? requests : []
-        legacyThumbnailsVisible = visible
-        applyLegacy()
-        guard visible else { return }
-        // The legacy card layer clears thumbnails when it reassigns cards; republish cached images.
-        for request in legacyRequests {
-            if let entry = cache.peek(request.id), entry.windowNumber == request.windowNumber,
-               isThumbnailCurrent?(request) != false {
-                onThumbnail?(request, entry.payload)
-            }
-        }
-    }
-
-    func select(windowNumber: UInt32?, visible: Bool, ownerPID: pid_t? = nil) {
-        legacySelection = visible ? windowNumber.map { LiveKey(windowNumber: $0, pid: ownerPID ?? 0) } : nil
-        legacySelectionVisible = visible
-        applyLegacy()
-        if visible, windowNumber == nil { publishLegacy(nil, "Selected window unavailable for capture") }
-    }
-
-    private func applyLegacy() {
-        // DesktopController reports both halves on open and dismiss; the session spans both.
-        let visible = legacySelectionVisible && legacyThumbnailsVisible
-        var cards = legacyRequests.map { PreviewCard(id: $0.id, windowNumber: $0.windowNumber, isMinimized: false) }
-        var selected: WindowIdentity?
-        if let key = legacySelection, let id = identityIndex[key] {
-            selected = id
-            if !cards.contains(where: { $0.id == id }) {
-                cards.insert(PreviewCard(id: id, windowNumber: key.windowNumber, isMinimized: false), at: 0)
-            }
-        }
-        apply(visible: visible, cards: cards, selected: selected, live: legacySelection)
-    }
-
-    private func legacyRequest(for id: WindowIdentity) -> WindowThumbnailRequest? {
-        if let request = legacyRequests.first(where: { $0.id == id }) { return request }
-        if let key = legacySelection, identityIndex[key] == id {
-            return WindowThumbnailRequest(id: id, windowNumber: key.windowNumber, ownerPID: key.pid)
-        }
-        return nil
-    }
-
-    private func publishLegacy(_ image: CGImage?, _ label: String) {
-        status = label
-        onImage?(image, label)
     }
 
     // MARK: Session
@@ -463,21 +398,7 @@ final class CaptureController {
         return unavailable[card.id]
     }
 
-    private func emit(_ update: PreviewUpdate) {
-        onPreview?(update)
-        // Legacy translation: thumbnails for non-selected cards, status text for the selected one.
-        switch update.content {
-        case .snapshot(let image):
-            if let request = legacyRequest(for: update.id), isThumbnailCurrent?(request) != false {
-                onThumbnail?(request, image)
-            }
-        case .live: break
-        case .keep, .none:
-            if let key = legacySelection, identityIndex[key] == update.id, !update.presentation.isLive {
-                publishLegacy(nil, update.label())
-            }
-        }
-    }
+    private func emit(_ update: PreviewUpdate) { onPreview?(update) }
 
     private func emitState(_ id: WindowIdentity) {
         guard sessionVisible, let card = sessionCards.first(where: { $0.id == id }) else { return }
@@ -742,7 +663,6 @@ final class CaptureController {
         cache.removeAll()
         content.removeAll(); contentAt = -.infinity
         unavailable.removeAll()
-        onThumbnailsCleared?()
         if hadEntries || sessionVisible {
             RuntimeDiagnostics.mark("thumbnail state=purged reason=\(reason) outstanding=\(scheduler.outstandingCount) cacheBytes=0 cacheEntries=0")
         }
@@ -800,7 +720,6 @@ final class CaptureController {
         generation &+= 1
         schedule()
         if let id = target.id { emitState(id) }
-        publishLegacy(nil, "Selected preview unavailable; showing snapshot")
         if sessionVisible, liveBreaker.retryAt != nil { scheduleLiveRetry() }
     }
 
@@ -887,7 +806,6 @@ final class CaptureController {
                     if self.stream === stream {
                         stopUnconfirmed = true
                         transition("teardownUnconfirmed")
-                        publishLegacy(nil, "Preview teardown unconfirmed; further capture paused")
                         return
                     }
                 }
@@ -898,7 +816,6 @@ final class CaptureController {
             guard hasPermission else {
                 transition("permissionUnavailable")
                 if let id = target.id { emitState(id) }
-                publishLegacy(nil, "Screen Recording permission required for previews")
                 return
             }
             let windows: [CGWindowID: SCWindow]
@@ -907,7 +824,6 @@ final class CaptureController {
             } catch {
                 guard generation == token else { continue }
                 if Self.isPermissionError(error) { handlePermissionLoss() }
-                publishLegacy(nil, "Selected preview unavailable")
                 return
             }
             guard generation == token, desired == target else { continue }
@@ -916,7 +832,6 @@ final class CaptureController {
                   window.isOnScreen, window.frame.width > 0, window.frame.height > 0 else {
                 transition("selectedUnavailable")
                 if let id = target.id { unavailable[id] = .otherSpace; emitState(id) }
-                publishLegacy(nil, "Selected window unavailable for capture")
                 return
             }
             streamPixelSize = Self.fittedPixelSize(window.frame.size, box: target.pixelBox)
@@ -934,7 +849,6 @@ final class CaptureController {
                     self.desired = nil
                     self.gate.reset()
                     if let id = target.id { self.emitState(id) }
-                    self.publishLegacy(nil, "Selected preview stopped or unavailable")
                 } else { self.schedule() }
             })
             let stream = SCStream(filter: SCContentFilter(desktopIndependentWindow: window),
@@ -980,10 +894,6 @@ final class CaptureController {
         lastLiveFrame = (frame, target)
         if let id = target.id, sessionIDs.contains(id) {
             onPreview?(PreviewUpdate(id: id, content: .live(frame), presentation: .live))
-        }
-        if let onImage, legacySelection == target.key, let image = Self.legacyImage(from: frame) {
-            status = "Live selected preview"
-            onImage(image, status)
         }
     }
 
@@ -1042,13 +952,14 @@ final class CaptureController {
 
     /// Converts a live frame to an owned snapshot; the frame's surface is not retained afterwards.
     nonisolated static func detachedSnapshot(from frame: LiveFrame, fitting box: CGSize) -> CGImage? {
-        guard let image = legacyImage(from: frame) else { return nil }
+        guard let image = borrowedImage(from: frame) else { return nil }
         return detachedSnapshot(image, fitting: box)
     }
 
-    /// Legacy CGImage view of a live frame (no copy at creation). The image's data provider holds the
-    /// frame and its read lock until the last consumer releases it.
-    nonisolated static func legacyImage(from frame: LiveFrame) -> CGImage? {
+    /// CGImage view of a live frame (no copy at creation), used for live-to-snapshot conversion and
+    /// the developer reference renderer. The image's data provider holds the frame and its read lock
+    /// until the last consumer releases it.
+    nonisolated static func borrowedImage(from frame: LiveFrame) -> CGImage? {
         let buffer = frame.pixelBuffer
         if PreviewRenderer.usesReferenceRenderer {
             let source = CIImage(cvPixelBuffer: buffer)
@@ -1069,6 +980,17 @@ final class CaptureController {
                        shouldInterpolate: true, intent: .defaultIntent)
     }
 }
+
+extension CaptureController: PreviewProvider {}
+
+#if PANEFLO_NATIVE_CHECK
+extension LiveFrame {
+    /// Own-window checks build synthetic frames from their own pixel buffers under the same budget rules.
+    static func nativeCheck(buffer: CVPixelBuffer, budget: LiveFrameBudget) -> LiveFrame? {
+        LiveFrame(buffer: buffer, budget: budget, arrivedAt: ProcessInfo.processInfo.systemUptime)
+    }
+}
+#endif
 
 /// Caps live frames held anywhere in the process (pending delivery or displayed by a card).
 /// Only frame deinit releases a slot; no timeout does.

@@ -74,14 +74,14 @@ private final class FrameSink: @unchecked Sendable {
         third = nil
         precondition(budget.counts.current == 2)
 
-        // 3. Legacy provider-backed CGImage keeps the frame (and its lock) until the provider is released.
-        var legacy: CGImage? = CaptureController.legacyImage(from: first!)
-        precondition(legacy != nil && legacy!.bytesPerRow == CVPixelBufferGetBytesPerRow(one))
-        autoreleasepool { validatePixels(legacy!) }
+        // 3. A borrowed provider-backed CGImage keeps the frame (and its lock) until the provider is released.
+        var borrowed: CGImage? = CaptureController.borrowedImage(from: first!)
+        precondition(borrowed != nil && borrowed!.bytesPerRow == CVPixelBufferGetBytesPerRow(one))
+        autoreleasepool { validatePixels(borrowed!) }
         first = nil
         precondition(budget.counts.current == 2, "the image still owns the first frame")
-        var provider: CGDataProvider? = legacy!.dataProvider
-        legacy = nil
+        var provider: CGDataProvider? = borrowed!.dataProvider
+        borrowed = nil
         precondition(budget.counts.current == 2, "the provider still owns the first frame")
         provider = nil
         precondition(budget.counts.current == 1)
@@ -142,6 +142,6 @@ private final class FrameSink: @unchecked Sendable {
         precondition(budget.counts.current == 0, "the late frame was released")
 
         precondition(budget.counts.current == 0 && budget.counts.peak == LiveFrameBudget.limit)
-        print("PASS IOSurface zero-copy identity; non-IOSurface rejected; frame cap \(LiveFrameBudget.limit) with re-admission; legacy provider retains frame until released; live->snapshot conversion holds no frame; aspect-fit sizing; mailbox holds 1 pending, deactivate releases, no late delivery; deadline timeout drops late frame; final frames 0")
+        print("PASS IOSurface zero-copy identity; non-IOSurface rejected; frame cap \(LiveFrameBudget.limit) with re-admission; borrowed provider retains frame until released; live->snapshot conversion holds no frame; aspect-fit sizing; mailbox holds 1 pending, deactivate releases, no late delivery; deadline timeout drops late frame; final frames 0")
     }
 }

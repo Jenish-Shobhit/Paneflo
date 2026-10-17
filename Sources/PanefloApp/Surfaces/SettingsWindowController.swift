@@ -15,6 +15,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let gestureConflictSection = NSStackView()
     private let threeFingerDragNote = NSTextField(wrappingLabelWithString: GestureGuidance.threeFingerDragNote)
     let previewButton = NSButton(checkboxWithTitle: "Live previews", target: nil, action: nil)
+    /// Screen Recording guidance next to the previews toggle; hidden when nothing is needed.
+    let previewPermissionStatus = NSTextField(wrappingLabelWithString: "")
+    private let previewPermissionSection = NSStackView()
     let status = NSTextField(wrappingLabelWithString: "")
     private let permissionBar = NSStackView()
     private let zone = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -22,6 +25,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     var onToggleShortcuts: ((Bool) -> Void)?
     var onToggleGesture: ((Bool) -> Void)?
     var onTogglePreviews: ((Bool) -> Void)?
+    /// Settings became key: a pending Screen Recording grant may have landed in System Settings.
+    var onRefreshScreenRecording: (() -> Void)?
     /// The window the last surface had selected, if it is still eligible.
     var selectedWindow: (() -> WindowIdentity?)?
     private let zones: [(String, LayoutZone)] = [
@@ -36,6 +41,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         super.init()
         status.font = .systemFont(ofSize: 12); status.textColor = .secondaryLabelColor
         previewButton.isEnabled = false
+        previewPermissionStatus.font = .systemFont(ofSize: 11); previewPermissionStatus.textColor = .secondaryLabelColor
+        previewPermissionStatus.setAccessibilityLabel("Screen Recording status for previews")
+        previewPermissionSection.isHidden = true
+    }
+
+    func setPreviewPermissionMessage(_ message: String?) {
+        if previewPermissionStatus.stringValue != (message ?? "") { previewPermissionStatus.stringValue = message ?? "" }
+        if previewPermissionSection.isHidden != (message == nil) { previewPermissionSection.isHidden = message == nil }
     }
 
     var isConstructed: Bool { window != nil }
@@ -48,7 +61,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    func windowDidBecomeKey(_ notification: Notification) { refreshGestureGuidance() }
+    func windowDidBecomeKey(_ notification: Notification) {
+        refreshGestureGuidance()
+        onRefreshScreenRecording?()
+    }
 
     /// Reads the system gesture preferences (read-only CFPreferences). Never on the gesture path.
     private func refreshGestureGuidance() {
@@ -86,6 +102,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         previewButton.target = self; previewButton.action = #selector(togglePreviews)
         previewButton.setAccessibilityLabel("Enable live window previews")
         stack.addArrangedSubview(shortcutButton); stack.addArrangedSubview(previewButton)
+        previewPermissionSection.orientation = .vertical; previewPermissionSection.alignment = .leading; previewPermissionSection.spacing = 6
+        previewPermissionStatus.widthAnchor.constraint(equalToConstant: 572).isActive = true
+        previewPermissionSection.addArrangedSubview(previewPermissionStatus)
+        button("Open Screen Recording Settings", #selector(openScreenRecordingSettings), previewPermissionSection)
+        stack.addArrangedSubview(previewPermissionSection)
         gestureButton.target = self; gestureButton.action = #selector(toggleGesture)
         stack.addArrangedSubview(gestureButton)
         let gestureHint = NSTextField(wrappingLabelWithString: GestureGuidance.requirements)
@@ -145,6 +166,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     @objc private func toggleShortcuts() { onToggleShortcuts?(shortcutButton.state == .on) }
     @objc private func toggleGesture() { onToggleGesture?(gestureButton.state == .on) }
     @objc private func togglePreviews() { onTogglePreviews?(previewButton.state == .on) }
+    @objc private func openScreenRecordingSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"),
+           NSWorkspace.shared.open(url) { return }
+        NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
+    }
     @objc private func openTrackpadSettings() {
         if let url = URL(string: GestureGuidance.trackpadSettingsURL), NSWorkspace.shared.open(url) { return }
         NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
