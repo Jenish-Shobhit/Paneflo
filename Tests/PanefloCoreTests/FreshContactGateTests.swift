@@ -43,12 +43,4 @@ struct FreshContactGateTests {
         #expect(accepts(&gate, [SwipeContactEvidence]()))
         #expect(accepts(&gate, frame([(9, .began)])))
     }
-
-    @Test func gestureDeliveryAgeHasInclusiveCutoffAndNoOverflow() {
-        let start = UInt64.max - 300_000_000
-        #expect(GestureDeliveryDeadline.isFresh(recognizedAt: start, now: start))
-        #expect(GestureDeliveryDeadline.isFresh(recognizedAt: start, now: start + 250_000_000))
-        #expect(!GestureDeliveryDeadline.isFresh(recognizedAt: start, now: start + 250_000_001))
-        #expect(!GestureDeliveryDeadline.isFresh(recognizedAt: UInt64.max, now: 0))
-    }
 }

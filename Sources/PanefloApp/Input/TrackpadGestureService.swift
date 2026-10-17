@@ -44,6 +44,10 @@ final class TrackpadGestureService {
     private var lifecycle = TrackpadLifecycleGate()
     private var lastFailure: String?
     private var permissionRevoked = false
+    /// Cached Input Monitoring state, so gesture delivery never makes a TCC query.
+    /// Refreshed on start and whenever any application (including Paneflo) activates,
+    /// which is when the user returns from System Settings.
+    private var inputMonitoringGranted = false
     /// User intent remains enabled while physical observation is paused for sleep/session changes.
     var isEnabled: Bool { lifecycle.isEnabled }
 
@@ -108,10 +112,10 @@ final class TrackpadGestureService {
         let token = generation
         TrackpadBackend.shared.start(onGesture: { [weak self] event in
             DispatchQueue.main.async { [weak self] in
+                // No age limit: a late gesture is still delivered. Its handlers check the
+                // Overview's current state, so a stale up or down cannot misfire.
                 guard let self, self.generation == token, self.state == .active, self.isEnabled else { return }
-                guard GestureDeliveryDeadline.isFresh(recognizedAt: event.recognizedAtUptimeNanoseconds,
-                                                     now: DispatchTime.now().uptimeNanoseconds) else { return }
-                guard CGPreflightListenEventAccess() else {
+                guard self.inputMonitoringGranted else {
                     self.stopAfterPermissionRevocation()
                     return
                 }
@@ -154,11 +158,17 @@ final class TrackpadGestureService {
             if case .unavailable(let reason) = availability { state = .unavailable(reason) }
             return false
         }
-        guard CGPreflightListenEventAccess() else {
+        inputMonitoringGranted = CGPreflightListenEventAccess()
+        guard inputMonitoringGranted else {
             state = .unavailable("Input Monitoring permission is required for native trackpad gestures.")
             return false
         }
         return true
+    }
+
+    private func refreshInputMonitoring() {
+        inputMonitoringGranted = CGPreflightListenEventAccess()
+        if !inputMonitoringGranted, isEnabled { stopAfterPermissionRevocation() }
     }
 
     private func publishState() {
@@ -192,6 +202,9 @@ final class TrackpadGestureService {
                 }
             })
         }
+        observers.append(center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshInputMonitoring() }
+        })
     }
     private func removeLifecycleObservers() {
         for observer in observers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
