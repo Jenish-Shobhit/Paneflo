@@ -4,7 +4,7 @@ PROJECT_ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 OUTPUT_DIR="${1:?Supply an output directory for the native UI check binary and module}"
 mkdir -p "$OUTPUT_DIR"
 OUTPUT_DIR="$(CDPATH= cd -- "$OUTPUT_DIR" && pwd)"
-TARGET_TRIPLE="$(uname -m)-apple-macosx14.0"
+TARGET_TRIPLE="$(uname -m)-apple-macosx26.0"
 xcrun swiftc -target "$TARGET_TRIPLE" -swift-version 6 -parse-as-library \
     -module-cache-path "$OUTPUT_DIR/module-cache" -emit-library -emit-module \
     -module-name PanefloCore "$PROJECT_ROOT"/Sources/PanefloCore/*.swift \

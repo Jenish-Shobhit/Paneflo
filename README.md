@@ -12,14 +12,14 @@ Source revision `83b82d3` passed 69 tests across 15 suites, release compilation,
 
 ## Build and run
 
-Requires macOS and Swift 6.2 or newer with the macOS SDK. The package uses a provisional macOS 14 deployment floor; that does not certify every capability on macOS 14. There are no third-party package dependencies.
+Requires macOS 26 or later on Apple silicon and Swift 6.2 or newer with the macOS SDK. There are no third-party package dependencies. Paneflo is released under the [MIT License](LICENSE); see the [changelog](CHANGELOG.md).
 
 ```sh
-./scripts/build-app.sh
-open build/Paneflo.app
+./scripts/make-signing-identity.sh   # once: creates the self-signed "Paneflo Dev" certificate
+./scripts/build.sh --install --run   # build, sign, replace /Applications/Paneflo.app, open it
 ```
 
-The script builds a release executable, assembles the app, and applies a local ad-hoc signature. This is not Developer ID signing or notarization. The first launch opens Settings; later launches stay quiet when permissions are ready. Explicit shortcut, preview, and gesture choices are saved and restored only when their permissions and capability checks allow it. To discover and control other windows, grant Accessibility access from Settings. Input replacement and previews have separate controls; startup does not request permissions automatically.
+`scripts/build.sh` builds a release executable, assembles `build/Paneflo.app`, and signs it with "Paneflo Dev" (ad hoc, with a warning, when that identity is missing; macOS then asks for permissions again after every rebuild). Other options: `--debug`, `--run`, and `--zip` (writes `dist/Paneflo-<version>.zip`). Run the installed copy so Accessibility, Input Monitoring, and Screen Recording permissions persist. This is not Developer ID signing or notarization. The first launch opens Settings; later launches stay quiet when permissions are ready. Explicit shortcut, preview, and gesture choices are saved and restored only when their permissions and capability checks allow it. To discover and control other windows, grant Accessibility access from Settings. Input replacement and previews have separate controls; startup does not request permissions automatically.
 
 For a developer run and core tests:
 

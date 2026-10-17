@@ -44,3 +44,6 @@ xcuserdata/
 coverage/
 *.profraw
 *.profdata
+
+# Release artifacts.
+dist/

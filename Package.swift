@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "Paneflo",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v26)],
     products: [
         .library(name: "PanefloCore", targets: ["PanefloCore"]),
         .executable(name: "Paneflo", targets: ["PanefloApp"]),
