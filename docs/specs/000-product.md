@@ -1,6 +1,6 @@
 # Paneflo product specification
 
-Status: product requirements; compact workflow implemented, native redesign validation in progress. Updated 2026-10-17.
+Status: product requirements and acceptance criteria. Updated 2026-10-17. See [implementation status](../status.md) for verified behavior.
 
 ## Purpose
 
@@ -79,7 +79,7 @@ Custom zones per display, conservative saved-layout matching, shared-divider res
 
 ### Later extensions and limits
 
-An optional native built-in trackpad adapter maps three-finger up to Overview and down to dismissal. It remains off until explicitly enabled, is limited by platform/framework capability checks, and requires conflicting native gesture bindings to be disabled separately. An unsupported adapter is not a guarantee of native Mission Control replacement. One bounded sleep/wake resume attempt must preserve user intent without allowing duplicate or stale actions; failure disables observation with a useful status.
+An optional native built-in trackpad adapter maps three-finger up to Overview and down to dismissal. It remains off until explicitly enabled, is limited by platform/framework capability checks, and requires conflicting native gesture bindings to be disabled separately. An unsupported adapter is not a guarantee of native Mission Control replacement. Gesture entry must give Overview keyboard focus, so Escape cancels it without reaching the underlying application. A repeated up swipe reclaims focus without resetting the visible board. One bounded sleep/wake resume attempt must preserve user intent without allowing duplicate or stale actions; failure disables observation with a useful status.
 
 Editable logical groups, saved workspace/layout recall, conservative relaunch matching, and function-key entry remain later extensions. Logical workspaces do not imply native Space control. Paneflo does not initially modify Apple's Mission Control arrangement or promise removal of OS-controlled fullscreen/Space transition delays.
 

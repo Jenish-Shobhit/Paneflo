@@ -2,7 +2,7 @@
 
 Status: implementation requirements and feasibility gates. Updated 2026-10-17.
 
-This specification records architecture and capability gates for the [product requirements](000-product.md). The compact picker, selected-window placement, larger stable Overview, separate Settings, static-thumbnail cache, and optional native gesture adapter are implemented. Commit `ec757b3` passed 61 tests, release compilation, local bundle signature verification, and hosted CI. Initial one-host native checks cover the compact picker, selected half placement, static/live previews, and target focus; the user also physically confirmed three-finger up/down and normal two-finger scrolling on this host. A normal relaunch stayed quiet and restored the saved gesture without prompts. The full shortcut workflow, remaining UI, broader gesture cases, sleep/wake, and saved shortcut/preview restoration still need validation. Numeric budgets below are engineering policies or targets, not measurements of total app resources. Platform-sensitive capabilities remain opt-in until their gates are established.
+This specification records architecture and capability gates for the [product requirements](000-product.md). Current source `0c80b6e` passed 63 tests, release compilation, and [hosted CI](https://github.com/Jenish-Shobhit/Paneflo/actions/runs/39014695313). Native evidence combines `af31070` Overview keyboard cancellation/wake checks with preceding-build physical placement/release and saved-control checks on unchanged paths, all on one host. Three-finger down dismissal remains unresolved; the current idle-recognition correction awaits native validation. See [implementation status](../status.md) for verified scope. Numeric budgets below are policies or targets, not measurements of total app resources.
 
 ## 1. Application shape
 
@@ -58,7 +58,7 @@ The callback performs bounded contact decoding and pure recognition only. Recogn
 
 Separate user enable intent from physical observation. Serialize start/stop outside the main thread, retain only a bounded device/library lease, and reject new starts while shutdown is uncertain. System sleep, display sleep and inactive sessions suspend observation; overlapping reasons must all clear before one automatic resume attempt after clean stop. Revalidate permissions and capability checks for each attempt. Disable invalidates queued actions; failed start/stop clears intent and prevents automatic retries. No device polling or replacement-device loop is allowed.
 
-Acceptance: physical up/down entry, normal two-finger scrolling, palm/fourth-contact rejection, repeated enable/disable, overlapping sleep/wake, disable during suspension, duplicate wakes, failed-stop recovery and permission changes. Pure lifecycle tests and one-host input checks do not certify a broader hardware/OS matrix.
+Acceptance: physical up/down entry with keyboard focus owned by Overview and Escape delivered to its cancellation path, normal two-finger scrolling, palm/fourth-contact rejection, repeated enable/disable, overlapping sleep/wake, disable during suspension, duplicate wakes, failed-stop recovery and permission changes. Pure lifecycle tests and one-host input checks do not certify a broader hardware/OS matrix.
 
 ## 4. Accessibility execution and focus
 
