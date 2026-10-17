@@ -9,8 +9,7 @@ final class DesktopController: NSObject, SurfaceHost {
     private let switcher = SwitcherPanelController()
     private let overview = OverviewPanelController()
     private let settings: SettingsWindowController
-    private var commitGate = SelectionCommitGate()
-    private var latestPlacement: UInt64?
+    private var latestPlacement: UInt64 = 0
     private var presentationGeneration: UInt64 = 0
     private var overviewReturnApplication: NSRunningApplication?
     private var iconCache: [String: NSImage] = [:]
@@ -109,7 +108,6 @@ final class DesktopController: NSObject, SurfaceHost {
         let started = ProcessInfo.processInfo.systemUptime
         firstPreviewStarted = started
         presentationGeneration &+= 1
-        commitGate.cancelCommit()
         pruneIconCache()
         let surface: SurfacePanelController
         if mode == .overview {
@@ -158,7 +156,6 @@ final class DesktopController: NSObject, SurfaceHost {
         overviewReturnApplication = nil
         firstPreviewStarted = nil
         pendingGestureRecognizedAt = nil
-        commitGate.cancelCommit()
         switcher.hide()
         overview.hide()
         stopOutsideClickMonitor()
@@ -209,20 +206,18 @@ final class DesktopController: NSObject, SurfaceHost {
 
     func tileSelected(_ zone: LayoutZone) {
         guard let surface = visibleSurface, let id = surface.selectedID, surface.isEligible(id) else { return }
-        let generation = commitGate.beginPlacement()
+        latestPlacement &+= 1
+        let generation = latestPlacement
         let presentedGeneration = presentationGeneration
-        latestPlacement = generation
         surface.setLayoutBadge(zone == .leftHalf ? "Left half" : zone == .rightHalf ? "Right half" : "Fill screen", for: id)
         service.tile(id, zone: zone) { [weak self, weak surface] accepted in
             guard let self, self.latestPlacement == generation else { return }
-            self.latestPlacement = nil
             if !accepted, let surface {
                 surface.setLayoutBadge(nil, for: id)
                 if surface.isShown, self.presentationGeneration == presentedGeneration {
                     surface.showFailure("Couldn’t arrange this window. Try another window or check Accessibility in Settings.")
                 }
             }
-            if let focus = self.commitGate.finishPlacement(generation) { self.service.focus(focus) }
         }
     }
 
@@ -331,12 +326,13 @@ final class DesktopController: NSObject, SurfaceHost {
     func surfaceDismiss(_ surface: SurfacePanelController) { dismiss() }
 
     func surfaceActivate(_ id: WindowIdentity) {
+        // Focus never waits for a pending tile: placement finishes on its own lane.
         dismiss(restorePreviousApplication: false)
-        if let focus = commitGate.commit(id) { service.focus(focus) }
+        service.focus(id)
     }
 
     func surfaceTile(_ zone: LayoutZone) { tileSelected(zone) }
-    func surfaceUndo() { service.undo() }
+    func surfaceUndo() { service.undo(preferring: visibleSurface?.selectedID) }
 
     #if PANEFLO_NATIVE_CHECK
     func nativeCheckSuppressExternalRestore() { overviewReturnApplication = nil }

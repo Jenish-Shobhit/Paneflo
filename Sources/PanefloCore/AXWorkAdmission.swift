@@ -13,8 +13,11 @@ public struct AXWorkAdmission: Sendable {
         public let id: UInt64
         public let pid: Int32
         public let priority: Priority
-        public init(id: UInt64, pid: Int32, priority: Priority) {
-            self.id = id; self.pid = pid; self.priority = priority
+        /// Interactive work of different lanes (focus, placement) neither coalesces nor serializes
+        /// against each other for one PID; within a lane the PID is serialized and coalesced.
+        public let lane: UInt8
+        public init(id: UInt64, pid: Int32, priority: Priority, lane: UInt8 = 0) {
+            self.id = id; self.pid = pid; self.priority = priority; self.lane = lane
         }
     }
     public private(set) var pending: [Ticket] = []
@@ -30,7 +33,7 @@ public struct AXWorkAdmission: Sendable {
     @discardableResult public mutating func enqueue(_ ticket: Ticket) -> [UInt64] {
         guard !active.contains(where: { $0.id == ticket.id }), !pending.contains(where: { $0.id == ticket.id }) else { return [] }
         var dropped: [UInt64] = []
-        if let index = pending.firstIndex(where: { $0.pid == ticket.pid && $0.priority == ticket.priority }) {
+        if let index = pending.firstIndex(where: { $0.pid == ticket.pid && $0.priority == ticket.priority && $0.lane == ticket.lane }) {
             dropped.append(pending.remove(at: index).id)
         }
         if pending.count >= maximumPending {
@@ -56,10 +59,10 @@ public struct AXWorkAdmission: Sendable {
 
     /// Interactive first, then scans, then notification-driven updates.
     private func nextReadyIndex() -> Int? {
-        let interactivePIDs = Set(active.filter { $0.priority == .interactive }.map(\.pid))
+        let interactiveLanes = Set(active.filter { $0.priority == .interactive }.map { Lane(pid: $0.pid, lane: $0.lane) })
         let scanningPIDs = Set(active.filter { $0.priority != .interactive }.map(\.pid))
         if count(.interactive) < Self.interactiveSlots,
-           let index = pending.firstIndex(where: { $0.priority == .interactive && !interactivePIDs.contains($0.pid) }) {
+           let index = pending.firstIndex(where: { $0.priority == .interactive && !interactiveLanes.contains(Lane(pid: $0.pid, lane: $0.lane)) }) {
             return index
         }
         if count(.background) < Self.backgroundSlots,
@@ -72,6 +75,8 @@ public struct AXWorkAdmission: Sendable {
         }
         return nil
     }
+
+    private struct Lane: Hashable { let pid: Int32; let lane: UInt8 }
 
     private func count(_ priority: Priority) -> Int { active.lazy.filter { $0.priority == priority }.count }
 
