@@ -41,6 +41,19 @@ private struct DiscoveryResult: Sendable {
     var stacking: [UInt32] = []
 }
 
+private enum PlacementRequest: Sendable {
+    case tile(zone: LayoutZone, displays: [DisplayArea], explicitDisplay: Int?, gap: Double)
+    case restore(WindowRect, displays: [DisplayArea])
+}
+
+/// Outcome of one placement. `after` is nil when nothing was applied; otherwise it is the frame
+/// believed final, used for undo bookkeeping only.
+private struct PlacementReport: Sendable {
+    var before: WindowRect?
+    var after: WindowRect?
+    var message: String
+}
+
 private enum WindowEvent: Sendable {
     case focused(WindowIdentity, epoch: UInt64)
     case updated([WindowRecord])
@@ -352,45 +365,66 @@ final class WindowService {
         }
     }
 
+    /// Tiles a window on its own display. The display is chosen from a fresh Accessibility
+    /// frame read on the placement lane, never from the snapshot's record. Placement never blocks
+    /// or is blocked by focus: both run on their own lanes with independent supersession.
     func tile(_ id: WindowIdentity? = nil, zone: LayoutZone, screenIndex: Int? = nil, gap: Double = 8, completion: (@MainActor @Sendable (Bool) -> Void)? = nil) {
         if id == nil, focusedID?.process.pid != NSWorkspace.shared.frontmostApplication?.processIdentifier {
             onStatus?("The frontmost window changed. Try again after its focus is confirmed.")
             scheduleRefresh(); completion?(false); return
         }
-        guard hasAccessibility, let id = id ?? focusedID, validLifetime(id), let record = recordIndex[id], let target = targets[id] else {
+        guard hasAccessibility, let id = id ?? focusedID, validLifetime(id), recordIndex[id] != nil, let target = targets[id] else {
             onStatus?("Select a window before arranging it."); completion?(false); return
         }
-        let screens = NSScreen.screens
-        guard let primary = screens.first else { completion?(false); return }
-        let usable: [(NSScreen, WindowRect)] = screens.map { screen in
-            let f = screen.visibleFrame
-            return (screen, DisplayCoordinates.accessibilityFrame(fromAppKit: WindowRect(x: f.minX, y: f.minY, width: f.width, height: f.height), primaryHeight: primary.frame.height))
-        }
-        let chosen: (NSScreen, WindowRect)
-        if let screenIndex, usable.indices.contains(screenIndex) { chosen = usable[screenIndex] }
-        else { chosen = usable.max(by: { Self.intersection($0.1, record.frame) < Self.intersection($1.1, record.frame) })! }
-        guard let proposed = LayoutEngine.plan(zone: zone, in: chosen.1, gap: gap, backingScale: chosen.0.backingScaleFactor, currentSize: record.frame.size).rect else {
-            onStatus?("The layout does not fit this display."); completion?(false); return
-        }
-        let intent = worker.beginIntent()
-        worker.place(target, frame: proposed, intent: intent) { [weak self] actual, before, message in
-            Task { @MainActor in
-                guard let self else { completion?(false); return }
-                if let actual, let before { self.undoHistory.record([GeometryChange(id: id, before: before, after: actual)]) }
-                self.onStatus?(message)
-                self.worker.markDirty(target)
-                completion?(actual != nil)
+        let displays = Self.displayAreas()
+        guard !displays.isEmpty else { completion?(false); return }
+        let token = worker.beginPlacement(for: id)
+        worker.place(target, request: .tile(zone: zone, displays: displays, explicitDisplay: screenIndex, gap: gap), token: token) { [weak self] report in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { completion?(false); return }
+                    if let before = report.before, let after = report.after {
+                        self.undoHistory.record([GeometryChange(id: id, before: before, after: after)])
+                    }
+                    self.onStatus?(report.message)
+                    self.worker.markDirty(target)
+                    completion?(report.after != nil)
+                }
             }
         }
     }
 
-    func undo() {
-        guard let plan = undoHistory.undo(surviving: Set(targets.keys.filter { validLifetime($0) })), let change = plan.changes.first, let target = targets[change.id] else {
+    /// Restores the exact pre-tile frame of the preferred window (the switcher selection, else the
+    /// focused window); a position that left every display is clamped into the nearest one.
+    func undo(preferring preferred: WindowIdentity? = nil) {
+        let alive = Set(targets.keys.filter { validLifetime($0) })
+        let candidate = preferred ?? focusedID
+        let plan: GeometryUndoPlan?
+        if let candidate, undoHistory.hasHistory(for: candidate) { plan = undoHistory.undo(window: candidate, surviving: alive) }
+        else if preferred == nil { plan = undoHistory.undo(surviving: alive) }
+        else { plan = nil }
+        guard let plan, let change = plan.changes.first, let target = targets[change.id] else {
             onStatus?("Nothing to undo."); return
         }
-        let intent = worker.beginIntent()
-        worker.place(target, frame: change.before, intent: intent) { [weak self] _, _, message in
-            Task { @MainActor in self?.onStatus?(message); self?.worker.markDirty(target) }
+        let displays = Self.displayAreas()
+        guard !displays.isEmpty else { return }
+        let token = worker.beginPlacement(for: change.id)
+        worker.place(target, request: .restore(change.before, displays: displays), token: token) { [weak self] report in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self?.onStatus?(report.message); self?.worker.markDirty(target) }
+            }
+        }
+    }
+
+    /// Screens in AppKit order converted to Accessibility coordinates. Index 0 owns the global origin.
+    private static func displayAreas() -> [DisplayArea] {
+        let screens = NSScreen.screens
+        guard let primary = screens.first else { return [] }
+        let height = primary.frame.height
+        func rect(_ r: NSRect) -> WindowRect { WindowRect(x: r.minX, y: r.minY, width: r.width, height: r.height) }
+        return screens.map {
+            DisplayArea(appKitFrame: rect($0.frame), appKitVisibleFrame: rect($0.visibleFrame),
+                        backingScale: $0.backingScaleFactor, primaryHeight: height)
         }
     }
 
@@ -415,10 +449,6 @@ final class WindowService {
               let running = NSRunningApplication(processIdentifier: id.process.pid), !running.isTerminated,
               running.launchDate == token.0 else { return nil }
         return running
-    }
-
-    private static func intersection(_ a: WindowRect, _ b: WindowRect) -> Double {
-        max(0, min(a.maxX, b.maxX) - max(a.x, b.x)) * max(0, min(a.maxY, b.maxY) - max(a.y, b.y))
     }
 }
 
@@ -541,7 +571,9 @@ private final class WindowWorker: @unchecked Sendable {
     private var nextNumber: UInt32 = 0
     private let numberLock = NSLock()
     private let intentLock = NSLock()
-    private var latestIntent: UInt64 = 0
+    private var intents = ActionIntents()
+    fileprivate static let focusLane: UInt8 = 0
+    fileprivate static let placementLane: UInt8 = 1
     /// Coordinator-only.
     private var onEvent: (@Sendable (WindowEvent) -> Void)?
 
@@ -549,22 +581,26 @@ private final class WindowWorker: @unchecked Sendable {
         coordinator.sync { onEvent = handler }
     }
 
-    func beginIntent() -> UInt64 { intentLock.withLock { latestIntent += 1; return latestIntent } }
-    func currentEpoch() -> UInt64 { intentLock.withLock { latestIntent } }
-    private func isCurrent(_ intent: UInt64) -> Bool { intentLock.withLock { latestIntent == intent } }
+    func beginIntent() -> UInt64 { intentLock.withLock { intents.beginFocus() } }
+    func currentEpoch() -> UInt64 { intentLock.withLock { intents.currentFocus } }
+    private func isCurrent(_ intent: UInt64) -> Bool { intentLock.withLock { intents.isCurrentFocus(intent) } }
+    func beginPlacement(for id: WindowIdentity) -> UInt64 { intentLock.withLock { intents.beginPlacement(for: id) } }
+    private func isCurrentPlacement(_ token: UInt64, for id: WindowIdentity) -> Bool {
+        intentLock.withLock { intents.isCurrentPlacement(token, for: id) }
+    }
 
-    private func submit(pid: pid_t, priority: AXWorkAdmission.Priority,
+    private func submit(pid: pid_t, priority: AXWorkAdmission.Priority, lane: UInt8 = 0,
                         cancelled: @escaping @Sendable () -> Void,
                         work: @escaping @Sendable () -> Void) {
-        coordinator.async { [self] in enqueue(pid: pid, priority: priority, cancelled: cancelled, work: work) }
+        coordinator.async { [self] in enqueue(pid: pid, priority: priority, lane: lane, cancelled: cancelled, work: work) }
     }
 
     /// Coordinator-only. No AX IPC is allowed here, including cancellation callbacks.
-    private func enqueue(pid: pid_t, priority: AXWorkAdmission.Priority,
+    private func enqueue(pid: pid_t, priority: AXWorkAdmission.Priority, lane: UInt8 = 0,
                          cancelled: @escaping @Sendable () -> Void,
                          work: @escaping @Sendable () -> Void) {
         nextJob &+= 1
-        let ticket = AXWorkAdmission.Ticket(id: nextJob, pid: pid, priority: priority)
+        let ticket = AXWorkAdmission.Ticket(id: nextJob, pid: pid, priority: priority, lane: lane)
         jobs[ticket.id] = Job(work: work, cancelled: cancelled)
         for id in admission.enqueue(ticket) { jobs.removeValue(forKey: id)?.cancelled() }
         drain()
@@ -908,92 +944,84 @@ private final class WindowWorker: @unchecked Sendable {
         }
     }
 
-    func place(_ target: AXWindowTarget, frame: WindowRect, intent: UInt64, completion: @escaping @Sendable (WindowRect?, WindowRect?, String) -> Void) {
-        submit(pid: target.id.process.pid, priority: .interactive, cancelled: { completion(nil, nil, "Layout superseded before execution.") }) { [self] in
-            guard isCurrent(intent), Self.valid(target), let before = Self.frame(target.element) else {
-                completion(nil, nil, "The window is no longer available."); return
+    /// Rectangle-style size, position, size: the first size write lets a window that is larger than
+    /// the destination fit, the position write moves it, and the last size write corrects any size
+    /// the move changed. One readback follows for undo bookkeeping and failure reporting. Only when
+    /// the application reports a size different from the request (its own minimum or maximum) does
+    /// it confirm once more and settle the window inside the zone.
+    func place(_ target: AXWindowTarget, request: PlacementRequest, token: UInt64,
+               completion: @escaping @Sendable (PlacementReport) -> Void) {
+        let id = target.id
+        submit(pid: id.process.pid, priority: .interactive, lane: Self.placementLane,
+               cancelled: { completion(PlacementReport(message: "Layout superseded before execution.")) }) { [self] in
+            guard isCurrentPlacement(token, for: id), Self.valid(target), let before = Self.frame(target.element) else {
+                completion(PlacementReport(message: "The window is no longer available.")); return
             }
-            var sizeSettable: DarwinBoolean = false
-            var positionSettable: DarwinBoolean = false
-            let sizeCapability = AXUIElementIsAttributeSettable(target.element, kAXSizeAttribute as CFString, &sizeSettable)
-            let positionCapability = AXUIElementIsAttributeSettable(target.element, kAXPositionAttribute as CFString, &positionSettable)
-            RuntimeDiagnostics.mark("AX placement capabilities size=\(sizeCapability.rawValue) position=\(positionCapability.rawValue)")
-            guard sizeCapability == .success, positionCapability == .success else {
-                completion(nil, before, "The application did not report its movement capabilities. Try again."); return
+            let requested: WindowRect
+            let bounds: WindowRect?
+            switch request {
+            case let .tile(zone, displays, explicitDisplay, gap):
+                // The display comes from the window's frame as read now, not from the last scan.
+                guard let plan = DisplayPlacement.planTile(zone: zone, window: before, displays: displays,
+                                                           explicitDisplay: explicitDisplay, gap: gap) else {
+                    completion(PlacementReport(before: before, message: "The layout does not fit this display.")); return
+                }
+                requested = plan.rect
+                bounds = displays[plan.displayIndex].visibleFrame
+            case let .restore(frame, displays):
+                guard let restored = DisplayPlacement.restoredFrame(frame, displays: displays) else {
+                    completion(PlacementReport(before: before, message: "The saved position is no longer available.")); return
+                }
+                requested = restored
+                bounds = nil
             }
-            guard sizeSettable.boolValue, positionSettable.boolValue else { completion(nil, before, "This window does not support moving and resizing."); return }
-            var position = CGPoint(x: frame.x, y: frame.y)
-            var size = CGSize(width: frame.width, height: frame.height)
-            guard let p = AXValueCreate(.cgPoint, &position), let s = AXValueCreate(.cgSize, &size) else { completion(nil, before, "Invalid window geometry."); return }
+            guard isCurrentPlacement(token, for: id) else { completion(PlacementReport(before: before, message: "Layout superseded.")); return }
             var failures: [AXError] = []
-            var actual: WindowRect?
-            let deadline = ProcessInfo.processInfo.systemUptime + 1.5
-            let shrinking = frame.width <= before.width && frame.height <= before.height
-            let stages = shrinking
-                ? [("size-before", kAXSizeAttribute, s), ("position", kAXPositionAttribute, p), ("size-after", kAXSizeAttribute, s)]
-                : [("position-before", kAXPositionAttribute, p), ("size", kAXSizeAttribute, s), ("position-after", kAXPositionAttribute, p)]
-            RuntimeDiagnostics.mark("AX placement strategy=\(shrinking ? "shrink-SPS" : "expand-PSP") requested=\(Self.geometryText(frame)) before=\(Self.geometryText(before))")
-            for pass in 0..<2 {
-                if ProcessInfo.processInfo.systemUptime >= deadline { break }
-                // Shrink before moving to avoid temporarily extending an oversized frame offscreen.
-                // Expand after moving, then correct position. Both sequences settle between writes.
-                for (stage, name, value) in stages {
-                    guard isCurrent(intent) else { completion(Self.frame(target.element), before, "Layout superseded."); return }
-                    if ProcessInfo.processInfo.systemUptime >= deadline { break }
-                    let error = AXUIElementSetAttributeValue(target.element, name as CFString, value)
-                    if error != .success { failures.append(error) }
-                    // AppKit may acknowledge an AX write before its queued frame mutation settles.
-                    // A property match during animation is insufficient: the entire frame must
-                    // remain stable across three readbacks before the next geometry write.
-                    var matches = 0
-                    var readback: WindowRect?
-                    var previousReadback: WindowRect?
-                    for _ in 0..<6 {
-                        guard isCurrent(intent) else { completion(Self.frame(target.element), before, "Layout superseded."); return }
-                        if ProcessInfo.processInfo.systemUptime >= deadline { break }
-                        Thread.sleep(forTimeInterval: 0.035)
-                        readback = Self.frame(target.element, deadline: deadline)
-                        let propertyMatches = readback.map { value in
-                            name == kAXSizeAttribute
-                                ? abs(value.width - frame.width) < 2 && abs(value.height - frame.height) < 2
-                                : abs(value.x - frame.x) < 2 && abs(value.y - frame.y) < 2
-                        } ?? false
-                        let stable = readback.flatMap { current in previousReadback.map { Self.sameFrame(current, $0) } } ?? false
-                        matches = propertyMatches ? (stable ? matches + 1 : 1) : 0
-                        previousReadback = readback
-                        if matches >= 3 { break }
-                    }
-                    RuntimeDiagnostics.mark("AX placement pass=\(pass) stage=\(stage) result=\(error.rawValue) requested=\(Self.geometryText(frame)) actual=\(readback.map(Self.geometryText) ?? "unavailable")")
-                    if ProcessInfo.processInfo.systemUptime >= deadline { break }
-                }
-                var confirmed = 0
-                for _ in 0..<4 {
-                    guard isCurrent(intent) else { completion(Self.frame(target.element), before, "Layout superseded."); return }
-                    guard ProcessInfo.processInfo.systemUptime < deadline else { break }
-                    actual = Self.frame(target.element, deadline: deadline)
-                    confirmed = actual.map { Self.sameFrame($0, frame) } == true ? confirmed + 1 : 0
-                    if confirmed >= 3, let actual {
-                        RuntimeDiagnostics.mark("AX placement stable-target actual=\(Self.geometryText(actual))")
-                        completion(actual, before, "Layout applied. Undo is available."); return
-                    }
-                    Thread.sleep(forTimeInterval: 0.035)
-                }
-                if pass == 0 { Thread.sleep(forTimeInterval: 0.025) }
+            func write(_ name: String, _ rect: WindowRect, position: Bool) {
+                var point = CGPoint(x: rect.x, y: rect.y)
+                var size = CGSize(width: rect.width, height: rect.height)
+                let value = position ? AXValueCreate(.cgPoint, &point) : AXValueCreate(.cgSize, &size)
+                guard let value else { return }
+                let error = AXUIElementSetAttributeValue(target.element, name as CFString, value)
+                if error != .success { failures.append(error) }
             }
-            guard let actual else { completion(nil, before, "The application did not report its new geometry."); return }
-            if let error = failures.last {
+            write(kAXSizeAttribute, requested, position: false)
+            write(kAXPositionAttribute, requested, position: true)
+            write(kAXSizeAttribute, requested, position: false)
+            guard var actual = Self.frame(target.element) else {
+                completion(PlacementReport(before: before, after: requested,
+                                           message: "Layout sent. The application did not report its new geometry.")); return
+            }
+            RuntimeDiagnostics.mark("AX placement requested=\(Self.geometryText(requested)) before=\(Self.geometryText(before)) actual=\(Self.geometryText(actual))")
+            var note = "Layout applied. Undo is available."
+            if let bounds, !Self.sameSize(actual, requested) {
+                // The application keeps its own size limits. Confirm once, then place the size it
+                // accepts at the requested origin, centered inside the zone when it is smaller.
+                Thread.sleep(forTimeInterval: 0.02)
+                if let again = Self.frame(target.element) { actual = again }
+                if !Self.sameSize(actual, requested) {
+                    let settled = DisplayPlacement.settledFrame(requested: requested, accepted: actual.size, within: bounds)
+                    if abs(settled.x - actual.x) > 1 || abs(settled.y - actual.y) > 1 {
+                        guard isCurrentPlacement(token, for: id) else { completion(PlacementReport(before: before, after: actual, message: "Layout superseded.")); return }
+                        write(kAXPositionAttribute, settled, position: true)
+                        actual = WindowRect(x: settled.x, y: settled.y, width: actual.width, height: actual.height)
+                    }
+                    note = "This window limits its own size, so it was placed at the size it allows. Undo is available."
+                }
+            }
+            if actual.isClose(to: before, tolerance: 0.5), !failures.isEmpty {
                 let reason: String
-                switch error {
+                switch failures.last! {
                 case .apiDisabled: reason = "Accessibility access is disabled."
                 case .cannotComplete: reason = "The application did not complete a geometry write."
-                case .attributeUnsupported, .notImplemented: reason = "The application does not support that geometry change."
+                case .attributeUnsupported, .notImplemented: reason = "This window does not support moving and resizing."
                 case .invalidUIElement: reason = "The window closed during placement."
-                default: reason = "The application rejected part of the layout."
+                default: reason = "The application rejected the layout."
                 }
-                completion(actual, before, reason + " Partial placement can be undone.")
-            } else {
-                completion(actual, before, "The application accepted different geometry after correction. Undo is available.")
+                completion(PlacementReport(before: before, message: reason)); return
             }
+            completion(PlacementReport(before: before, after: actual,
+                                       message: failures.isEmpty ? note : "The application accepted part of the layout. Undo is available."))
         }
     }
 
@@ -1008,8 +1036,8 @@ private final class WindowWorker: @unchecked Sendable {
         "x:\(rect.x),y:\(rect.y),w:\(rect.width),h:\(rect.height)"
     }
 
-    private static func sameFrame(_ actual: WindowRect, _ requested: WindowRect) -> Bool {
-        abs(actual.x - requested.x) < 2 && abs(actual.y - requested.y) < 2 && abs(actual.width - requested.width) < 2 && abs(actual.height - requested.height) < 2
+    private static func sameSize(_ actual: WindowRect, _ requested: WindowRect) -> Bool {
+        abs(actual.width - requested.width) < 2 && abs(actual.height - requested.height) < 2
     }
 
     private static func valid(_ target: AXWindowTarget) -> Bool {

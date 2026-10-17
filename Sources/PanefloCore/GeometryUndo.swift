@@ -38,4 +38,20 @@ public struct GeometryUndoHistory: Sendable {
         return GeometryUndoPlan(changes: changes.filter { identities.contains($0.id) },
                                 skipped: changes.filter { !identities.contains($0.id) }.map(\.id))
     }
+
+    /// Undoes the most recent change to one window, leaving other windows' history untouched.
+    /// The restored frame is that window's exact recorded pre-tile frame.
+    public mutating func undo(window: WindowIdentity, surviving identities: Set<WindowIdentity>) -> GeometryUndoPlan? {
+        guard let index = operations.lastIndex(where: { $0.contains { $0.id == window } }),
+              let position = operations[index].lastIndex(where: { $0.id == window }) else { return nil }
+        let change = operations[index].remove(at: position)
+        if operations[index].isEmpty { operations.remove(at: index) }
+        return identities.contains(window)
+            ? GeometryUndoPlan(changes: [change], skipped: [])
+            : GeometryUndoPlan(changes: [], skipped: [window])
+    }
+
+    public func hasHistory(for window: WindowIdentity) -> Bool {
+        operations.contains { $0.contains { $0.id == window } }
+    }
 }
