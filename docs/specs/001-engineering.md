@@ -98,11 +98,11 @@ Acceptance: constrained/non-resizable windows, half/third rounding, mixed-DPI di
 Cached thumbnails and icons are sufficient for first presentation. Capture discovers eligible sources asynchronously and never runs synchronously in the shortcut handler. Use version/capability adapters rather than assuming one capture implementation behaves identically across macOS releases.
 
 - Admit a maximum of **one continuous live stream across the entire application**, attached to the currently selected eligible window while Switcher or Overview is visible.
-- Other cards use low-resolution one-shot/cached images. The current cache is limited to 12 entries/6 MiB with 30-second expiry, a per-image payload ceiling, and one physically outstanding snapshot request. Expiry or cancellation never releases physical request debt before its callback finishes. Selection changes invalidate obsolete results; current window identity/owner must still match before presentation. Avoid eagerly retaining full-resolution neighbors.
+- Other cards use card-sized one-shot/cached images. The snapshot cache is a byte-bounded LRU (24 MiB, 1 MiB per image) keyed by window identity and CGWindowID, with capture timestamps for "Snapshot · Ns" labels. It survives dismissal and is purged only on critical memory pressure, app hide/quit, window close, or Screen Recording revocation. Each open refreshes every visible card with at most 3 physically outstanding screenshots, closest to the selection first; outstanding requests count across sessions until their callbacks finish. A completed capture is stored even if the selection or visible set changed; only a closed window or a purge discards it. Current window identity/owner must still match before presentation. Avoid eagerly retaining full-resolution neighbors.
 - Bound discovery with single-flight state, deadlines, coalescing, and retry backoff. A timed-out discovery result cannot repopulate a newer generation accidentally.
 - Independently cap waiting jobs, executing OS requests awaiting callbacks, retained frames, and byte reservations. A serial operation queue does not bound asynchronous capture requests after they have been submitted.
 - A callback deadline or logical cancellation does not prove the OS stopped the request. Retain outstanding-request accounting until completion/certain teardown, or open a circuit breaker that blocks new requests until bounded recovery. Do not repeatedly submit replacements for timed-out work whose physical completion is unknown.
-- Capture only the pixels needed for presentation. Initial selected-live ceiling: 960 × 600 pixels at up to 30 fps, no audio; initialize queue depth at 3 and verify actual retained surfaces.
+- Capture only the pixels needed for presentation. The selected live stream starts after the selection has been stable for 100 ms, is sized to the card's pixel size at up to 30 fps (15 under memory warning), no audio, queue depth 5, with at most 3 frames retained by Paneflo. Frames are presented as the pixel buffer's IOSurface; the outgoing selection's last frame becomes its cached snapshot.
 - Present the latest usable frame and drop obsolete frames. Prefer surface reuse without repeated CPU conversion or image encoding. Verify ownership/lifetime before claiming a zero-copy path.
 - Distinguish live, cached, minimized/paused, unavailable/protected, and excluded states. Cached images must not animate or carry a live indicator.
 - On close, lock, permission revocation, exclusion, or disabled previews: invalidate the session, stop/detach the stream, release retained/queued frames, discard late callbacks, and purge images as required by the privacy state.
@@ -117,7 +117,8 @@ The budget below constrains owned preview payloads and reservations. It is not a
 | Mode | Retained thumbnails | Live stream | Combined modeled reservation |
 | --- | --- | --- | --- |
 | Balanced | Cost-accounted LRU, at most 24 MiB | Selected only | At most 32 MiB |
-| Memory pressure | Smaller snapshots, at most 6 MiB | Off | At most 6 MiB |
+| Memory warning | Half-size snapshots, at most 12 MiB | Selected only, lower frame rate | At most 16 MiB |
+| Memory critical | Purged; previews paused until pressure drops | Off | 0 preview-payload bytes |
 | Icons only | No preview payloads | Off | 0 preview-payload bytes |
 
 Reserve bytes before submitting image work; charge queued and in-flight output reservations to the same admission system. On arrival, use actual row stride × height for the image payload, reconcile the reservation, and evict/downscale/reject if the requested mode cannot admit it. Avoid double-counting shared references while tracking their lifetime. Release reservation and image references on every success, failure, timeout, cancellation, and privacy transition.
@@ -126,7 +127,7 @@ Reserve bytes before submitting image work; charge queued and in-flight output r
 
 Do not rely on a soft cache-cost limit as a hard budget. Bound metadata, shared icons, visible tile pools, observer registrations, undo, queue entries, and stale AX references as well. A total footprint target will be established after the native shell and first capture path are measured.
 
-Acceptance: admission cannot exceed the owned-byte envelope in deterministic scheduler tests, including error/late-callback paths. Instruments inspection must separately confirm the process/system allocations and identify overhead not represented by counters. Memory pressure stops live work and releases purged payloads; repeated dismissal settles without a monotonic growth trend.
+Acceptance: admission cannot exceed the owned-byte envelope in deterministic scheduler tests, including error/late-callback paths. Instruments inspection must separately confirm the process/system allocations and identify overhead not represented by counters. Critical memory pressure stops live work and releases purged payloads; returning to warning or normal resumes previews automatically; repeated dismissal settles without a monotonic growth trend.
 
 ## 8. Overview and accessible UI
 
