@@ -1,5 +1,5 @@
-/// State reported by the validated contact adapter. A new contact must first be
-/// observed in `began`; continuing contacts alone cannot prove a fresh stroke.
+/// State reported by the validated contact adapter. `began` is make-touch evidence for a new
+/// contact; `continuing` covers touching and break-touch frames.
 public enum SwipeContactPhase: Sendable, Equatable {
     case began, continuing
 }
@@ -13,41 +13,65 @@ public struct SwipeContactEvidence: Sendable, Equatable {
     }
 }
 
-/// Bounded startup gate for a three-contact recognizer. A frame of held contacts
-/// quarantines input until a finger-free frame. Each newly appearing identifier
-/// must carry make-touch evidence, including staggered landings.
+/// Bounded startup gate for a three-contact recognizer. It keeps contacts that were already
+/// held when observation began (or that arrive without evidence of a fresh touch) away from the
+/// recognizer until a finger-free frame.
+///
+/// A newly appearing identifier is fresh when it carries make-touch evidence, or when the gate has
+/// observed a finger-free frame since its last reset: a contact absent from that frame touched down
+/// afterwards, so a single dropped make-touch frame does not lose the stroke. At most
+/// `maximumUnprovenFramesPerStroke` frames per stroke may introduce identifiers without make-touch
+/// evidence; more than that quarantines the stroke.
 public struct FreshContactGate: Sendable {
+    public var maximumUnprovenFramesPerStroke = 1
     private var quarantined = false
+    /// Cleared by `reset()`; set by a finger-free frame.
+    private var observedFingerFree = false
+    private var unprovenFrames = 0
     private var first: Int32?
     private var second: Int32?
     private var third: Int32?
 
     public init() {}
 
+    /// Forget all evidence, including the last finger-free frame. Call when observation (re)starts.
     public mutating func reset() {
         quarantined = false
+        observedFingerFree = false
+        unprovenFrames = 0
         first = nil; second = nil; third = nil
     }
 
     public mutating func accepts<C: Collection>(_ contacts: C) -> Bool
         where C.Element == SwipeContactEvidence {
         if contacts.isEmpty {
-            reset()
+            quarantined = false
+            observedFingerFree = true
+            unprovenFrames = 0
+            first = nil; second = nil; third = nil
             return true
         }
         guard !quarantined, contacts.count <= 3 else { quarantine(); return false }
-        var next = FreshContactGate()
+        var nextFirst: Int32?, nextSecond: Int32?, nextThird: Int32?
+        var unprovenInFrame = false
         for contact in contacts {
-            let wasPresent = contact.id == first || contact.id == second || contact.id == third
-            guard wasPresent || contact.phase == .began,
-                  contact.id != next.first, contact.id != next.second, contact.id != next.third else {
+            guard contact.id != nextFirst, contact.id != nextSecond, contact.id != nextThird else {
                 quarantine(); return false
             }
-            if next.first == nil { next.first = contact.id }
-            else if next.second == nil { next.second = contact.id }
-            else { next.third = contact.id }
+            let wasPresent = contact.id == first || contact.id == second || contact.id == third
+            if !wasPresent && contact.phase != .began {
+                guard observedFingerFree else { quarantine(); return false }
+                unprovenInFrame = true
+            }
+            if nextFirst == nil { nextFirst = contact.id }
+            else if nextSecond == nil { nextSecond = contact.id }
+            else { nextThird = contact.id }
         }
-        first = next.first; second = next.second; third = next.third
+        if unprovenInFrame {
+            guard unprovenFrames < maximumUnprovenFramesPerStroke else { quarantine(); return false }
+            unprovenFrames += 1
+        }
+        first = nextFirst; second = nextSecond; third = nextThird
         return true
     }
 

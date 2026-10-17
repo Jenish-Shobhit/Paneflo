@@ -16,8 +16,10 @@ struct TrackpadGestureEvent: Sendable {
     let recognizedAtUptimeNanoseconds: UInt64
 }
 
-/// Optional private-API adapter. Initial scope: the default built-in trackpad on macOS 27.
-/// A native conflicting gesture must be changed separately by the user.
+/// Optional private-API adapter. Scope: the default built-in trackpad on macOS 26 or later,
+/// Apple silicon. The contact layout is checked at runtime (`TrackpadFrameSanity`) instead of
+/// matching an exact framework version. Conflicting system gestures must be changed by the user;
+/// `systemGestureConflict` reports whether they still appear to be on.
 @MainActor
 final class TrackpadGestureService {
     static let shared = TrackpadGestureService()
@@ -33,8 +35,8 @@ final class TrackpadGestureService {
     var diagnosticCountsOnStop = false
     var availability: Availability {
         #if arch(arm64)
-        return ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 27
-            ? .experimental : .unavailable("Native trackpad gestures have only been validated on macOS 27 on Apple silicon.")
+        return ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26
+            ? .experimental : .unavailable("Native trackpad gestures require macOS 26 or later.")
         #else
         return .unavailable("Native trackpad gestures have only been validated on Apple silicon.")
         #endif
@@ -50,6 +52,10 @@ final class TrackpadGestureService {
     private var inputMonitoringGranted = false
     /// User intent remains enabled while physical observation is paused for sleep/session changes.
     var isEnabled: Bool { lifecycle.isEnabled }
+
+    /// Read-only CFPreferences lookup of the conflicting system swipes. Not for the gesture path:
+    /// call it when Settings opens or Paneflo activates.
+    var systemGestureConflict: SystemGestureConflict { SystemGestureSettings.current().conflict }
 
     isolated deinit {
         for observer in observers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
@@ -236,6 +242,7 @@ private final class TrackpadBackend: @unchecked Sendable {
     private var activationEpoch: UInt64 = 0
     private var recognizer = ThreeFingerSwipe()
     private var freshContacts = FreshContactGate()
+    private var layoutCheck = TrackpadFrameSanity()
     private var diagnostics = TrackpadGestureDiagnostics()
     private var gestureHandler: (@Sendable (TrackpadGestureEvent) -> Void)?
     private var failureHandler: (@Sendable (TrackpadStartResult) -> Void)?
@@ -272,6 +279,7 @@ private final class TrackpadBackend: @unchecked Sendable {
                 lock.unlock(); completion(.failed("Trackpad start was canceled.")); return
             }
             diagnostics = .init(); recognizer = ThreeFingerSwipe(); freshContacts.reset(); lastTimestamp = nil
+            layoutCheck = TrackpadFrameSanity()
             gestureHandler = onGesture; failureHandler = completion
             observing = true
             lock.unlock()
@@ -320,13 +328,10 @@ private final class TrackpadBackend: @unchecked Sendable {
         return .init(diagnostics: counts, failure: failure)
     }
 
-    /// Load exactly once. No polling or external-device enumeration.
+    /// Load exactly once. No polling or external-device enumeration. Any framework revision that
+    /// exports the required functions is accepted here; `receive` then refuses contact data that
+    /// fails the hard range checks or the runtime layout check over the first frames.
     private func prepare() -> Resources? {
-        // Refuse an unknown framework revision before reading any private contact memory.
-        let frameworkPath = "/System/Library/PrivateFrameworks/MultitouchSupport.framework"
-        guard Bundle(path: frameworkPath)?.object(forInfoDictionaryKey: "CFBundleVersion") as? String == "10400.44" else {
-            failureReason = "This native trackpad framework version has not been validated yet."; return nil
-        }
         if attemptedPreparation { return resources }
         attemptedPreparation = true
         guard let library = dlopen("/System/Library/PrivateFrameworks/MultitouchSupport.framework/MultitouchSupport", RTLD_NOW | RTLD_LOCAL) else {
@@ -360,7 +365,8 @@ private final class TrackpadBackend: @unchecked Sendable {
         return resource
     }
 
-    /// Fixed 96-byte contact ABI validated on the current macOS 27 host.
+    /// 96-byte contact layout (timestamp 8, identifier 16, state 20, normalized x/y 32/36, size 48,
+    /// major/minor axis 60/64), confirmed on a macOS 27 host and checked at runtime by layoutCheck.
     /// Decode only bounded counts; never retain the framework's borrowed buffer.
     func receive(bytes: UnsafeRawPointer?, count: Int32, timestamp: Double) {
         lock.lock()
@@ -377,6 +383,7 @@ private final class TrackpadBackend: @unchecked Sendable {
         lastTimestamp = timestamp
         var contacts = ContactFrame()
         var evidence = ContactEvidenceFrame()
+        layoutCheck.beginFrame()
         if let bytes {
             for index in 0..<Int(count) {
                 let sample = bytes.advanced(by: index * 96)
@@ -392,25 +399,33 @@ private final class TrackpadBackend: @unchecked Sendable {
                       major.isFinite, minor.isFinite, major >= 0, minor >= 0 else {
                     rejectFrame(); return
                 }
-                guard (3...5).contains(state) else { continue }
                 let id = sample.loadUnaligned(fromByteOffset: 16, as: Int32.self)
+                layoutCheck.observe(.init(id: id, state: state, x: x, y: y, size: size, majorAxis: major, minorAxis: minor))
+                guard (3...5).contains(state) else { continue }
                 evidence.append(.init(id: id, phase: state == 3 ? .began : .continuing))
-                // Conservative starting scope: oversized or rim contacts cancel the entire
-                // sequence, rather than hiding a fourth finger and creating a false swipe.
-                let palm = size > 1.5 || x < 0.035 || x > 0.965 || y < 0.035
-                if palm { diagnostics.palmOrRimContacts &+= 1 }
+                // An oversized contact cancels the stroke rather than hiding a fourth finger.
+                // Edge contacts are ordinary: a finger may start a swipe at the bottom edge, and a
+                // resting edge contact cannot pass the recognizer's per-finger travel agreement.
+                let palm = size > 1.5
+                if palm || x < 0.035 || x > 0.965 || y < 0.035 { diagnostics.palmOrRimContacts &+= 1 }
                 contacts.append(.init(id: id, x: Double(x), y: Double(y), isPalm: palm))
                 diagnostics.contacts &+= 1
             }
+        }
+        let layout = layoutCheck.endFrame()
+        if case .implausible(let reason) = layout {
+            rejectFrame(reason: "Native trackpad gestures were turned off because this Mac's trackpad data did not look as expected (" + reason + ").")
+            return
         }
         let isFresh = freshContacts.accepts(evidence)
         if !isFresh { recognizer.reset() }
         else if contacts.isEmpty { _ = recognizer.update(timestamp: timestamp, contacts: contacts) }
         let direction = isFresh && !contacts.isEmpty
             ? recognizer.update(timestamp: timestamp, contacts: contacts) : nil
-        let handler = direction == nil ? nil : gestureHandler
+        // Until the layout check passes, recognition runs but nothing is delivered.
+        let handler = direction == nil || layout != .plausible ? nil : gestureHandler
         let recognizedAt = direction == nil ? 0 : DispatchTime.now().uptimeNanoseconds
-        if let direction {
+        if let direction, handler != nil {
             diagnostics.gestures &+= 1
             switch direction {
             case .up: diagnostics.upGestures &+= 1
@@ -424,7 +439,7 @@ private final class TrackpadBackend: @unchecked Sendable {
     }
 
     /// Called with lock held. Quarantine corrupt ABI data and shut down on lifecycle queue.
-    private func rejectFrame() {
+    private func rejectFrame(reason: String = "Unexpected trackpad contact data. Native gestures have been stopped; restart Paneflo before trying again.") {
         diagnostics.rejectedFrames &+= 1
         observing = false; recognizer.reset(); freshContacts.reset()
         let handler = failureHandler
@@ -433,7 +448,7 @@ private final class TrackpadBackend: @unchecked Sendable {
         queue.async { [self] in
             _ = stopPhysical()
             poisoned = true
-            handler?(.failed("Unexpected trackpad contact data. Native gestures have been stopped; restart Paneflo before trying again."))
+            handler?(.failed(reason))
         }
     }
 }
