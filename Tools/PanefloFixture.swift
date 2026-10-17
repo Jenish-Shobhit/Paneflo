@@ -4,8 +4,11 @@ import Foundation
 private struct FixtureOptions {
     let count: Int
     let labelPrefix: String?
+    /// Optional size limits that make the fixture behave like an app with its own min/max size.
+    let minWidth: Double?
+    let maxWidth: Double?
 
-    static let usage = "Usage: PanefloFixture [--count 1...20] [--label SAFE_NAME] [--help]\n"
+    static let usage = "Usage: PanefloFixture [--count 1...20] [--label SAFE_NAME] [--min-width 200...4000] [--max-width 200...4000] [--help]\n"
 
     static func parse(_ arguments: [String]) throws -> FixtureOptions? {
         if arguments.contains("--help") || arguments.contains("-h") {
@@ -15,10 +18,12 @@ private struct FixtureOptions {
 
         var count = 2
         var labelPrefix: String?
+        var minWidth: Double?
+        var maxWidth: Double?
         var index = 0
         while index < arguments.count {
             let option = arguments[index]
-            guard option == "--count" || option == "--label" else {
+            guard ["--count", "--label", "--min-width", "--max-width"].contains(option) else {
                 throw FixtureOptionsError.unknown(option)
             }
             guard arguments.indices.contains(index + 1) else {
@@ -34,12 +39,17 @@ private struct FixtureOptions {
             case "--label":
                 guard Self.isSafeLabel(value) else { throw FixtureOptionsError.invalidLabel }
                 labelPrefix = value
+            case "--min-width", "--max-width":
+                guard let parsed = Double(value), (200...4000).contains(parsed) else {
+                    throw FixtureOptionsError.invalidCount(value)
+                }
+                if option == "--min-width" { minWidth = parsed } else { maxWidth = parsed }
             default:
                 throw FixtureOptionsError.unknown(option)
             }
             index += 2
         }
-        return FixtureOptions(count: count, labelPrefix: labelPrefix)
+        return FixtureOptions(count: count, labelPrefix: labelPrefix, minWidth: minWidth, maxWidth: maxWidth)
     }
 
     private static func isSafeLabel(_ value: String) -> Bool {
@@ -80,7 +90,7 @@ final class FixtureWindowController: NSObject, NSWindowDelegate {
     private let pauseButton = NSButton(title: "Pause fixture for 5 seconds", target: nil, action: nil)
     private let statusLabel = NSTextField(labelWithString: "Fixture responsive")
 
-    init(number: Int, frame: NSRect, labelPrefix: String?) {
+    init(number: Int, frame: NSRect, labelPrefix: String?, minWidth: Double? = nil, maxWidth: Double? = nil) {
         window = NSWindow(
             contentRect: frame,
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -92,7 +102,8 @@ final class FixtureWindowController: NSObject, NSWindowDelegate {
         let windowLabel = number == 1 ? "One" : number == 2 ? "Two" : "Window \(number)"
         let defaultTitle = "Paneflo Fixture \(windowLabel)"
         window.title = labelPrefix.map { "\($0) · \(defaultTitle)" } ?? defaultTitle
-        window.minSize = NSSize(width: 200, height: 120)
+        window.minSize = NSSize(width: minWidth ?? 200, height: 120)
+        if let maxWidth { window.maxSize = NSSize(width: maxWidth, height: 100_000) }
         window.delegate = self
         window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("paneflo.fixture.window.\(number)")
@@ -247,7 +258,7 @@ private final class FixtureAppDelegate: NSObject, NSApplicationDelegate {
             let controller = FixtureWindowController(
                 number: index + 1,
                 frame: NSRect(x: x, y: y, width: width, height: height),
-                labelPrefix: options.labelPrefix
+                labelPrefix: options.labelPrefix, minWidth: options.minWidth, maxWidth: options.maxWidth
             )
             controllers.append(controller)
             controller.window.makeKeyAndOrderFront(nil)
@@ -285,7 +296,7 @@ private final class FixtureAppDelegate: NSObject, NSApplicationDelegate {
             width: width,
             height: height
         )
-        let controller = FixtureWindowController(number: index + 1, frame: frame, labelPrefix: options.labelPrefix)
+        let controller = FixtureWindowController(number: index + 1, frame: frame, labelPrefix: options.labelPrefix, minWidth: options.minWidth, maxWidth: options.maxWidth)
         controllers.append(controller)
         controller.window.makeKeyAndOrderFront(nil)
     }
