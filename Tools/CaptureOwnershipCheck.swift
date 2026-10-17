@@ -1,18 +1,24 @@
-// This is the standalone synthetic regression harness for CaptureController's
-// provider-backed BGRA image ownership. The test script concatenates this file
-// after CaptureController.swift so fileprivate helpers remain testable without
-// changing production visibility.
+// Standalone synthetic regression harness for CaptureController's live-frame ownership.
+// Tools/test-capture-ownership.sh concatenates this file after CaptureController.swift so
+// fileprivate helpers stay testable without changing production visibility, and builds it with
+// AddressSanitizer. It needs no Screen Recording permission and touches no real windows.
 import AppKit
 import CoreVideo
 import CoreGraphics
+import IOSurface
+
+private final class FrameSink: @unchecked Sendable {
+    var frames: [LiveFrame] = []
+}
 
 @main struct CaptureOwnershipCheck {
-    static func makeBuffer() -> CVPixelBuffer {
+    static func makeBuffer(ioSurface: Bool = true) -> CVPixelBuffer {
         var created: CVPixelBuffer?
-        let attrs: [CFString: Any] = [kCVPixelBufferCGImageCompatibilityKey: true,
-                                     kCVPixelBufferCGBitmapContextCompatibilityKey: true]
+        var attrs: [CFString: Any] = [kCVPixelBufferCGImageCompatibilityKey: true,
+                                      kCVPixelBufferCGBitmapContextCompatibilityKey: true]
+        if ioSurface { attrs[kCVPixelBufferIOSurfacePropertiesKey] = [:] as CFDictionary }
         precondition(CVPixelBufferCreate(kCFAllocatorDefault, 4, 2, kCVPixelFormatType_32BGRA,
-                                        attrs as CFDictionary, &created) == kCVReturnSuccess)
+                                         attrs as CFDictionary, &created) == kCVReturnSuccess)
         let buffer = created!
         precondition(CVPixelBufferLockBaseAddress(buffer, []) == kCVReturnSuccess)
         let data = CVPixelBufferGetBaseAddress(buffer)!.assumingMemoryBound(to: UInt8.self)
@@ -29,13 +35,13 @@ import CoreGraphics
         CVPixelBufferUnlockBaseAddress(buffer, [])
         return buffer
     }
+
     static func validatePixels(_ image: CGImage) {
         let bytes = image.dataProvider!.data!
         let pixels = CFDataGetBytePtr(bytes)!
         precondition(pixels[0] == 0 && pixels[1] == 0 && pixels[2] == 255 && pixels[3] == 255)
         let secondRow = image.bytesPerRow
         precondition(pixels[secondRow] == 255 && pixels[secondRow + 2] == 0)
-        // A small CPU context validates BGRA interpretation using the actual provider-backed image.
         var drawn = [UInt8](repeating: 0, count: 4 * 2 * 4)
         drawn.withUnsafeMutableBytes { storage in
             let context = CGContext(data: storage.baseAddress, width: 4, height: 2,
@@ -45,36 +51,73 @@ import CoreGraphics
         }
         precondition(drawn[0] == 0 && drawn[2] == 255 && drawn[16] == 255 && drawn[18] == 0)
     }
+
+    static func drainMain() { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+
     static func main() {
         precondition(!PreviewRenderer.usesReferenceRenderer)
-        let budget = CaptureBufferBudget()
-        let output = CaptureOutput(budget: budget, onImage: { _ in }, onStop: {})
-        let one = makeBuffer(), two = makeBuffer(), three = makeBuffer()
-        var first: CGImage? = output.makeImage(from: one)
-        precondition(first != nil && budget.counts.current == 1)
-        precondition(first!.bytesPerRow == CVPixelBufferGetBytesPerRow(one))
-        autoreleasepool { validatePixels(first!) }
-        var second: CGImage? = output.makeImage(from: two)
-        precondition(second != nil && budget.counts.current == 2)
-        precondition(output.makeImage(from: three) == nil && budget.counts.current == 2)
-        var retainedProvider: CGDataProvider? = first!.dataProvider
+        let budget = LiveFrameBudget()
+
+        // 1. Zero copy: the delivered surface is the pixel buffer's own IOSurface.
+        let one = makeBuffer(), two = makeBuffer(), three = makeBuffer(), four = makeBuffer()
+        var first: LiveFrame? = LiveFrame(buffer: one, budget: budget, arrivedAt: 1)
+        let backing = unsafeBitCast(CVPixelBufferGetIOSurface(one)!.takeUnretainedValue(), to: IOSurface.self)
+        precondition(first != nil && first!.surface === backing && budget.counts.current == 1)
+        precondition(LiveFrame(buffer: makeBuffer(ioSurface: false), budget: budget, arrivedAt: 0) == nil)
+        precondition(budget.counts.current == 1, "a rejected non-IOSurface buffer takes no slot")
+
+        // 2. Frame cap: three live frames at most; release re-admits.
+        var second: LiveFrame? = LiveFrame(buffer: two, budget: budget, arrivedAt: 2)
+        var third: LiveFrame? = LiveFrame(buffer: three, budget: budget, arrivedAt: 3)
+        precondition(second != nil && third != nil && budget.counts.current == LiveFrameBudget.limit)
+        precondition(LiveFrame(buffer: four, budget: budget, arrivedAt: 4) == nil && budget.counts.current == 3)
+        third = nil
+        precondition(budget.counts.current == 2)
+
+        // 3. Legacy provider-backed CGImage keeps the frame (and its lock) until the provider is released.
+        var legacy: CGImage? = CaptureController.legacyImage(from: first!)
+        precondition(legacy != nil && legacy!.bytesPerRow == CVPixelBufferGetBytesPerRow(one))
+        autoreleasepool { validatePixels(legacy!) }
         first = nil
-        precondition(retainedProvider != nil && budget.counts.current == 2)
-        retainedProvider = nil
+        precondition(budget.counts.current == 2, "the image still owns the first frame")
+        var provider: CGDataProvider? = legacy!.dataProvider
+        legacy = nil
+        precondition(budget.counts.current == 2, "the provider still owns the first frame")
+        provider = nil
         precondition(budget.counts.current == 1)
-        var third: CGImage? = output.makeImage(from: three)
-        precondition(third != nil && budget.counts.current == 2)
-        second = nil; third = nil
-        precondition(budget.counts.current == 0 && budget.counts.peak == 2)
-        // A static cache image must not retain a live provider or consume its scarce lease.
-        var liveSource: CGImage? = output.makeImage(from: one)
-        precondition(liveSource != nil && budget.counts.current == 1)
-        let detached = CaptureController.detachedThumbnail(liveSource!)!
-        liveSource = nil
+        _ = provider
+
+        // 4. A live frame converted to a cached snapshot owns its pixels and holds no frame slot.
+        let snapshot = CaptureController.detachedSnapshot(from: second!, fitting: CGSize(width: 4, height: 2))!
+        let scaled = CaptureController.detachedSnapshot(from: second!, fitting: CGSize(width: 2, height: 2))!
+        second = nil
         precondition(budget.counts.current == 0)
-        autoreleasepool { validatePixels(detached) }
-        precondition(budget.counts.current == 0)
+        autoreleasepool { validatePixels(snapshot) }
+        precondition(scaled.width == 2 && scaled.height == 1, "aspect-fit downscale, never upscale")
+        precondition(CaptureController.fittedPixelSize(CGSize(width: 1_000, height: 500), box: CGSize(width: 464, height: 204)) == (408, 204))
+        precondition(CaptureController.fittedPixelSize(CGSize(width: 100, height: 50), box: CGSize(width: 464, height: 204)) == (200, 100))
+
+        // 5. Output mailbox: a slow main thread never queues frames, and teardown releases them.
+        let sink = FrameSink()
+        let output = CaptureOutput(budget: budget, onFrame: { sink.frames.append($0) }, onStop: { _ in })
+        for buffer in [one, two, three, four, one] { output.ingest(buffer) }
+        precondition(budget.counts.current == 1, "only the newest undelivered frame is held")
+        drainMain()
+        precondition(sink.frames.count == 1 && sink.frames[0].pixelBuffer === one, "latest frame delivered once")
+        output.ingest(two)
+        precondition(budget.counts.current == 2, "displayed + pending")
         output.deactivate()
-        print("PASS detached thumbnail holds no live lease; provider pixels/row-stride/color draw; provider retains lease after image release; lease cap 2; rejection/re-admission; final leases 0")
+        precondition(budget.counts.current == 1, "deactivate releases the pending frame at once")
+        drainMain()
+        precondition(sink.frames.count == 1, "no delivery after deactivate")
+        output.ingest(three)
+        precondition(budget.counts.current == 1, "ingest after deactivate is ignored")
+        sink.frames.removeAll()
+        precondition(budget.counts.current == 0)
+        let counters = output.counters
+        precondition(counters.received == 6 && counters.delivered == 1)
+
+        precondition(budget.counts.current == 0 && budget.counts.peak == LiveFrameBudget.limit)
+        print("PASS IOSurface zero-copy identity; non-IOSurface rejected; frame cap \(LiveFrameBudget.limit) with re-admission; legacy provider retains frame until released; live->snapshot conversion holds no frame; aspect-fit sizing; mailbox holds 1 pending, deactivate releases, no late delivery; final frames 0")
     }
 }
