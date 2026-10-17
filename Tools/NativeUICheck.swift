@@ -36,6 +36,9 @@ struct NativeUICheck {
         let output = CommandLine.arguments.dropFirst().first ?? NSTemporaryDirectory()
         let service = WindowService()
         let desktop = DesktopController(service: service)
+        try require(!desktop.nativeCheckPreferencesConstructed, "Settings must remain lazy at controller initialization")
+        desktop.enablePreviewControl()
+        try require(desktop.nativeCheckPreviewControlEnabled, "Preview control must enable before Settings construction")
         service.onChange = { desktop.updateSnapshot() }
         let owner = ProcessIdentity(pid: ProcessInfo.processInfo.processIdentifier, launchToken: 1)
         func records(_ count: Int) -> [WindowRecord] {
@@ -194,5 +197,15 @@ struct NativeUICheck {
                     "Hiding app must dismiss panel and release preview payload")
         try require(!previewVisible && !thumbnailsVisible && !selectionOwned,
                     "Hiding app must release preview and keyboard ownership")
+        NSApp.unhideWithoutActivation()
+        desktop.setStatus("Synthetic permission diagnostic")
+        desktop.setShortcutsEnabled(true)
+        desktop.setGestureState(enabled: true, description: "Synthetic ready")
+        desktop.showPreferences()
+        try require(desktop.nativeCheckPreferencesConstructed && desktop.nativeCheckPreviewControlEnabled,
+                    "Opening lazy Settings must preserve enabled preview control")
+        try require(desktop.nativeCheckShortcutsEnabled && desktop.nativeCheckGestureEnabled
+                    && desktop.nativeCheckStatus == "Synthetic permission diagnostic",
+                    "Lazy Settings must retain prepared toggle and status state")
     }
 }

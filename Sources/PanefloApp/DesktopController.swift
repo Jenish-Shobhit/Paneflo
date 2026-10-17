@@ -389,7 +389,7 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         keyboardHint.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         status.font = .systemFont(ofSize: 12); status.textColor = .secondaryLabelColor
         overviewBar.isHidden = true
-        configurePreferences()
+        previewButton.isEnabled = false
     }
 
     private func configurePreferences() {
@@ -411,7 +411,6 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         shortcutButton.setAccessibilityLabel("Enable Paneflo shortcuts")
         previewButton.target = self; previewButton.action = #selector(togglePreviews)
         previewButton.setAccessibilityLabel("Enable live window previews")
-        previewButton.isEnabled = false
         stack.addArrangedSubview(shortcutButton); stack.addArrangedSubview(previewButton)
         gestureButton.target = self; gestureButton.action = #selector(toggleGesture)
         stack.addArrangedSubview(gestureButton)
@@ -438,12 +437,15 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
         let undo = NSStackView(); undo.orientation = .horizontal
         button("Undo arrangement", #selector(undoLayout), undo); stack.addArrangedSubview(undo)
         stack.addArrangedSubview(status); status.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        status.stringValue = "⌘Tab picks a window. Hold ⌘ and use ← → or ↑ to arrange it before releasing."
+        if status.stringValue.isEmpty {
+            status.stringValue = "⌘Tab picks a window. Hold ⌘ and use ← → or ↑ to arrange it before releasing."
+        }
         preferences = window
     }
 
     func showPreferences() {
         dismiss(restorePreviousApplication: false)
+        if preferences == nil { configurePreferences() }
         preferences?.center(); preferences?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -474,6 +476,11 @@ final class DesktopController: NSObject, NSSearchFieldDelegate, NSWindowDelegate
     #if PANEFLO_NATIVE_CHECK
     func nativeCheckSuppressExternalRestore() { overviewReturnApplication = nil }
     var nativeCheckWindow: NSWindow { panel }
+    var nativeCheckPreferencesConstructed: Bool { preferences != nil }
+    var nativeCheckPreviewControlEnabled: Bool { previewButton.isEnabled }
+    var nativeCheckShortcutsEnabled: Bool { shortcutButton.state == .on }
+    var nativeCheckGestureEnabled: Bool { gestureButton.state == .on }
+    var nativeCheckStatus: String { status.stringValue }
     var nativeCheckSearch: NSSearchField { search }
     var nativeCheckSelected: WindowIdentity? { selectedID }
     var nativeCheckSlots: [WindowIdentity?] { displayed }

@@ -47,3 +47,6 @@ coverage/
 
 # Release artifacts.
 dist/
+
+# Claude Code local state and agent worktrees.
+.claude/
