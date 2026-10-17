@@ -114,6 +114,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         preferences.set(true, forKey: "startup.completed.v1")
         windows.start()
         if missingPermission || firstLaunch { controller.showPreferences() }
+        // updates hook: isBusy defers automatic checks and offers while a switcher or overview session is showing.
+        UpdateController.shared.start(isBusy: { [weak self] in self?.desktop?.isVisible == true },
+                                      report: { [weak self] in self?.desktop?.setStatus($0) })
         RuntimeDiagnostics.mark("startup menuReady=true settingsShown=\(missingPermission || firstLaunch)")
     }
 
@@ -153,6 +156,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
         settings.target = self; menu.addItem(settings)
+        UpdateMenu.shared.addItems(to: menu) // updates hook
         let disable = NSMenuItem(title: "Disable global shortcuts", action: #selector(disableShortcuts), keyEquivalent: "")
         disable.target = self; menu.addItem(disable)
         let refresh = NSMenuItem(title: "Refresh windows", action: #selector(refreshWindows), keyEquivalent: "")
