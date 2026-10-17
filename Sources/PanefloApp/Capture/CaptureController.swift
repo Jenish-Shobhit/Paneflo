@@ -120,6 +120,8 @@ final class CaptureController {
     static let snapshotFreshAge = 1.0
     static let contentMaxAgeOnOpen = 0.5
     static let contentMaxAge = 1.0
+    /// How long a listed window's SCWindow may be reused for capture without waiting for discovery.
+    static let contentReuseAge = 5.0
 
     // MARK: State
 
@@ -213,6 +215,22 @@ final class CaptureController {
         observe(.default, NSApplication.didBecomeActiveNotification) { controller in
             if controller.previewsRequested, controller.screenRecordingStatus != .granted { controller.refreshScreenRecordingStatus() }
         }
+        // The first ScreenCaptureKit request in a process measured ~0.8 s; pay it after launch, not
+        // on the first Command-Tab. Only when previews were enabled and access is already granted.
+        if UserDefaults.standard.bool(forKey: "previews.enabled.v1"), CGPreflightScreenCaptureAccess() {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(2))
+                self?.prewarm()
+            }
+        }
+    }
+
+    /// Warms the ScreenCaptureKit connection and the shareable-content cache off the input path.
+    /// Safe to call repeatedly; it never prompts when access is not already granted.
+    func prewarm() {
+        guard CGPreflightScreenCaptureAccess(), discovery == nil,
+              ProcessInfo.processInfo.systemUptime - contentAt > Self.contentMaxAge else { return }
+        Task { _ = try? await refreshContent() }
     }
 
     private func observe(_ center: NotificationCenter, _ name: Notification.Name,
@@ -479,8 +497,10 @@ final class CaptureController {
                 config.pixelFormat = kCVPixelFormatType_32BGRA; config.colorSpaceName = CGColorSpace.sRGB
                 config.showsCursor = false; config.capturesAudio = false; config.scalesToFit = true
                 config.ignoreShadowsSingleWindow = true
+                let started = ProcessInfo.processInfo.systemUptime
                 let source = try await SCScreenshotManager.captureImage(
                     contentFilter: SCContentFilter(desktopIndependentWindow: window), configuration: config)
+                RuntimeDiagnostics.mark("thumbnail screenshotMilliseconds=\((ProcessInfo.processInfo.systemUptime - started) * 1000) width=\(source.width) height=\(source.height)")
                 image = await Task.detached(priority: .utility) { Self.detachedSnapshot(source, fitting: box) }.value
                 if image == nil { failure = .captureFailed }
             } else {
@@ -524,10 +544,11 @@ final class CaptureController {
     /// Uses the short-lived cache; a window missing from content fetched before this session
     /// opened triggers one fresh lookup, after which it counts as not on screen.
     private func shareableWindows(containing number: UInt32?) async throws -> [CGWindowID: SCWindow] {
-        let now = ProcessInfo.processInfo.systemUptime
-        let current = now - contentAt <= Self.contentMaxAge
+        let age = ProcessInfo.processInfo.systemUptime - contentAt
+        // A known window does not wait for the open-time refresh that runs in parallel.
+        if let number, content[number] != nil, age <= Self.contentReuseAge { return content }
         if let discovery { return try await discovery.value }
-        if current, number.map({ content[$0] != nil || contentAt >= sessionOpenedAt }) ?? true { return content }
+        if age <= Self.contentMaxAge, number.map({ content[$0] != nil || contentAt >= sessionOpenedAt }) ?? true { return content }
         return try await refreshContent()
     }
 
@@ -536,8 +557,10 @@ final class CaptureController {
         let task = Task { @MainActor [self] () throws -> [CGWindowID: SCWindow] in
             discoveryInFlight = true; transition("discovering")
             defer { discoveryInFlight = false }
+            let started = ProcessInfo.processInfo.systemUptime
             do {
                 let shareable = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+                RuntimeDiagnostics.mark("capture discoveryMilliseconds=\((ProcessInfo.processInfo.systemUptime - started) * 1000) windows=\(shareable.windows.count)")
                 var windows: [CGWindowID: SCWindow] = [:]
                 for window in shareable.windows where windows[window.windowID] == nil { windows[window.windowID] = window }
                 content = windows; contentAt = ProcessInfo.processInfo.systemUptime
@@ -672,7 +695,8 @@ final class CaptureController {
         let id = sessionCards.first { card in card.windowNumber == key.windowNumber && card.id.process.pid == key.pid }?.id
             ?? identityIndex[key]
         let fps = max(1, pressure.quality.liveFramesPerSecond)
-        desired = LiveTarget(key: key, id: id, pixelBox: snapshotBox, framesPerSecond: fps)
+        // Warning pressure lowers the live frame rate but keeps the selected card sharp.
+        desired = LiveTarget(key: key, id: id, pixelBox: pixelBox, framesPerSecond: fps)
         generation &+= 1
         schedule()
     }
