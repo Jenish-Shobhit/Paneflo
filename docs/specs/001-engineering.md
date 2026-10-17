@@ -1,12 +1,12 @@
 # Paneflo engineering specification
 
-Status: implementation requirements and feasibility gates. Updated 2026-10-16.
+Status: implementation requirements and feasibility gates. Updated 2026-10-17.
 
-This specification records the target architecture and feasibility gates for the [product requirements](000-product.md). The app now has real-window discovery and control, opt-in shortcuts, a custom overview, and an opt-in selected-window live capture path; this integration remains under verification. Cached thumbnails, broader platform validation, and measured performance results remain pending. Numeric budgets are initial configuration requirements to validate, not measurements of an existing app. Platform-sensitive capabilities must pass their gates before the application enables them by default.
+This specification records architecture and capability gates for the [product requirements](000-product.md). The compact picker, selected-window placement, larger stable Overview, separate Settings, static-thumbnail cache, and optional native gesture adapter are implemented. Commit `ec757b3` passed 61 tests, release compilation, local bundle signature verification, and hosted CI. Initial one-host native checks cover the compact picker, selected half placement, static/live previews, and target focus; the user also physically confirmed three-finger up/down and normal two-finger scrolling on this host. A normal relaunch stayed quiet and restored the saved gesture without prompts. The full shortcut workflow, remaining UI, broader gesture cases, sleep/wake, and saved shortcut/preview restoration still need validation. Numeric budgets below are engineering policies or targets, not measurements of total app resources. Platform-sensitive capabilities remain opt-in until their gates are established.
 
 ## 1. Application shape
 
-One Swift menu-bar app, initially one process. The independently enabled Switcher, Tiling, and Overview modules consume shared services and immutable state. Use AppKit and Core Animation for interactive panels and tiles; settings may load SwiftUI on demand. The deliverable is a native application, not a web runtime around the HTML concept.
+One Swift menu-bar app, initially one process. The independently enabled Switcher, Tiling, and Overview modules consume shared services and immutable state. Use AppKit and Core Animation for interactive panels and tiles; Settings opens separately on demand. The deliverable is a native application, not a web runtime around the HTML concept.
 
 | Subsystem | Responsibility | Boundary |
 | --- | --- | --- |
@@ -32,7 +32,7 @@ A helper process is permitted only after a measured isolation or shortcut-recove
 - Keep focus/selection session state independent from background registry mutations. Confirmed closed targets are removed; preserve the nearest viable selection deterministically. An AX timeout or incomplete scan is an unknown state, not proof of closure: preserve last-known metadata until lifecycle evidence or bounded reconciliation settles it.
 - A durable overview slot has its own identifier, group, order, optional pin/matching rule, and topology metadata. Store ephemeral window IDs only as runtime associations.
 - Durable matching may use app identifier plus explicit user rules and document identity where available. Titles are mutable and ambiguous. A weak or duplicate match leaves a vacancy/pending choice rather than moving an unrelated window.
-- Persist only user settings, logical slots/rules, and layout metadata. Use versioned writes with atomic replacement; recover from corrupt/unknown schema without deleting the user's last usable data.
+- Persist explicit shortcut, preview, and gesture enable choices; restore only with existing permissions and capability checks, without startup permission prompts. Show Settings on first launch or missing permissions; keep ordinary configured launch quiet. Persist only user settings, logical slots/rules, and layout metadata. Use versioned writes with atomic replacement; recover from corrupt/unknown schema without deleting the user's last usable data.
 
 Validation: exercise app relaunch, PID/window-number reuse in synthetic state, duplicate titles, renamed documents, closed/reopened windows, damaged settings, and registry refresh during a switching session. MRU updates must not change any overview assignment.
 
@@ -41,13 +41,24 @@ Validation: exercise app relaunch, PID/window-number reuse in synthetic state, d
 Model shortcut replacement as `disabled → arming → active → releasing`, plus an explicit failed/recovery state. Arming must establish permissions, a working event path, and recovery before suppressing the native forward/reverse shortcuts as a pair. A partially armed adapter releases acquired state and leaves native switching usable.
 
 - The chosen integration may use platform-specific APIs, but all such calls belong in one version-gated adapter. Do not spread private symbol dependencies across modules.
-- On first Command–Tab, freeze eligible runtime keys and the chosen order in a session. Tab cycles; Shift reverses; Command release commits; Escape cancels. Handle repeat events and modifier changes explicitly.
+- On first Command–Tab, freeze eligible runtime keys and the chosen order in a compact picker. Tab cycles; Shift reverses; Command release commits; Escape cancels. Handle repeat events and modifier changes explicitly.
+- Command–Left/Right/Up while the picker is active applies half/fill geometry to the selected identity, not the previously focused window. Defer release-to-focus until the current placement finishes. Cancellation or a superseding selection invalidates pending focus; late placement results cannot activate another selection.
 - Capture a session generation. Permission loss, screen lock, module disable, or adapter failure cancels pending selection and releases any stream/panel state.
 - Dismissal enqueues focus against the selected key and verifies the current process/window identity before execution. Failure does not silently focus an arbitrary window.
 - On disable and normal quit, restore only state this adapter owns, respecting the recorded baseline and detected conflicts. Native shortcut settings altered by another tool must not be overwritten blindly.
 - Event-path invalidation must trigger bounded recovery or disable replacement. Prove a crash/emergency recovery approach before native replacement is enabled by default. Startup-only repair is not sufficient evidence that a crash leaves immediate switching available.
 
 Acceptance: forward/reverse ownership, key repeat, rapid tap/release, alternate keyboard layouts, input methods, conflicting tools, permission revocation, event-path invalidation, normal exit, forced termination, and relaunch. Record exactly which recovery properties are proven on each supported macOS version.
+
+### Optional built-in trackpad adapter
+
+Keep unsupported trackpad integration behind explicit enable intent and platform/framework checks. Initial scope is the default built-in trackpad on Apple silicon/macOS 27 and a validated framework revision; external trackpads and broader versions are not certified. Native Mission Control/App Exposé gesture conflicts require a separate user setting change, not silent preference mutation.
+
+The callback performs bounded contact decoding and pure recognition only. Recognize coherent three-finger vertical motion, allow a brief stationary staggered landing, reject scrolling/palm/fourth-contact sequences, and emit at most one action until lift. Dispatch actions to the main thread with a session generation; never perform UI, Accessibility, discovery or capture inside the callback.
+
+Separate user enable intent from physical observation. Serialize start/stop outside the main thread, retain only a bounded device/library lease, and reject new starts while shutdown is uncertain. System sleep, display sleep and inactive sessions suspend observation; overlapping reasons must all clear before one automatic resume attempt after clean stop. Revalidate permissions and capability checks for each attempt. Disable invalidates queued actions; failed start/stop clears intent and prevents automatic retries. No device polling or replacement-device loop is allowed.
+
+Acceptance: physical up/down entry, normal two-finger scrolling, palm/fourth-contact rejection, repeated enable/disable, overlapping sleep/wake, disable during suspension, duplicate wakes, failed-stop recovery and permission changes. Pure lifecycle tests and one-host input checks do not certify a broader hardware/OS matrix.
 
 ## 4. Accessibility execution and focus
 
@@ -85,7 +96,7 @@ Acceptance: constrained/non-resizable windows, half/third rounding, mixed-DPI di
 Cached thumbnails and icons are sufficient for first presentation. Capture discovers eligible sources asynchronously and never runs synchronously in the shortcut handler. Use version/capability adapters rather than assuming one capture implementation behaves identically across macOS releases.
 
 - Admit a maximum of **one continuous live stream across the entire application**, attached to the currently selected eligible window while Switcher or Overview is visible.
-- Other cards use low-resolution one-shot/cached images. Selection changes cancel or invalidate obsolete requests. Avoid eagerly retaining full-resolution neighbors.
+- Other cards use low-resolution one-shot/cached images. The current cache is limited to 12 entries/6 MiB with 30-second expiry, a per-image payload ceiling, and one physically outstanding snapshot request. Expiry or cancellation never releases physical request debt before its callback finishes. Selection changes invalidate obsolete results; current window identity/owner must still match before presentation. Avoid eagerly retaining full-resolution neighbors.
 - Bound discovery with single-flight state, deadlines, coalescing, and retry backoff. A timed-out discovery result cannot repopulate a newer generation accidentally.
 - Independently cap waiting jobs, executing OS requests awaiting callbacks, retained frames, and byte reservations. A serial operation queue does not bound asynchronous capture requests after they have been submitted.
 - A callback deadline or logical cancellation does not prove the OS stopped the request. Retain outstanding-request accounting until completion/certain teardown, or open a circuit breaker that blocks new requests until bounded recovery. Do not repeatedly submit replacements for timed-out work whose physical completion is unknown.
@@ -95,7 +106,7 @@ Cached thumbnails and icons are sufficient for first presentation. Capture disco
 - On close, lock, permission revocation, exclusion, or disabled previews: invalidate the session, stop/detach the stream, release retained/queued frames, discard late callbacks, and purge images as required by the privacy state.
 - A stopped panel has no continuous capture or display-link animation loop. Reduce Motion and Low Power Mode alter animation/capture cadence without delaying selection state.
 
-Acceptance: at most one admitted stream, zero hidden, rapid 200-cycle open/select/close sequence, selection changes faster than capture, callback after close, minimized/protected windows, denied/revoked permission, lock/wake, and capture service failure. Counters distinguish queued, logically cancelled, physically outstanding, and completed requests. Withhold callbacks in a scheduler test and prove recovery cannot accumulate unbounded OS requests. Check that old generations release their payloads after actual completion/teardown.
+Acceptance: at most one admitted stream; zero hidden must cover native app hide as well as explicit panel dismissal. Also verify a rapid 200-cycle open/select/close sequence, selection changes faster than capture, callback after close, minimized/protected windows, denied/revoked permission, lock/wake, and capture service failure. Counters distinguish queued, logically cancelled, physically outstanding, and completed requests. Withhold callbacks in a scheduler test and prove recovery cannot accumulate unbounded OS requests. Check that old generations release their payloads after actual completion/teardown.
 
 ## 7. Memory accounting and pressure
 
@@ -117,9 +128,9 @@ Acceptance: admission cannot exceed the owned-byte envelope in deterministic sch
 
 ## 8. Overview and accessible UI
 
-The overview is a Paneflo panel, separate from Apple's Mission Control. Initially invoke it with a configurable dedicated shortcut. Gesture, Mission Control key, native Space, and fullscreen integration remain capability-gated extensions.
+The larger Overview is a Paneflo panel, separate from Apple's Mission Control and the compact Command–Tab picker. Invoke it with its dedicated shortcut or the optional capability-gated built-in gesture adapter. Mission Control key, native Space, and fullscreen integration remain later extensions. Settings has a separate window and does not occupy the switching surface.
 
-Logical slots remain stable across focus changes. Dragging explicitly changes slot assignments; filtering dims non-matches in place. Pinning reserves a vacancy. Density, pagination, and display filters derive visual placement from stable logical slots without destroying assignments.
+Logical slots remain stable across focus changes. Arrow navigation follows the visible grid rather than treating every direction as linear cycling. Dragging explicitly changes slot assignments; filtering dims non-matches in place. Pinning reserves a vacancy. Density, pagination, and display filters derive visual placement from stable logical slots without destroying assignments.
 
 Reuse tile/layer pools for visible cards, diff registry snapshots, and expose accessible app/title/state/action labels. Ensure keyboard traversal, VoiceOver selection, Reduce Motion, contrast, and light/dark appearance. Native window titles may be sensitive: do not send them to telemetry or persistent logs by default.
 

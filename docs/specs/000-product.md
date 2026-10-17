@@ -1,6 +1,6 @@
 # Paneflo product specification
 
-Status: product requirements; native foundation in progress. Updated 2026-10-16.
+Status: product requirements; compact workflow implemented, native redesign validation in progress. Updated 2026-10-17.
 
 ## Purpose
 
@@ -24,8 +24,9 @@ Private development artifacts remain in gitignored `dev_acrtifacts/`. The public
 
 - Command–Tab replaces the native app switcher with individual-window selection; Shift reverses, Command release commits, Escape cancels.
 - Quick repeated use toggles the previous eligible window. Navigation order freezes for each session; window removals preserve selection when possible.
-- App-name/window-title local search, keyboard and pointer navigation, thumbnail grid, compact list, and icons-only presentation.
-- Immediate cached cards; asynchronous selected-window live preview when permitted and available.
+- A compact picker for Command–Tab, with app-name/window-title local search and keyboard/pointer selection. Keep settings and the larger Overview outside this fast switching surface.
+- Immediate icons or cached static thumbnails; asynchronous selected-window live preview when permitted and available.
+- While Command remains held in the picker, Left/Right places the chosen window in a half and Up fills its usable display area. Command release focuses that selection after its placement completes; Escape cancels deferred focus. A late placement cannot focus a superseded selection.
 - Filters for display, current app, and logical workspace; configurable treatment of minimized and hidden windows.
 - Actions on the selection: focus, close, minimize, maximize, snap, and move to a display. Closing a window requires an explicit action, never modifier release alone.
 
@@ -63,7 +64,7 @@ Custom zones per display, conservative saved-layout matching, shared-divider res
 
 ### Core scope
 
-- A dedicated Paneflo overlay with remembered logical slots, a shortcut, keyboard/pointer activation, drag reordering, and pinned positions.
+- A larger dedicated Paneflo overlay with remembered logical slots, spatial arrow navigation, a shortcut, keyboard/pointer activation, drag reordering, and pinned positions.
 - Focus history never sorts the overview. New windows occupy free slots or append without moving existing assignments; pinned vacancies persist.
 - Search dims non-matching cards in place. Filters and density changes preserve logical slot identities.
 - The window's display and visibility state remain visible. Large collections use recycled views and pagination or virtualization.
@@ -78,11 +79,13 @@ Custom zones per display, conservative saved-layout matching, shared-divider res
 
 ### Later extensions and limits
 
-Editable logical groups, saved workspace/layout recall, conservative relaunch matching, and optional gesture/function-key entry after investigation. Logical workspaces do not imply native Space control. Paneflo does not initially modify Apple's Mission Control arrangement or promise removal of OS-controlled fullscreen/Space transition delays.
+An optional native built-in trackpad adapter maps three-finger up to Overview and down to dismissal. It remains off until explicitly enabled, is limited by platform/framework capability checks, and requires conflicting native gesture bindings to be disabled separately. An unsupported adapter is not a guarantee of native Mission Control replacement. One bounded sleep/wake resume attempt must preserve user intent without allowing duplicate or stale actions; failure disables observation with a useful status.
+
+Editable logical groups, saved workspace/layout recall, conservative relaunch matching, and function-key entry remain later extensions. Logical workspaces do not imply native Space control. Paneflo does not initially modify Apple's Mission Control arrangement or promise removal of OS-controlled fullscreen/Space transition delays.
 
 ## Shared experience and platform boundaries
 
-- Menu-bar controls, independent module toggles, shared shortcut conflict handling, optional launch at login, and on-demand settings.
+- Menu-bar controls, independent module toggles, shared shortcut conflict handling, optional launch at login, and separate on-demand Settings. Save explicit enable choices; restore only with ready permissions and supported capabilities. First launch or missing permissions may open Settings; ordinary configured startup stays quiet and does not prompt automatically.
 - Accessibility permission for window control; Screen Recording permission for previews. Confirm any additional input permission through the selected hotkey implementation.
 - No account or cloud requirement. Preview images stay in memory by default, with app exclusion controls and purge on permission revocation, lock, or privacy-sensitive transitions as established by the platform investigation.
 - VoiceOver, full keyboard navigation, Reduce Motion, high contrast, and light/dark appearance are release criteria.
