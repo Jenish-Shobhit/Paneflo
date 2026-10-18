@@ -4,13 +4,21 @@ All notable changes to Paneflo are listed here. Versions follow [Semantic Versio
 
 ## 1.1.0 — Unreleased
 
+### Switcher and Overview redesign
+
+- ⌘Tab is a compact Liquid Glass shelf over your desktop: no heading and no key hints, just window cards and the selected window's full title. Cards have a recessed preview at the window's own shape, the app icon, the title and the app name; the selection is an accent ring, with no movement.
+- Cards come in four sizes, chosen once each time the picker opens to fit your windows on one to three balanced rows (the last row is centred); with many windows the grid scrolls with soft edges.
+- Previews look like the window: the Live and Snapshot labels are gone. A small symbol marks minimized, hidden, other-Space and paused previews; VoiceOver says whether a picture is live or a snapshot and how old it is, and the Overview shows it in a tooltip.
+- Tile pairs sit side by side in ⌘Tab with a link at the seam; selecting one rings it and outlines its partner. Snap assist shows a faint outline of the half you are about to fill instead of text.
+- The Overview is a full-display translucent overlay with a search field, a window count, the Desktop tile and your slots; click the background to close it. Free and kept slots have a new recessed look with hover and drop states. Drag a window onto a free slot to move it there (its old slot becomes free) or onto another window to swap them; right-click a free slot to remove it.
+- Light and dark, Increase Contrast (thicker ring, card borders), Reduce Transparency (opaque backdrop) and Reduce Motion are respected. Selecting a card does no redrawing and no layout.
+
 ### Tile pairs
 
-- Two windows filling complementary halves of one display (left and right, or top and bottom) form a pair, whether Paneflo arranged them or they were already there. A pair ends when a window closes, minimizes, moves to another display or leaves its half, or when you choose Ungroup. Pairs last until Paneflo quits.
-- Opening a paired window from ⌘Tab or the Overview brings its partner forward first, then focuses the window you chose, so both are visible. Turn this off with Settings › Tile pairs › Open tile pairs together.
-- ⌘⌥Return (or keypad Enter) in the picker or a keyboard-focused Overview opens the selection with its partner regardless of that setting. The Overview's right-click menu offers Open pair and Ungroup for paired windows.
-- Snap assist in the picker: after ⌘⌥← tiles the selection to the left half, the hint strip asks for a window for the right half; ⌘⌥→ on another window places it on the same display and pairs the two (and the other way round). Escape or releasing ⌘ ends it.
-- Paired cards show a ▮▮ Paired marker.
+- Two windows filling complementary halves of one display (left and right, or top and bottom) form a pair, whether Paneflo arranged them or they were already there. A pair ends when a window closes, minimizes, moves to another display or leaves its half, or when you choose Unpair. Pairs last until Paneflo quits.
+- Opening a paired window from ⌘Tab or the Overview brings its partner forward first, then focuses the window you chose, so both are visible. Turn this off in Settings.
+- ⌘⌥Return (or keypad Enter) in the picker or a keyboard-focused Overview opens the selection with its partner regardless of that setting. The Overview's right-click menu offers Open Pair, Open Alone and Unpair for paired windows.
+- Snap assist in the picker: after ⌘⌥← tiles the selection to the left half, the selected card shows a faint outline of the right half; ⌘⌥→ on another window places it on the same display and pairs the two (and the other way round). Escape or releasing ⌘ ends it.
 - Bringing a partner forward activates its app for a moment before the chosen window's app takes focus: an Accessibility raise alone leaves a background window behind the frontmost app.
 
 ## 1.0.0 — Unreleased
