@@ -75,7 +75,7 @@ struct FuzzVersionFeedTests {
         }
     }
 
-    @Test(.disabled("BUG: pre-release identifiers starting with '-' that look like negative numbers are compared numerically, so 1.0.0--1 and 1.0.0--01 are unequal yet neither is less"))
+    @Test
     func hyphenPrefixedNumericLookalikesKeepTrichotomy() {
         let a = SemanticVersion("1.0.0--1"), b = SemanticVersion("1.0.0--01")
         #expect(a != nil && b != nil)
@@ -85,7 +85,7 @@ struct FuzzVersionFeedTests {
         if let numeric = SemanticVersion("1.0.0-5"), let hyphen = SemanticVersion("1.0.0--1") { #expect(numeric < hyphen) }
     }
 
-    @Test(.disabled("BUG: numeric pre-release identifiers longer than Int range compare as strings, so 1.0.0-99999999999999999999 sorts after 1.0.0-100000000000000000000"))
+    @Test
     func hugeNumericPreReleaseIdentifiersCompareNumerically() {
         let small = SemanticVersion("1.0.0-99999999999999999999"), big = SemanticVersion("1.0.0-100000000000000000000")
         #expect(small != nil && big != nil)
@@ -214,7 +214,7 @@ struct FuzzVersionFeedTests {
         }
     }
 
-    @Test(.disabled("BUG: ReleaseNotes.blocks splits on Character \"\\n\", so a CR-only or CR-CR-LF line ending is never split and the Install section leaks into the notes"))
+    @Test
     func releaseNotesHandleOddLineEndings() {
         for markdown in ["- fixed\r\r\n### Install\nSECRET text", "- fixed\r### Install\rSECRET text"] {
             #expect(ReleaseNotes.blocks(markdown) == [.bullet("fixed")], "\(markdown.debugDescription)")
