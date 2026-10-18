@@ -105,4 +105,31 @@ struct SwitcherLayoutTests {
         defaults.set("bogus", forKey: SurfacePreferences.Key.cardSize)
         #expect(SurfacePreferences(defaults: defaults).cardSize == .automatic)
     }
+
+    @Test
+    func testEveryOptionRoundTripsThroughItsOwnKey() throws {
+        let suite = "paneflo.tests.surface-options.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        // Keys are distinct and every option defaults on, the selected-window title included.
+        #expect(Set(SurfacePreferences.Option.allCases.map(\.key)).count == SurfacePreferences.Option.allCases.count)
+        #expect(SurfacePreferences.Option.allCases.allSatisfy { SurfacePreferences()[$0] })
+        #expect(SurfacePreferences.Option.showsSelectedTitle.key == "switcher.showsSelectedTitle")
+        for option in SurfacePreferences.Option.allCases {
+            SurfacePreferences.write(option, false, to: defaults)
+            let read = SurfacePreferences(defaults: defaults)
+            #expect(!read[option], "\(option) must read back off")
+            // Turning one option off leaves the others alone.
+            #expect(SurfacePreferences.Option.allCases.filter { $0 != option }.allSatisfy { read[$0] }, "\(option) leaked")
+            SurfacePreferences.write(option, true, to: defaults)
+        }
+        #expect(SurfacePreferences(defaults: defaults) == SurfacePreferences())
+        for size in CardSizePreference.allCases {
+            SurfacePreferences.write(cardSize: size, to: defaults)
+            #expect(SurfacePreferences(defaults: defaults).cardSize == size)
+        }
+        var preferences = SurfacePreferences()
+        preferences[.snapAssist] = false
+        #expect(!preferences.snapAssist && preferences.showsSelectedTitle)
+    }
 }

@@ -6,9 +6,20 @@ struct OverviewGesturePane: View {
 
     var body: some View {
         PaneForm(pane: .overviewGesture) {
-            // TODO(workstream A): an "Overview" section with Show free slots (`overview.showsFreeSlots`), "Remove Free
-            // Slots" and "Reset Slot Order…" once DesktopController exposes removeFreeSlots() / resetSlots(). The
-            // Overview keys are in Shortcuts & Help.
+            Section {
+                SubtitledToggle("Show free slots",
+                                subtitle: "A free slot is where a closed window was. The next window you open takes it.",
+                                isOn: model.surfaceToggle(.showsFreeSlots))
+                HStack(spacing: 8) {
+                    Button("Remove Free Slots") { model.perform(.removeFreeSlots) }
+                    Button("Reset Slot Order…") { model.perform(.resetSlots) }
+                    Spacer(minLength: 0)
+                }
+            } header: {
+                Text("Overview")
+            } footer: {
+                Footnote(model.slotNote ?? "Reset clears slots and pins and places your windows in their current order. The Overview keys are in Shortcuts & Help.")
+            }
             Section {
                 Toggle(GestureGuidance.toggleTitle, isOn: model.toggle(\.gestureEnabled, SettingsAction.toggleGesture))
                 LabeledContent("Status") {

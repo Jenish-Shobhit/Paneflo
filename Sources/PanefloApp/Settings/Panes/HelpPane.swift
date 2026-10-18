@@ -12,9 +12,10 @@ struct HelpGroup: Hashable {
     let entries: [HelpEntry]
 }
 
-/// Every key and gesture, checked against `ShortcutSession` (held ⌘ routing, ⌘⌥ tiling while a surface has a
-/// selection, ⌃⌥ standalone chords), `SwitcherWindowCommand` (W/M/H/Q), the ⌃⌥ chords `AppDelegate.setShortcuts`
-/// installs, and the Overview panel. Tile-pair keys come from the tiled-pairs feature (⌘⌥Return, keypad Enter too).
+/// Every key and gesture, checked against `ShortcutSession` (held ⌘ routing, ⌘A open alone, ⌘⌥ tiling and ⌘⌥Return
+/// while a surface has a selection, ⌃⌥ standalone chords), `SwitcherWindowCommand` (W/M/H/Q), the ⌃⌥ chords
+/// `AppDelegate.setShortcuts` installs, and the surface panels (Return, ⌥Return, Escape, arrows, context menus). The
+/// switcher and Overview show no key hints on screen, so this list is the only place keys are explained.
 enum HelpContent {
     static let groups: [HelpGroup] = [
         HelpGroup(title: "Switcher", entries: [
@@ -23,6 +24,7 @@ enum HelpContent {
             HelpEntry(["←", "→", "↑", "↓"], "Choose a window; ↑ and ↓ move by row"),
             HelpEntry(["release ⌘"], "Open the selected window"),
             HelpEntry(["esc"], "Cancel"),
+            HelpEntry([], "No key hints are shown on screen; this list has every key. The line under the cards is the selected window’s full title (Settings › General)."),
             HelpEntry([], "Switch Windows… in the menu opens it with a search field: type to filter."),
         ]),
         HelpGroup(title: "Window Actions While Switching", entries: [
@@ -30,6 +32,7 @@ enum HelpContent {
             HelpEntry(["⌘", "M"], "Minimize it"),
             HelpEntry(["⌘", "H"], "Hide its app"),
             HelpEntry(["⌘", "Q"], "Quit its app (never Finder)"),
+            HelpEntry(["⌘", "A"], "Open it alone, without its tile partner"),
             HelpEntry([], "Other keys you press while switching never reach the app behind it."),
         ]),
         HelpGroup(title: "Tiling", entries: [
@@ -43,7 +46,11 @@ enum HelpContent {
         ]),
         HelpGroup(title: "Tile Pairs", entries: [
             HelpEntry(["⌘⌥←", "⌘⌥→"], "Tile one window left, choose another, tile it right: they pair"),
+            HelpEntry([], "Snap assist: after you tile a half, the selected card shows an outline of the other half until you place a window there."),
             HelpEntry(["⌘⌥↩"], "Open a pair together (keypad Enter too)"),
+            HelpEntry(["⌘", "A"], "While switching: open the selected window alone"),
+            HelpEntry(["⌥↩"], "In Overview: open the selected window alone"),
+            HelpEntry([], "Right-click a paired window in Overview for Open Pair, Open Alone and Unpair."),
             HelpEntry([], "Switching to a tiled window brings its pair forward while Raise tile pairs together is on."),
         ]),
         HelpGroup(title: "Overview", entries: [
@@ -53,7 +60,12 @@ enum HelpContent {
             HelpEntry([], "Type to search; slots stay where they are."),
             HelpEntry(["↩"], "Open the selected window (or click it)"),
             HelpEntry(["esc"], "Close"),
-            HelpEntry([], "Drag a window onto another slot to move it; right-click for Move Slot and Pin Slot."),
+            HelpEntry([], "Drag a window onto another slot to swap them, or onto a free slot to move it there."),
+            HelpEntry([], "Right-click for Tile, Move Slot, Pin Slot and Remove Free Slot."),
+        ]),
+        HelpGroup(title: "Cards", entries: [
+            HelpEntry([], "Cards carry no Live or Snapshot label: the selected window updates live and the others show recent snapshots."),
+            HelpEntry([], "A small symbol marks a minimized, hidden, other-Space or paused window. VoiceOver reads the full state."),
         ]),
         HelpGroup(title: "Desktop", entries: [
             HelpEntry([], "The Desktop card ends the ⌘Tab loop and the Desktop tile starts Overview: choose it to see the desktop."),

@@ -178,7 +178,8 @@ struct ShortcutSessionTests {
     @Test func heldSwitcherSwallowsEveryOtherKeyAndItsRelease() {
         var router = ShortcutSession(configuration: .init(switcherEnabled: true))
         _ = router.route(kind: .down, keyCode: 48, modifiers: .command)
-        for (code, modifiers) in [(UInt16(0), ShortcutModifiers.command), (36, .command), (49, .command), (102, .command),
+        // Command-A is open alone (its own test); Command–Shift–A is just swallowed.
+        for (code, modifiers) in [(UInt16(0), ShortcutModifiers([.command, .shift])), (36, .command), (49, .command), (102, .command),
                                   (104, .command), (50, .command), (45, .command), (12, [.command, .shift]),
                                   (13, [.command, .option]), (1, [.command, .control])] {
             let route = router.route(kind: .down, keyCode: code, modifiers: modifiers)
@@ -344,5 +345,43 @@ struct ShortcutSessionTests {
         _ = router.route(kind: .up, keyCode: 36, modifiers: [.command, .option])
         router.selectionContextActive = false
         #expect(!router.route(kind: .down, keyCode: 36, modifiers: [.command, .option]).suppress)
+    }
+
+    @Test func commandAOpensTheSelectionAloneAndEndsTheHeldSession() {
+        var router = ShortcutSession(configuration: .init(switcherEnabled: true))
+        // Outside the held switcher Command-A belongs to the frontmost app (Select All), Overview included.
+        #expect(!router.route(kind: .down, keyCode: 0, modifiers: .command).suppress)
+        router.surfaceVisible = true
+        router.selectionContextActive = true
+        #expect(!router.route(kind: .down, keyCode: 0, modifiers: .command).suppress)
+        router.surfaceVisible = false
+        router.selectionContextActive = false
+        _ = router.route(kind: .down, keyCode: 48, modifiers: .command)
+        let alone = router.route(kind: .down, keyCode: 0, modifiers: .command)
+        guard case .openAlone? = alone.action else { Issue.record("Missing open-alone intent"); return }
+        #expect(alone.suppress && alone.windowCommand == nil && !router.switching)
+        // A held A neither reopens nor leaks; its key-up and the later Command release are inert.
+        let held = router.route(kind: .down, keyCode: 0, modifiers: .command, isRepeat: true)
+        #expect(held.suppress && held.action == nil)
+        #expect(router.route(kind: .up, keyCode: 0, modifiers: .command).suppress)
+        #expect(router.route(kind: .modifiersChanged, keyCode: 55, modifiers: []).action == nil)
+    }
+
+    @Test func openAloneLeavesTheOtherHeldSwitcherKeysAsTheyWere() {
+        var router = ShortcutSession(configuration: .init(switcherEnabled: true))
+        _ = router.route(kind: .down, keyCode: 48, modifiers: .command)
+        // Shift, Option or Control with A is not open alone: swallowed, and the session keeps switching.
+        for modifiers: ShortcutModifiers in [[.command, .shift], [.command, .option], [.command, .control]] {
+            let route = router.route(kind: .down, keyCode: 0, modifiers: modifiers)
+            #expect(route.suppress && route.action == nil && route.windowCommand == nil && router.switching)
+            _ = router.route(kind: .up, keyCode: 0, modifiers: modifiers)
+        }
+        // Window commands are unchanged.
+        #expect(router.route(kind: .down, keyCode: 13, modifiers: .command).windowCommand == .close && router.switching)
+        _ = router.route(kind: .up, keyCode: 13, modifiers: .command)
+        // A pressed after Command was released is the missed release: commit, and A reaches the app.
+        let late = router.route(kind: .down, keyCode: 0, modifiers: [])
+        guard case .commit? = late.action else { Issue.record("A without Command must commit"); return }
+        #expect(!late.suppress && !router.switching)
     }
 }

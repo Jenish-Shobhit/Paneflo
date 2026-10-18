@@ -4,9 +4,9 @@ import PanefloCore
 import SwiftUI
 
 /// The Settings panes, in sidebar order. Only panes with something real to show are listed; controls whose feature
-/// has not shipped are omitted rather than shown as dead toggles (design spec §11.2).
-// TODO(workstream A): a "Switcher" pane (Card size `switcher.cardSize`, Show key hints `switcher.showsKeyHints`,
-// Include minimized `switcher.includesMinimized`, Include hidden apps `switcher.includesHiddenApps`) once those ship.
+/// has not shipped are omitted rather than shown as dead toggles (design spec §11.2). The switcher's appearance
+/// (card size, the selected-window title) lives in General; it has no key hints to show or hide, and minimized and
+/// hidden-app windows are always listed, so neither has a control.
 enum SettingsPane: String, CaseIterable, Identifiable, Sendable {
     case general, help, tiling, overviewGesture, previews, desktop, permissions, updates, about
 
@@ -29,7 +29,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Sendable {
     /// The one-sentence description under the pane title.
     var summary: String {
         switch self {
-        case .general: "Turn Paneflo on, and choose how it starts."
+        case .general: "Turn Paneflo on, choose how it starts, and how ⌘Tab looks."
         case .help: "Every key and gesture Paneflo understands."
         case .tiling: "Arrange windows from anywhere, and keep pairs together."
         case .overviewGesture: "Your windows in slots you arrange, one swipe away."
@@ -94,6 +94,14 @@ enum SettingsAction: Equatable {
     case toggleAutomaticUpdates(Bool)
     case checkForUpdates
     case openURL(URL)
+    /// Switcher card size (`SurfacePreferences.Key.cardSize`).
+    case setCardSize(CardSizePreference)
+    /// A switcher, tile-pair or Overview on/off preference, written to its `SurfacePreferences` key.
+    case setSurfaceOption(SurfacePreferences.Option, Bool)
+    /// Overview › Remove Free Slots.
+    case removeFreeSlots
+    /// Overview › Reset Slot Order… (asks first).
+    case resetSlots
 }
 
 /// Settings state. Exists from launch (cheap, no views); the window and its SwiftUI views are built on first open.
@@ -115,6 +123,11 @@ final class SettingsModel {
     var launchAtLoginNote: String?
     var launchAtLoginNeedsApproval = false
     var menuBarIconVisible = true
+
+    // Switcher appearance, tile pairs and Overview slots: the keys the surfaces read.
+    var surface = SurfacePreferences()
+    /// What the last Remove Free Slots or Reset Slot Order did; nil until one runs.
+    var slotNote: String?
 
     // Overview & Gesture
     var gestureEnabled = false
@@ -143,6 +156,24 @@ final class SettingsModel {
     var setupNeeded: Bool { setup.map { !$0.isComplete } ?? false }
 
     func row(_ permission: SetupPermission) -> SetupRow? { setup?.rows.first { $0.permission == permission } }
+
+    /// A toggle bound to one surface preference.
+    func surfaceToggle(_ option: SurfacePreferences.Option) -> Binding<Bool> {
+        Binding(get: { self.surface[option] }, set: { self.perform(.setSurfaceOption(option, $0)) })
+    }
+
+    var cardSizeBinding: Binding<CardSizePreference> {
+        Binding(get: { self.surface.cardSize }, set: { self.perform(.setCardSize($0)) })
+    }
+
+    /// The note after Remove Free Slots.
+    static func removedNote(_ count: Int) -> String {
+        switch count {
+        case 0: "There were no free slots to remove."
+        case 1: "Removed 1 free slot."
+        default: "Removed \(count) free slots."
+        }
+    }
 
     /// "1.1.0 (42)", from the bundle.
     var versionText: String {

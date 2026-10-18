@@ -144,11 +144,15 @@ struct FuzzShortcutSessionTests {
                     if isRepeat && !pre.switching, let action = route.action {
                         // Dedicated chords never re-fire; only Tab, arrows (navigation) and Esc-cancel-free paths repeat.
                         switch action {
-                        case .overview, .tile, .tileSelected, .restore, .openPair, .cancel: fail("repeat re-fired \(action); \(describe)")
+                        case .overview, .tile, .tileSelected, .restore, .openPair, .openAlone, .cancel: fail("repeat re-fired \(action); \(describe)")
                         default: break
                         }
                     }
                     if route.windowCommand != nil { #expect(pre.switching && eff == Self.cmd && !isRepeat, "window command outside held switcher; \(describe)") }
+                    if case .openAlone? = route.action {
+                        // Open alone is Command-A in the held switcher only, once per press, and it ends the session.
+                        #expect(pre.switching && key == 0 && eff == Self.cmd && !isRepeat && !session.switching, "open alone outside held switcher; \(describe)")
+                    }
                 }
             }
         }

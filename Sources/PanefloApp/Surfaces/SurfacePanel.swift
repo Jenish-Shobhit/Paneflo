@@ -225,6 +225,13 @@ class SurfacePanelController: NSObject, NSSearchFieldDelegate, NSWindowDelegate 
         activate(target)
     }
 
+    /// Option-Return (and "Open Alone"): the selected window without its tile partner. The Desktop entry just opens.
+    func activateSelectedAlone() {
+        guard let target = selectedTarget, isEligible(target) else { return }
+        guard case .window(let id) = target else { activate(target); return }
+        host?.surfaceOpenAlone(id)
+    }
+
     func activate(_ target: SwitchTarget) {
         switch target {
         case .window(let id): host?.surfaceActivate(id)
@@ -474,6 +481,8 @@ class SurfacePanelController: NSObject, NSSearchFieldDelegate, NSWindowDelegate 
         case "moveUp:": navigateRows(-1); return true
         case "moveDown:": navigateRows(1); return true
         case "insertNewline:": activateSelected(); return true
+        // Option-Return in the search field.
+        case "insertNewlineIgnoringFieldEditor:" where !textView.hasMarkedText(): activateSelectedAlone(); return true
         case "cancelOperation:" where textView.hasMarkedText(): return false
         case "cancelOperation:": host?.surfaceDismiss(self); return true
         default: return false
@@ -508,6 +517,10 @@ class SurfacePanelController: NSObject, NSSearchFieldDelegate, NSWindowDelegate 
                 }
                 return true
             }
+        }
+        if commandModifiers == .option, event.keyCode == 36 || event.keyCode == 76 {
+            if !event.isARepeat { activateSelectedAlone() }
+            return true
         }
         guard event.modifierFlags.intersection([.command, .control, .option]).isEmpty else { return false }
         switch event.keyCode {

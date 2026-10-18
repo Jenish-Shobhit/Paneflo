@@ -369,7 +369,21 @@ struct NativeUICheck {
                             "Shortcuts & Help lists the switcher and Overview keys")
             }
             if pane == .tiling {
-                try require(texts.contains("Raise tile pairs together"), "The Tiling pane offers Raise tile pairs together")
+                try require(texts.contains("Raise tile pairs together") && texts.contains("Show pairs side by side") && texts.contains("Snap assist"),
+                            "The Tiling pane offers Raise tile pairs together, Show pairs side by side and Snap assist")
+            }
+            if pane == .general {
+                try require(texts.contains { $0.contains("Card size") } && texts.contains("Show selected window title"),
+                            "General offers the switcher's Card size and Show selected window title, saw \(texts.prefix(24))")
+            }
+            if pane == .overviewGesture {
+                try require(texts.contains("Show free slots") && texts.contains("Remove Free Slots") && texts.contains("Reset Slot Order…"),
+                            "Overview & Gesture offers Show free slots, Remove Free Slots and Reset Slot Order…, saw \(texts.prefix(24))")
+            }
+            if pane == .help {
+                try require(texts.contains("Open it alone, without its tile partner") && texts.contains("In Overview: open the selected window alone")
+                            && !texts.contains { $0.localizedCaseInsensitiveContains("hint strip") },
+                            "Shortcuts & Help lists open alone for the switcher and Overview")
             }
             try await snapshot(settings.nativeCheckWindow, "native-settings-\(pane.rawValue).png")
         }
@@ -387,6 +401,7 @@ struct NativeUICheck {
         try require(toggled == [false] && !settings.model.shortcutsWanted, "Use Paneflo shortcuts must reach the app")
         settings.nativeCheckPerform(.toggleShortcuts(true))
         settings.onToggleShortcuts = previousToggle
+        try await checkSurfaceSettings(desktop)
 
         // Menu per state, with symbols and key equivalents.
         let suite = "org.paneflo.NativeUICheck.menu.\(UUID().uuidString)"
@@ -491,6 +506,105 @@ struct NativeUICheck {
         await settle()
         try require(!settings.nativeCheckIsPolling, "Settings must stop polling once closed")
         print("setup rows=\(rows.map(\.status)) polls=\(polls)")
+    }
+
+    /// Settings controls for the switcher, tile pairs and Overview write the keys the surfaces read, and the surfaces
+    /// follow: card size, the selected-window title, side by side, snap assist, free slots, Remove Free Slots and the
+    /// Reset Slot Order confirmation. The keys are removed again afterwards.
+    @MainActor static func checkSurfaceSettings(_ desktop: DesktopController) async throws {
+        let settings = desktop.settingsController
+        let defaults = UserDefaults.standard
+        let keys = SurfacePreferences.Option.allCases.map(\.key) + [SurfacePreferences.Key.cardSize]
+        defer { for key in keys { defaults.removeObject(forKey: key) } }
+        for key in keys { defaults.removeObject(forKey: key) }
+        await settle()
+        settings.show(pane: .general)
+        await settle()
+        try require(settings.model.surface == SurfacePreferences() && desktop.preferences == SurfacePreferences(),
+                    "Surface preferences start at their defaults")
+
+        // Show selected window title: on by default; off removes the line and shortens the shelf.
+        desktop.present(mode: .switcher, fromShortcut: true)
+        let withTitle = desktop.nativeCheckSwitcherWindow.frame.height
+        try require(desktop.nativeCheckFocusLineVisible && desktop.nativeCheckFocusLine?.isEmpty == false, "The title line shows by default")
+        desktop.dismiss(restorePreviousApplication: false)
+        settings.nativeCheckPerform(.setSurfaceOption(.showsSelectedTitle, false))
+        await settle()
+        try require(!settings.model.surface.showsSelectedTitle && defaults.object(forKey: SurfacePreferences.Key.showsSelectedTitle) as? Bool == false
+                    && !desktop.preferences.showsSelectedTitle, "Show selected window title off must reach the switcher's key")
+        desktop.present(mode: .switcher, fromShortcut: true)
+        let withoutTitle = desktop.nativeCheckSwitcherWindow.frame.height
+        try require(!desktop.nativeCheckFocusLineVisible && withoutTitle < withTitle,
+                    "Without the title line the shelf has no text under the cards and is shorter (\(withoutTitle) vs \(withTitle))")
+        desktop.switchStep(backwards: false)
+        try require(!desktop.nativeCheckFocusLineVisible, "A selection step must not bring the title line back")
+        writeSurfacePreviewPNG(desktop.nativeCheckSwitcherContent, name: "native-switcher-no-title.png", dark: false, radius: 28, material: 0.72)
+        desktop.dismiss(restorePreviousApplication: false)
+        settings.nativeCheckPerform(.setSurfaceOption(.showsSelectedTitle, true))
+        await settle()
+        desktop.present(mode: .switcher, fromShortcut: true)
+        try require(desktop.nativeCheckFocusLineVisible && desktop.nativeCheckSwitcherWindow.frame.height == withTitle,
+                    "Turning the title back on restores the line")
+        desktop.dismiss(restorePreviousApplication: false)
+
+        // Card size: a forced size applies at the next presentation; Automatic returns to the fitted tier.
+        settings.nativeCheckPerform(.setCardSize(.small))
+        await settle()
+        desktop.present(mode: .switcher, fromShortcut: true)
+        try require(desktop.nativeCheckSwitcherPlan.tier == .small && settings.model.surface.cardSize == .small,
+                    "Card size Small must size the switcher's cards, got \(desktop.nativeCheckSwitcherPlan.tier)")
+        desktop.dismiss(restorePreviousApplication: false)
+        settings.nativeCheckPerform(.setCardSize(.large))
+        await settle()
+        desktop.present(mode: .switcher, fromShortcut: true)
+        try require(desktop.nativeCheckSwitcherPlan.tier == .large, "Card size Large must size the switcher's cards")
+        desktop.dismiss(restorePreviousApplication: false)
+        settings.nativeCheckPerform(.setCardSize(.automatic))
+        await settle()
+        try require(defaults.string(forKey: SurfacePreferences.Key.cardSize) == "auto" && desktop.preferences.cardSize == .automatic,
+                    "Automatic must be written back")
+
+        // Tile pairs and Overview toggles reach the coordinator.
+        for option in [SurfacePreferences.Option.sideBySide, .snapAssist, .showsFreeSlots, .raiseTogether] {
+            settings.nativeCheckPerform(.setSurfaceOption(option, false))
+            await settle()
+            try require(!desktop.preferences[option] && !settings.model.surface[option], "\(option) off must reach the surfaces")
+            settings.nativeCheckPerform(.setSurfaceOption(option, true))
+            await settle()
+            try require(desktop.preferences[option], "\(option) on must reach the surfaces")
+        }
+        try require(desktop.pairs.raiseTogether, "Raise together follows the same key")
+
+        // Remove Free Slots reports what it did; Reset Slot Order asks first.
+        settings.nativeCheckPerform(.removeFreeSlots)
+        try require(settings.model.slotNote?.hasPrefix("Removed") == true || settings.model.slotNote == SettingsModel.removedNote(0),
+                    "Remove Free Slots must say what it removed, got \(settings.model.slotNote ?? "nil")")
+        @MainActor final class Answer { var confirm = false; var asked = 0; var resets = 0 }
+        let answer = Answer()
+        let sheetConfirm = settings.confirmResetSlots
+        let realReset = settings.onResetSlots
+        settings.confirmResetSlots = { reply in answer.asked += 1; reply(answer.confirm) }
+        settings.onResetSlots = { answer.resets += 1; realReset?() }
+        settings.nativeCheckPerform(.resetSlots)
+        try require(answer.asked == 1 && answer.resets == 0, "Cancelling the reset confirmation must keep the slots")
+        answer.confirm = true
+        settings.nativeCheckPerform(.resetSlots)
+        try require(answer.asked == 2 && answer.resets == 1 && settings.model.slotNote?.contains("reset") == true,
+                    "Confirming must reset the slots and say so")
+        settings.confirmResetSlots = sheetConfirm
+        settings.show(pane: .overviewGesture)
+        await settle()
+        settings.nativeCheckPerform(.resetSlots)
+        await settle()
+        guard let window = settings.nativeCheckWindow, let sheet = window.attachedSheet else {
+            throw Failure.check("Reset Slot Order must ask in a sheet on Settings")
+        }
+        window.endSheet(sheet, returnCode: .alertSecondButtonReturn)
+        await settle()
+        try require(answer.resets == 1, "Cancel in the reset sheet keeps the slots")
+        try await snapshot(settings.nativeCheckWindow, "native-settings-overview-slots.png")
+        settings.onResetSlots = realReset
+        print("PASS surface settings")
     }
 
     /// Two pre-created panels, diff-based cards, no hidden rebuilds, two-card selection redraws,
@@ -1092,7 +1206,38 @@ struct NativeUICheck {
                     "Selecting a member must ring it, dash its partner and wash the pair background")
         desktop.nativeCheckSelect(.window(windows[0].id))
         try require(!rightCard.nativeCheckPartnerRingVisible && desktop.nativeCheckActivePairBackdrops == 0, "Leaving the pair clears its highlight")
-        desktop.dismiss(restorePreviousApplication: false)
+        // Open alone (Command-A) and open pair (Command–Option–Return) from the held switcher. Activations are
+        // recorded, never focused.
+        var activations: [(WindowIdentity, WindowIdentity?)] = []
+        desktop.nativeCheckActivation = { activations.append(($0, $1)) }
+        defer { desktop.nativeCheckActivation = nil }
+        desktop.nativeCheckSelect(.window(windows[1].id))
+        desktop.openAloneSelected()
+        try require(activations.count == 1 && activations[0].0 == windows[1].id && activations[0].1 == nil && !desktop.isVisible,
+                    "Open alone must open the selection without its partner and close the switcher")
+        desktop.present(mode: .switcher, fromShortcut: true)
+        desktop.nativeCheckSelect(.window(windows[1].id))
+        desktop.openPairSelected()
+        try require(activations.count == 2 && activations[1].0 == windows[1].id && activations[1].1 == windows[2].id,
+                    "Open pair must bring the partner along")
+        desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
+        await settle()
+        // Option-Return in the Overview (search field focused, then with no field focus) opens the selection alone.
+        func optionReturn() -> NSEvent {
+            NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .option, timestamp: ProcessInfo.processInfo.systemUptime,
+                             windowNumber: desktop.nativeCheckWindow.windowNumber, context: nil, characters: "\r",
+                             charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)!
+        }
+        for fieldFocused in [true, false] {
+            if !desktop.isOverviewVisible { desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore(); await settle() }
+            if !fieldFocused { desktop.nativeCheckWindow.makeFirstResponder(nil) }
+            desktop.nativeCheckSelect(.window(windows[2].id))
+            let before = activations.count
+            desktop.nativeCheckWindow.sendEvent(optionReturn())
+            await settle()
+            try require(activations.count == before + 1 && activations.last?.0 == windows[2].id && activations.last?.1 == nil,
+                        "Option-Return in Overview must open the selection alone (field focused: \(fieldFocused)), got \(activations.count - before)")
+        }
         desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
         await settle()
         guard let card = desktop.nativeCheckCard(for: windows[2].id), card.pairPartnerName != nil else {
@@ -1346,6 +1491,7 @@ struct NativeUICheck {
             case .overview: actions.append("overview")
             case .tile: actions.append("tile")
             case .openPair: actions.append("openPair")
+            case .openAlone: actions.append("openAlone"); if desktop.isVisible { desktop.dismiss(restorePreviousApplication: false) }
             }
         }
         desktop.onSurfaceVisibilityChanged = { input.surfaceVisible = $0 }
@@ -1383,6 +1529,18 @@ struct NativeUICheck {
         try require(actions == ["tileSelected", "restore"], "Option–arrows must arrange and undo, got \(actions)")
         try require(desktop.isVisible && desktop.nativeCheckSelected == beforeArrange, "Arranging must keep the session and selection")
         input.nativeCheckRoute(keyCode: 125, down: false, flags: commandOption)
+
+        // Command-A opens the selection alone: owned, ends the session, and the Command release commits nothing more.
+        actions.removeAll()
+        try require(input.nativeCheckRoute(keyCode: 0, flags: command), "Command-A must be owned while switching")
+        input.nativeCheckRoute(keyCode: 0, down: false, flags: command)
+        await settle()
+        try require(actions == ["openAlone"] && !desktop.isVisible, "Command-A must open the selection alone, got \(actions)")
+        try require(!input.nativeCheckRoute(keyCode: 0, flags: command), "Command-A outside the switcher belongs to the app")
+        input.nativeCheckRoute(keyCode: 0, down: false, flags: command)
+        try require(input.nativeCheckRoute(keyCode: 48, flags: command), "Command–Tab must reopen the switcher")
+        input.nativeCheckRoute(keyCode: 48, down: false, flags: command)
+        await settle()
 
         // Missed Command release: the next key without Command commits and is not eaten.
         actions.removeAll()

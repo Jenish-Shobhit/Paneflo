@@ -5,6 +5,7 @@ import Foundation
 public struct SurfacePreferences: Equatable, Sendable {
     public enum Key {
         public static let cardSize = "switcher.cardSize"
+        public static let showsSelectedTitle = "switcher.showsSelectedTitle"
         public static let showsFreeSlots = "overview.showsFreeSlots"
         /// The key Settings › Tiling already writes (shipped with tile pairs).
         public static let raiseTogether = "tilePairs.raiseTogether"
@@ -12,7 +13,25 @@ public struct SurfacePreferences: Equatable, Sendable {
         public static let sideBySide = "pairs.sideBySide"
     }
 
+    /// The on/off preferences, each with its key. Every option defaults to on.
+    public enum Option: String, CaseIterable, Sendable {
+        /// The selected window's full title on one line under the switcher's cards.
+        case showsSelectedTitle
+        case showsFreeSlots, raiseTogether, snapAssist, sideBySide
+
+        public var key: String {
+            switch self {
+            case .showsSelectedTitle: Key.showsSelectedTitle
+            case .showsFreeSlots: Key.showsFreeSlots
+            case .raiseTogether: Key.raiseTogether
+            case .snapAssist: Key.snapAssist
+            case .sideBySide: Key.sideBySide
+            }
+        }
+    }
+
     public var cardSize: CardSizePreference = .automatic
+    public var showsSelectedTitle = true
     public var showsFreeSlots = true
     public var raiseTogether = true
     public var snapAssist = true
@@ -22,9 +41,38 @@ public struct SurfacePreferences: Equatable, Sendable {
 
     public init(defaults: UserDefaults) {
         cardSize = defaults.string(forKey: Key.cardSize).flatMap(CardSizePreference.init(rawValue:)) ?? .automatic
-        showsFreeSlots = defaults.object(forKey: Key.showsFreeSlots) as? Bool ?? true
-        raiseTogether = defaults.object(forKey: Key.raiseTogether) as? Bool ?? true
-        snapAssist = defaults.object(forKey: Key.snapAssist) as? Bool ?? true
-        sideBySide = defaults.object(forKey: Key.sideBySide) as? Bool ?? true
+        for option in Option.allCases {
+            self[option] = defaults.object(forKey: option.key) as? Bool ?? true
+        }
+    }
+
+    public subscript(option: Option) -> Bool {
+        get {
+            switch option {
+            case .showsSelectedTitle: showsSelectedTitle
+            case .showsFreeSlots: showsFreeSlots
+            case .raiseTogether: raiseTogether
+            case .snapAssist: snapAssist
+            case .sideBySide: sideBySide
+            }
+        }
+        set {
+            switch option {
+            case .showsSelectedTitle: showsSelectedTitle = newValue
+            case .showsFreeSlots: showsFreeSlots = newValue
+            case .raiseTogether: raiseTogether = newValue
+            case .snapAssist: snapAssist = newValue
+            case .sideBySide: sideBySide = newValue
+            }
+        }
+    }
+
+    /// Writes one option where `init(defaults:)` reads it.
+    public static func write(_ option: Option, _ value: Bool, to defaults: UserDefaults) {
+        defaults.set(value, forKey: option.key)
+    }
+
+    public static func write(cardSize: CardSizePreference, to defaults: UserDefaults) {
+        defaults.set(cardSize.rawValue, forKey: Key.cardSize)
     }
 }

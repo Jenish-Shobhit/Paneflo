@@ -570,6 +570,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             else { windows.tile(zone: zone) }
         case .restore: desktop?.restoreRequested(); windows.undo()
         case .openPair: desktop?.openPairSelected()
+        case .openAlone: desktop?.openAloneSelected()
         }
     }
 

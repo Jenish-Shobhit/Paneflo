@@ -101,6 +101,8 @@ final class DesktopController: NSObject, SurfaceHost {
         switcher.host = self
         overview.host = self
         overview.onFirstCards = { [weak self] in self?.switcher.prepareHidden() }
+        settings.onRemoveFreeSlots = { [weak self] in self?.removeFreeSlots() ?? 0 }
+        settings.onResetSlots = { [weak self] in self?.resetSlots() }
         // Settings writes the shared preference keys; re-read them when defaults change (never on input).
         observers.append(NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: UserDefaults.standard,
                                                                 queue: .main) { [weak self] _ in
@@ -289,6 +291,15 @@ final class DesktopController: NSObject, SurfaceHost {
         explicitPairOpen = true
         defer { explicitPairOpen = false }
         visibleSurface?.activateSelected()
+    }
+
+    /// Command-A in the held switcher: open the selection without its tile partner, whatever the raise-together
+    /// setting says. (The Overview's Option-Return and "Open Alone" menu item reach `surfaceOpenAlone`.)
+    func openAloneSelected() {
+        guard let surface = visibleSurface else { return }
+        explicitAlone = true
+        defer { explicitAlone = false }
+        surface.activateSelected()
     }
 
     /// Command–Option–Down while a surface is up: an undo of the selection abandons a snap-assist pair in progress.
@@ -543,6 +554,9 @@ final class DesktopController: NSObject, SurfaceHost {
         let partner = explicitAlone ? nil : pairs.partner(for: id, explicit: explicitPairOpen)
         // Focus never waits for a pending tile: placement finishes on its own lane.
         dismiss(restorePreviousApplication: false)
+        #if PANEFLO_NATIVE_CHECK
+        if let nativeCheckActivation { nativeCheckActivation(id, partner); return }
+        #endif
         let open: @MainActor () -> Void = { [weak self] in
             guard let self else { return }
             guard let partner else { self.service.focus(id); return }
@@ -625,6 +639,8 @@ final class DesktopController: NSObject, SurfaceHost {
     }
 
     #if PANEFLO_NATIVE_CHECK
+    /// Records an activation (the window and the partner it would raise) instead of focusing anything.
+    var nativeCheckActivation: ((WindowIdentity, WindowIdentity?) -> Void)?
     func nativeCheckSuppressExternalRestore() { overviewReturnApplication = nil }
     /// Replaces the global mouse monitor so own-window checks never install one.
     func nativeCheckReplaceOutsideClickMonitor(install: @escaping (@escaping @MainActor (NSPoint) -> Void) -> Any?,
@@ -644,6 +660,7 @@ final class DesktopController: NSObject, SurfaceHost {
     var nativeCheckOverviewContent: NSView { overview.content }
     var nativeCheckSwitcherPlan: SwitcherLayout { switcher.nativeCheckPlan }
     var nativeCheckFocusLine: String? { switcher.nativeCheckFocusLine }
+    var nativeCheckFocusLineVisible: Bool { switcher.nativeCheckFocusLineVisible }
     var nativeCheckActivePairBackdrops: Int { nativeCheckSurface.grid.nativeCheckActiveBackdrops }
     func nativeCheckSetSnapAssist(zone: LayoutZone?, anchor: WindowIdentity?) { visibleSurface?.setSnapAssist(zone: zone, anchor: anchor) }
     var nativeCheckPreferencesConstructed: Bool { settings.isConstructed }

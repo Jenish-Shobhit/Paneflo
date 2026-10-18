@@ -35,6 +35,18 @@ struct GeneralPane: View {
             } footer: {
                 if !model.status.isEmpty { Footnote(model.status).accessibilityLabel("Status: \(model.status)") }
             }
+            Section {
+                Picker("Card size", selection: model.cardSizeBinding) {
+                    ForEach(CardSizePreference.allCases, id: \.self) { size in Text(size.title).tag(size) }
+                }
+                SubtitledToggle("Show selected window title",
+                                subtitle: "The full title of the selected window, on one line under the cards.",
+                                isOn: model.surfaceToggle(.showsSelectedTitle))
+            } header: {
+                Text("Switcher")
+            } footer: {
+                Footnote("Automatic picks the largest cards that fit your windows on screen. Every key is in Shortcuts & Help.")
+            }
             Section("Menu Bar") {
                 SubtitledToggle("Show menu bar icon",
                                 subtitle: "When it’s hidden, open Paneflo from Finder or Spotlight to come back here.",
@@ -59,27 +71,39 @@ struct GeneralPane: View {
 
 struct TilingPane: View {
     let model: SettingsModel
-    /// Read by the tiled-pairs feature (branch feat/tile-pairs): default on.
-    static let raiseTogetherKey = "tilePairs.raiseTogether"
-    @AppStorage(TilingPane.raiseTogetherKey) private var raiseTogether = true
 
     var body: some View {
         PaneForm(pane: .tiling) {
             Section {
                 SubtitledToggle("Raise tile pairs together",
                                 subtitle: "When you switch to a tiled window, bring its pair forward too.",
-                                isOn: $raiseTogether)
+                                isOn: model.surfaceToggle(.raiseTogether))
+                SubtitledToggle("Show pairs side by side",
+                                subtitle: "In ⌘Tab, the two halves of a pair sit next to each other, linked.",
+                                isOn: model.surfaceToggle(.sideBySide))
+                SubtitledToggle("Snap assist",
+                                subtitle: "After you tile a window to a half from the switcher or Overview, the selected card shows an outline of the other half. Tile another window there to pair them.",
+                                isOn: model.surfaceToggle(.snapAssist))
             } header: {
                 Text("Tile Pairs")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Footnote("Tile one window left with ⌘⌥←, then pick another and press ⌘⌥→ to pair them. ⌘⌥Return in the switcher or Overview opens a pair together.")
+                    Footnote("Tile one window left with ⌘⌥←, then pick another and press ⌘⌥→ to pair them. ⌘⌥Return in the switcher or Overview opens a pair together; ⌘A while switching, or ⌥Return in Overview, opens just the selected window.")
                     Button("All tiling keys are in Shortcuts & Help") { model.perform(.selectPane(.help)) }
                         .buttonStyle(.link).font(.system(size: 11))
                 }
             }
-            // TODO(workstream A): Snap assist (`pairs.snapAssist`), Also after ⌃⌥ shortcuts (`pairs.snapAssistGlobal`)
-            // and Show pairs side by side (`pairs.sideBySide`) once those ship.
+        }
+    }
+}
+
+extension CardSizePreference {
+    var title: String {
+        switch self {
+        case .automatic: "Automatic"
+        case .small: "Small"
+        case .medium: "Medium"
+        case .large: "Large"
         }
     }
 }

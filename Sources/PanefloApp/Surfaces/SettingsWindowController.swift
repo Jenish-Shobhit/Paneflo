@@ -30,6 +30,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     var onToggleLaunchAtLogin: ((Bool) -> Void)?
     var onOpenLoginItems: (() -> Void)?
     var onOpenSetup: (() -> Void)?
+    /// Removes the Overview's free slots and returns how many there were.
+    var onRemoveFreeSlots: (() -> Int)?
+    /// Clears Overview slots and pins and places the current windows in order (after the confirmation).
+    var onResetSlots: (() -> Void)?
     var onGrant: ((SetupPermission) -> Void)?
     var onRestart: (() -> Void)?
     var onReset: (() -> Void)?
@@ -42,11 +46,19 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     lazy var confirmHideIcon: (@escaping @MainActor (Bool) -> Void) -> Void = { [weak self] answer in
         self?.presentHideSheet(answer)
     }
+    /// Asks before resetting the Overview's slots. Default: a sheet on the Settings window. Replaceable in own-window
+    /// checks.
+    lazy var confirmResetSlots: (@escaping @MainActor (Bool) -> Void) -> Void = { [weak self] answer in
+        self?.presentConfirmation(message: "Reset the Overview?",
+                                  detail: "Slots and pins are cleared and your windows are placed in their current order.",
+                                  confirm: "Reset", answer)
+    }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         super.init()
         if let raw = defaults.string(forKey: Self.lastPaneKey), let pane = SettingsPane(rawValue: raw) { model.pane = pane }
+        model.surface = SurfacePreferences(defaults: defaults)
         model.perform = { [weak self] in self?.handle($0) }
     }
 
@@ -116,6 +128,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     private func refreshOnOpen() {
         refreshGestureGuidance()
+        let surface = SurfacePreferences(defaults: defaults)
+        if model.surface != surface { model.surface = surface }
+        model.slotNote = nil
         model.lastUpdateCheck = lastUpdateCheck()
     }
 
@@ -187,15 +202,37 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         case .toggleAutomaticUpdates(let on): model.automaticUpdates = on; onToggleAutomaticUpdates?(on)
         case .checkForUpdates: onCheckForUpdates?()
         case .openURL(let url): NSWorkspace.shared.open(url)
+        case .setCardSize(let size):
+            model.surface.cardSize = size
+            SurfacePreferences.write(cardSize: size, to: defaults)
+        case .setSurfaceOption(let option, let on):
+            model.surface[option] = on
+            SurfacePreferences.write(option, on, to: defaults)
+        case .removeFreeSlots:
+            model.slotNote = SettingsModel.removedNote(onRemoveFreeSlots?() ?? 0)
+        case .resetSlots:
+            confirmResetSlots { [weak self] confirmed in
+                guard let self, confirmed else { return }
+                self.onResetSlots?()
+                self.model.slotNote = "Slots reset to your windows’ current order."
+            }
         }
     }
 
     /// "Hide the menu bar icon?" as a sheet on Settings (app-modal only if Settings is somehow not open).
     private func presentHideSheet(_ answer: @escaping @MainActor (Bool) -> Void) {
+        presentConfirmation(message: "Hide the menu bar icon?",
+                            detail: "Paneflo keeps running and ⌘Tab keeps working. To get the icon back, open Paneflo again from Finder or Spotlight.",
+                            confirm: "Hide Icon", answer)
+    }
+
+    /// A two-button confirmation as a sheet on Settings (app-modal only if Settings is somehow not open).
+    private func presentConfirmation(message: String, detail: String, confirm: String,
+                                     _ answer: @escaping @MainActor (Bool) -> Void) {
         let alert = NSAlert()
-        alert.messageText = "Hide the menu bar icon?"
-        alert.informativeText = "Paneflo keeps running and ⌘Tab keeps working. To get the icon back, open Paneflo again from Finder or Spotlight."
-        alert.addButton(withTitle: "Hide Icon")
+        alert.messageText = message
+        alert.informativeText = detail
+        alert.addButton(withTitle: confirm)
         alert.addButton(withTitle: "Cancel")
         guard let window, window.isVisible else {
             NSApp.activate(ignoringOtherApps: true)

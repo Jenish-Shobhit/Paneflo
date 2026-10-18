@@ -24,6 +24,9 @@ public enum ShortcutAction: Sendable {
     case overview, tile(LayoutZone), tileSelected(LayoutZone), restore
     /// Command–Option–Return: open the selection together with its tile partner (ends a held switch session).
     case openPair
+    /// Command-A in the held switcher: open the selection without its tile partner (ends the session). The Overview
+    /// takes Option-Return for this in its own panel, since Command-A there selects the search text.
+    case openAlone
 }
 
 /// Command chords that act on the held switcher's selected window instead of the frontmost app.
@@ -88,7 +91,8 @@ public struct ShortcutRoute: Sendable {
 /// selection with its tile partner there.
 ///
 /// While the held switcher is up, every key-down belongs to Paneflo and never reaches the frontmost
-/// app: Command-W/M/H/Q become window commands for the selection, and other keys are swallowed.
+/// app: Command-W/M/H/Q become window commands for the selection, Command-A opens the selection alone
+/// (without its tile partner), and other keys are swallowed.
 public struct ShortcutSession: Sendable {
     public var configuration: ShortcutConfiguration
     public private(set) var switching = false
@@ -179,6 +183,12 @@ public struct ShortcutSession: Sendable {
             // Opening the pair commits the held switcher; the later Command release commits nothing.
             switching = false
             action = .openPair
+        } else if switching && keyCode == 0 && modifiers == .command {
+            // Command-A (ANSI A): open the selection alone, once per physical press; like Command–Option–Return it ends
+            // the session, so the later Command release commits nothing. A held A stays swallowed.
+            if isRepeat { return ShortcutRoute(suppress: true) }
+            switching = false
+            action = .openAlone
         }
         if action == nil && !switching {
             if configuration.overview == chord { action = .overview }

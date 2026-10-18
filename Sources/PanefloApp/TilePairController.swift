@@ -6,7 +6,7 @@ import PanefloCore
 /// window-server call itself.
 @MainActor
 final class TilePairController {
-    /// Written by Settings › Tiling (`TilingPane.raiseTogetherKey`).
+    /// Written by Settings › Tiling (Raise tile pairs together).
     static let raiseTogetherKey = SurfacePreferences.Key.raiseTogether
 
     private(set) var groups = TileGroupRegistry()

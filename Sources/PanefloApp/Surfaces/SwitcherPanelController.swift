@@ -3,8 +3,8 @@ import PanefloCore
 
 /// The ⌘Tab picker (held, non-activating) and the manual Switch/Arrange lists.
 ///
-/// A compact Liquid Glass shelf that hugs the cards: no heading and no key hints, just the cards and one line with
-/// the selected window's full title. Tier, columns, rows and panel size are computed once per presentation; a
+/// A compact Liquid Glass shelf that hugs the cards: no heading and no key hints, just the cards and, unless Settings
+/// turns it off (Show selected window title), one line with the selected window's full title. Tier, columns, rows and panel size are computed once per presentation; a
 /// selection step changes layer properties on at most four cards plus one text layer. Nothing runs while hidden.
 @MainActor
 final class SwitcherPanelController: SurfacePanelController {
@@ -72,6 +72,7 @@ final class SwitcherPanelController: SurfacePanelController {
                                   pairs: mode == .switcher ? host?.sessionPairs ?? [] : [])
         if mode == .switcher { setSelectedTarget(session.selectedTarget) }
         else { setSelectedID(service.focusedID ?? snapshot.orderedRecords.first?.id) }
+        applyTitlePreference()
         rebuild(snapshot: snapshot, screen: screen)
         fit(on: screen)
         refreshPairs()
@@ -94,6 +95,7 @@ final class SwitcherPanelController: SurfacePanelController {
         session = SwitcherSession(snapshot: snapshot, desktop: host?.desktopLoopMode ?? .hidden, pairs: host?.sessionPairs ?? [])
         setSelectedTarget(session.selectedTarget)
         let screen = preferredScreen ?? NSScreen.pointerScreen
+        applyTitlePreference()
         rebuild(snapshot: snapshot, screen: screen)
         fit(on: screen)
         refreshPairs()
@@ -157,10 +159,22 @@ final class SwitcherPanelController: SurfacePanelController {
         return NSSize(width: frame.width * PanefloStyle.Switcher.widthShare, height: frame.height * PanefloStyle.Switcher.heightShare)
     }
 
-    /// Panel height that is not grid.
+    /// Whether this presentation shows the title line; read once per presentation, never on a selection step.
+    private var showsTitleLine = true
+
+    private func applyTitlePreference() {
+        let shows = host?.preferences.showsSelectedTitle ?? true
+        guard shows != showsTitleLine else { return }
+        showsTitleLine = shows
+        focusLine.isHidden = !shows
+        if !shows { focusLine.show(title: "", app: "") }
+    }
+
+    /// Panel height that is not grid. Without the title line the cards sit `panelPadding` from the bottom edge too.
     private var chromeHeight: CGFloat {
         PanefloStyle.Switcher.panelPadding + (search.isHidden ? 0 : PanefloStyle.Switcher.searchHeight + 10)
-            + 10 + FocusLineView.height + (failureFeedback.isHidden ? 0 : 4 + 16) + 12
+            + (showsTitleLine ? 10 + FocusLineView.height + 12 : PanefloStyle.Switcher.panelPadding)
+            + (failureFeedback.isHidden ? 0 : 4 + 16 + (showsTitleLine ? 0 : 4))
     }
 
     private func rebuild(snapshot: WindowSnapshot, screen: NSScreen? = nil) {
@@ -228,9 +242,12 @@ final class SwitcherPanelController: SurfacePanelController {
         let available = max(40, bounds.height - y - (chromeHeight - padding - (search.isHidden ? 0 : PanefloStyle.Switcher.searchHeight + 10)))
         let viewport = min(viewportHeight, available)
         setFrame(scroll, NSRect(x: padding, y: y, width: width, height: viewport))
-        y += viewport + 10
-        setFrame(focusLine, NSRect(x: padding + 6, y: y, width: max(0, width - 12), height: FocusLineView.height))
-        y += FocusLineView.height
+        y += viewport
+        if showsTitleLine {
+            y += 10
+            setFrame(focusLine, NSRect(x: padding + 6, y: y, width: max(0, width - 12), height: FocusLineView.height))
+            y += FocusLineView.height
+        }
         if !failureFeedback.isHidden {
             setFrame(failureFeedback, NSRect(x: padding, y: y + 4, width: width, height: 16))
         }
@@ -246,6 +263,7 @@ final class SwitcherPanelController: SurfacePanelController {
     override func failureFeedbackChanged() { if isShown { fit() } }
 
     override func selectionDidChange() {
+        guard showsTitleLine else { return }
         guard let target = selectedTarget, let card = card(for: target) else { focusLine.show(title: "", app: ""); return }
         if card.isDesktopEntry {
             focusLine.show(title: SwitcherSession.desktopTitle, app: card.desktopIsCurrent ? "Bring your windows back" : "Show the desktop")
@@ -333,5 +351,6 @@ final class SwitcherPanelController: SurfacePanelController {
     var nativeCheckTargets: [SwitchTarget] { targets }
     var nativeCheckPlan: SwitcherLayout { plan }
     var nativeCheckFocusLine: String? { focusLine.nativeCheckText }
+    var nativeCheckFocusLineVisible: Bool { !focusLine.isHidden && focusLine.superview != nil && focusLine.frame.height > 0 }
     #endif
 }
