@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>Paneflo: every window, in its place</title>
-<meta name="description" content="Paneflo is a free, open-source menu bar app for macOS: a window switcher with previews, keyboard tiling with tiled pairs, and an organized Overview you open with a three-finger swipe.">
+<meta name="description" content="Paneflo is a free, open-source menu bar app for macOS: a window switcher with previews, keyboard tiling with tiled pairs, and an organized Overview you open with a shortcut or an optional three-finger swipe.">
 <link rel="canonical" href="https://jenish-shobhit.github.io/Paneflo/">
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="apple-touch-icon" href="icon.png">
@@ -325,8 +325,8 @@
     <div class="feature">
       <div class="copy">
         <h3>A switcher for windows, not just apps</h3>
-        <p>Hold <kbd>⌘</kbd> and press <kbd>Tab</kbd> (<kbd>Shift</kbd> goes back) to pick a single window. Arrow keys choose too, <kbd>Esc</kbd> cancels, and releasing ⌘ brings the window forward.</p>
-        <p>With previews on, the selected window shows a live picture and the others show recent snapshots. A small symbol marks a minimized, hidden or paused window, and VoiceOver says whether a picture is live or a snapshot.</p>
+        <p>Hold <kbd>⌘</kbd> and press <kbd>Tab</kbd> (<kbd>Shift</kbd> goes back) to pick a single window. Arrow keys choose too, <kbd>Esc</kbd> cancels, and releasing ⌘ brings the window forward. The switcher is a compact Liquid Glass shelf over your desktop: cards show the window itself with its app icon, and the selected window's full title sits underneath (you can turn that off). There are no labels or key hints on the cards.</p>
+        <p>With previews on, the selected window shows a live picture and the others show recent snapshots. A small symbol marks a minimized, hidden, other-Space or paused window, and VoiceOver says whether a picture is live or a snapshot.</p>
         <span class="tag">Previews are optional and need Screen Recording</span>
       </div>
       <div class="mock" role="img" aria-label="Illustration of the switcher: a shelf of window cards with one selected, and a line of text beneath it">
@@ -338,8 +338,9 @@
     <div class="feature">
       <div class="copy">
         <h3>Tiling, and tiled pairs</h3>
-        <p>Hold <kbd>⌘</kbd><kbd>⌥</kbd> in the picker, or <kbd>⌃</kbd><kbd>⌥</kbd> anywhere, and press an arrow: left or right for a half, up to fill the display, down to undo. <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Z</kbd> undoes the last move.</p>
-        <p>Two windows in opposite halves of one display become a pair, shown side by side with a link in ⌘Tab. Opening one brings its partner forward, or open it alone. Snap assist outlines the other half so you can choose the partner.</p>
+        <p>Hold <kbd>⌘</kbd><kbd>⌥</kbd> in the picker, or <kbd>⌃</kbd><kbd>⌥</kbd> anywhere, and press an arrow: left or right for a half, up to fill the display, down to undo. <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Z</kbd> undoes the last arrangement. The ⌃⌥ keys tile whichever window is in front, in any app, and the menu bar's <strong>Tile Front Window</strong> submenu offers the same: Left, Right, Top and Bottom Half, Fill and Undo.</p>
+        <p>Two windows in opposite halves of one display become a pair, shown side by side with a link in ⌘Tab. Opening one brings its partner forward; <kbd>⌘</kbd><kbd>⌥</kbd><kbd>Return</kbd> opens the pair explicitly, and <kbd>⌘</kbd><kbd>A</kbd> (or <kbd>⌥</kbd><kbd>Return</kbd> in the Overview) opens just the one window.</p>
+        <p>Snap assist: press <kbd>⌘</kbd><kbd>⌥</kbd><kbd>←</kbd> in the picker, and the selected card outlines the right half; choose another window and press <kbd>⌘</kbd><kbd>⌥</kbd><kbd>→</kbd> to place it beside the first and pair them. Tile a third window into a paired half and it replaces that member: the new window pairs with the other half automatically, and the replaced one returns to where it was when that is known.</p>
       </div>
       <div class="mock" role="img" aria-label="Illustration of tiling: one window in the left half and a dashed outline marking the right half where a partner will go">
         <div class="tile2"><div class="hotp"></div><div class="ghost"></div></div>
@@ -350,7 +351,7 @@
       <div class="copy">
         <h3>An organized Overview</h3>
         <p>Press <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd>, or swipe three fingers up on the trackpad, for a panel of every window in slots you control. Arrows move spatially, search keeps slots in place, and Return focuses.</p>
-        <p>A slot freed by a closed window waits for the next new one. Drag a window onto a free slot to place it, or onto another window to swap.</p>
+        <p>While the Overview is open, a slot freed by a closed window waits for the next new one, and you can drag a window onto a free slot to place it, or onto another window to swap. The next time it opens, free slots are gone and windows keep their order; only slots you pinned wait for their app. <strong>Keep empty places for closed windows</strong> (Off, Until Paneflo quits, Always) in Settings keeps them longer.</p>
         <span class="tag">Gesture is optional and experimental</span>
       </div>
       <div class="mock" role="img" aria-label="Illustration of the Overview: a grid of window slots, one dashed free slot, and a window being dragged into place">
@@ -374,7 +375,7 @@
     <div class="feature">
       <div class="copy">
         <h3>Settings, Shortcuts &amp; Help</h3>
-        <p>Settings turn each module and option on or off: the selected window's title, card size, tile pairs, snap assist, free slots, the gesture, and updates. <strong>Shortcuts &amp; Help</strong> lists every key, and the menu bar menu has Switch Windows…, Arrange Windows…, Overview and a status line that says whether ⌘Tab is ready.</p>
+        <p>Settings turn each module and option on or off: the selected window's title, card size, tile pairs, snap assist, empty places, the gesture, and updates. <strong>Shortcuts &amp; Help</strong> lists every key, and the menu bar menu has Switch Windows…, Tile Front Window, Overview and a status line that says whether ⌘Tab is ready. <strong>Hide from Menu Bar</strong> removes the icon while Paneflo and its shortcuts keep running.</p>
       </div>
       <div class="mock" role="img" aria-label="Illustration of the Settings window: a sidebar and a few toggles">
         <div class="settings-mock">
@@ -474,7 +475,7 @@
       </details>
       <details>
         <summary>I hid the menu bar icon. How do I get Paneflo's menu back?</summary>
-        <p>Open Paneflo again from Spotlight or the Applications folder. That brings back the icon and its menu.</p>
+        <p>Open Paneflo again from Spotlight, Launchpad or the Applications folder. That brings back the icon and opens Settings with a note that it was restored. Hiding asks first, and the icon can't be hidden while setup is needed or shortcuts have stopped.</p>
       </details>
       <details>
         <summary>Does it replace Mission Control or Spaces?</summary>

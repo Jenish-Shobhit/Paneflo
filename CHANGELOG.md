@@ -4,45 +4,41 @@ All notable changes to Paneflo are listed here. Versions follow [Semantic Versio
 
 ## 1.1.0 — Unreleased
 
-### Switcher and Overview redesign
+### Switcher
 
-- ⌘Tab is a compact Liquid Glass shelf over your desktop: no heading and no key hints, just window cards and the selected window's full title. Cards have a recessed preview at the window's own shape, the app icon, the title and the app name; the selection is an accent ring, with no movement.
-- Cards come in four sizes, chosen once each time the picker opens to fit your windows on one to three balanced rows (the last row is centred); with many windows the grid scrolls with soft edges.
-- Previews look like the window: the Live and Snapshot labels are gone. A small symbol marks minimized, hidden, other-Space and paused previews; VoiceOver says whether a picture is live or a snapshot and how old it is, and the Overview shows it in a tooltip.
-- Tile pairs sit side by side in ⌘Tab with a link at the seam; selecting one rings it and outlines its partner. Snap assist shows a faint outline of the half you are about to fill instead of text.
-- The Overview is a full-display translucent overlay with a search field, a window count, the Desktop tile and your slots; click the background to close it. Free and kept slots have a new recessed look with hover and drop states. Drag a window onto a free slot to move it there (its old slot becomes free) or onto another window to swap them; right-click a free slot to remove it.
-- Free slots no longer pile up. Slots hold their places while the Overview is open; the next time it opens, free slots are gone and windows keep their relative order. Pinned slots stay as faint outlined wells with the app's ghosted icon and "Waiting for <App>". Settings › Overview & Gesture › Keep empty places for closed windows: Off (default), Until Paneflo quits, or Always (the 1.0 behaviour). On first launch, free slots saved by 1.0 are dropped; pinned slots are kept.
-- The free-slot well was a 50 % grey block: its fill replaced the system fill's own opacity instead of halving it. It is now the faint recessed outline the design calls for, in light, dark and Increase Contrast.
-- A warm ⌘Tab no longer recomputes button title metrics for every card it moves: cards report zero alignment insets, which cuts the warm present call at 60 windows by about 30 % in the surface bench.
-- Light and dark, Increase Contrast (thicker ring, card borders), Reduce Transparency (opaque backdrop) and Reduce Motion are respected. Selecting a card does no redrawing and no layout.
+- ⌘Tab is now a compact Liquid Glass shelf over your desktop: window cards, and the selected window's full title underneath (Settings › General › Show selected window title turns it off). There are no headings, key hints or Live/Snapshot labels on the cards.
+- Cards have a recessed preview in the window's own shape, the app icon, the title and the app name; the selection is an accent ring with no movement. A small symbol marks minimized, hidden, other-Space and paused previews, and VoiceOver says whether a picture is live or a snapshot and how old it is.
+- Card size is chosen each time the picker opens to fit your windows on one to three balanced rows (Settings › General › Card size picks a fixed size). With many windows the grid scrolls with soft edges.
+- Tile pairs sit side by side with a link at the seam; selecting one rings it and outlines its partner.
+- Light and dark, Increase Contrast, Reduce Transparency and Reduce Motion are respected. A warm ⌘Tab opens faster with many windows.
 
-### Tile pairs
+### Overview
 
-- Two windows filling complementary halves of one display (left and right, or top and bottom) form a pair, whether Paneflo arranged them or they were already there. A pair ends when a window closes, minimizes, moves to another display or leaves its half, or when you choose Unpair. Pairs last until Paneflo quits.
-- Opening a paired window from ⌘Tab or the Overview brings its partner forward first, then focuses the window you chose, so both are visible. Turn this off with Settings › Tiling › Raise tile pairs together.
-- ⌘⌥Return (or keypad Enter) in the picker or a keyboard-focused Overview opens the selection with its partner regardless of that setting. The Overview's right-click menu offers Open Pair, Open Alone and Unpair for paired windows. ⌘A in the held picker, or ⌥Return in the Overview, opens the selection alone.
-- Snap assist in the picker: after ⌘⌥← tiles the selection to the left half, the selected card shows a faint outline of the right half; ⌘⌥→ on another window places it on the same display and pairs the two (and the other way round). Escape or releasing ⌘ ends it.
-- Bringing a partner forward activates its app for a moment before the chosen window's app takes focus: an Accessibility raise alone leaves a background window behind the frontmost app.
-- Replacing a pair member: tile a third window into a paired half (⌘⌥ in the picker or Overview, ⌃⌥ anywhere, or the menu) and it pairs with the other half at once. The replaced window goes back to its frame from before Paneflo tiled it when that is known and still on screen, after the new window lands so the half never flashes empty; otherwise it keeps its frame behind the new one. A window from another pair leaves it (its old partner stays put).
-- Tiling a paired window into its partner's half swaps the two (both move at once). Tiling it onto its own half again changes nothing unless a display lies that way; Fill ends the pair and leaves the partner alone.
-- One undo (⌘⌥↓ or ⌃⌥Z) restores every window an arrangement moved and re-forms the pairs it ended. ⌘⌥↓ in the picker now undoes the selected window rather than the focused one.
-- A window that limits its own size keeps it against its edge and its partner takes exactly the rest of the display, so the pair stays complete. Pairs whose two windows were resized together along their shared edge stay paired; dragging or resizing one window alone still ends the pair, and Paneflo never moves it back.
-- Tiling restores a minimized window and unhides a hidden app first, and refuses a full-screen window with a message.
-- Fixed: ⌃⌥ arrows, ⌃⌥Return and ⌃⌥Z could silently do nothing when Paneflo's remembered focus was out of date (a missed focus notification, a click, a window opened since the last scan); another tiling app hid it. The target is now read fresh from the frontmost app at keypress time (focused window, else main window, else first standard window; a sheet or dialog arranges its window), a window no scan has seen yet is picked up on the spot, and Paneflo's own windows and Finder's desktop are skipped. On fixture windows with focus notifications dropped, 24 of 24 tiles and undos (plus one before any scan) landed correctly.
-- An arrangement that can't happen now says why in a short note near the bottom of the display (or inline in the picker and Overview): a full-screen window, Accessibility off, a window that can only be moved, nothing selected, nothing to undo. `--diagnostics` logs each step (chord, how the target was found, the Accessibility results, the final frame).
-- Measured on fixture windows (`tile-bench --replace`, 20 runs): the incoming window's frame is final after a median of 12.6 ms, the replaced window is home after 24.9 ms, a swap is final after 9.6 ms, with 0 wrong final frames or pairs over 80 checked steps (and 0 over 40 with a size-limited window).
+- The Overview is a full-display translucent overlay with a search field, a window count, the Desktop tile and your slots. Click the background to close it.
+- Free and kept slots have a new recessed look with hover and drop states. Drag a window onto a free slot to move it there, or onto another window to swap; right-click a free slot to remove it.
+- Free slots no longer pile up. They hold their places while the Overview is open; the next time it opens they are gone and windows keep their relative order. Pinned slots stay as faint outlined wells waiting for their app. Settings › Overview & Gesture › Keep empty places for closed windows: Off (default), Until Paneflo quits, or Always (the 1.0 behaviour). Free slots saved by 1.0 are dropped on first launch; pinned slots are kept.
+
+### Tiling and tile pairs
+
+- Two windows filling complementary halves of one display (left and right, or top and bottom) form a pair, whether Paneflo arranged them or not. A pair ends when a window closes, minimizes, moves to another display or leaves its half, or when you choose Unpair. Pairs last until Paneflo quits.
+- Opening a paired window brings its partner forward too (Settings › Tiling › Raise tile pairs together). ⌘⌥Return in the picker or Overview always opens the pair; ⌘A in the picker or ⌥Return in the Overview opens the selection alone. The Overview's right-click menu has Open Pair, Open Alone and Unpair.
+- Snap assist: after ⌘⌥← in the picker, the selected card outlines the right half; ⌘⌥→ on another window places it beside the first and pairs them (and the other way round). Escape or releasing ⌘ ends it.
+- Replacing a pair member is one step: tile a third window into a paired half and it pairs with the other half at once, while the replaced window returns to its previous frame when that is known. Tiling a paired window into its partner's half swaps the two. Fill ends the pair.
+- One undo (⌘⌥↓ or ⌃⌥Z) restores every window an arrangement moved and re-forms the pairs it ended. In the picker, ⌘⌥↓ undoes the selected window.
+- A window that limits its own size keeps it against its edge and its partner takes the rest of the display. Resizing a pair along its shared edge keeps it paired; moving or resizing one window alone ends it.
+- Tiling restores a minimized window and unhides a hidden app first, and says so when it can't arrange a window (full-screen, Accessibility off, nothing selected, nothing to undo) in a short note near the bottom of the display.
+- Fixed: ⌃⌥ arrows, ⌃⌥Return and ⌃⌥Z could silently do nothing when Paneflo's idea of the focused window was out of date. The target is now read from the frontmost app when you press the keys, so tiling the front window works anywhere.
 
 ### Settings, setup and menu bar
 
-- Settings is a new window with a sidebar: General, Shortcuts & Help, Tiling, Overview & Gesture, Previews, Desktop, Permissions, Updates and About. Each pane says what it is for, and toggles explain any effect that isn't obvious.
-- Settings › General has the switcher's Card size (Automatic, Small, Medium, Large) and Show selected window title (on by default; off leaves only the cards on the shelf). Settings › Tiling adds Show pairs side by side and Snap assist. Settings › Overview & Gesture adds Keep empty places for closed windows, Remove Free Slots and Reset Slot Order… (it asks first).
-- Shortcuts & Help lists every key and gesture as keycaps with a one-line description, grouped (switcher, window actions, tiling, tile pairs, Overview, Desktop) and searchable.
-- Settings › Permissions shows live Accessibility, Input Monitoring and Screen Recording rows (refreshed every second while Settings is open), Restart Paneflo when macOS needs it, the reset for stuck permissions, and Open Setup Guide…. The sidebar always says whether ⌘Tab is ready.
-- Hide from Menu Bar is a menu item (and the Settings › General switch). It asks once, with Don't show this again; Paneflo, its shortcuts and the gesture keep running. Opening Paneflo again from Spotlight, Launchpad or Applications brings the icon back and opens Settings › General with "Menu bar icon restored". The icon can't be hidden while setup is needed or macOS has stopped the shortcuts, and a hidden icon comes back on its own with its badge when either happens.
-- The setup window has four steps: Welcome (first run only), Give Paneflo access, an optional gesture step with the system-swipe check, and You’re set. It still opens only while something required is missing, starts on the permissions step after a restart, and keeps Restart Paneflo and the stuck-permission reset.
-- The menu's Arrange Windows… list is replaced by Tile Front Window: Left Half, Right Half, Top Half, Bottom Half, Fill and Undo for the frontmost window, showing their ⌃⌥ shortcuts. The developer-only synthetic sample window is gone.
-- A new menu bar icon (three panes) with an orange dot when setup is needed and a dimmed look when shortcuts are paused. The menu starts with a status line and uses Pause/Resume Shortcuts; Check for Updates… stays in the menu, the automatic-check switch moved to Settings › Updates, and About opens Settings › About.
-- VoiceOver labels on every control, keyboard navigation (Return and Escape in setup), and Increase Contrast, Reduce Transparency and Reduce Motion are respected.
+- Settings is a window with a sidebar: General, Shortcuts & Help, Tiling, Overview & Gesture, Previews, Desktop, Permissions, Updates and About. Each pane says what it is for.
+- Shortcuts & Help lists every key and gesture as keycaps, grouped and searchable.
+- Permissions shows live Accessibility, Input Monitoring and Screen Recording status, Restart Paneflo when macOS needs it, the reset for stuck permissions and Open Setup Guide…. The sidebar always says whether ⌘Tab is ready.
+- The setup window has four steps: Welcome (first run only), Give Paneflo access, an optional gesture step, and You’re set. It opens only while something required is missing.
+- The menu's Arrange Windows… list is replaced by **Tile Front Window**: Left, Right, Top and Bottom Half, Fill and Undo, showing their ⌃⌥ shortcuts.
+- A new menu bar icon (three panes) with an orange dot when setup is needed and a dimmed look when shortcuts are paused. The menu starts with a status line and uses Pause/Resume Shortcuts; the automatic-update switch moved to Settings › Updates.
+- **Hide from Menu Bar** (menu item or Settings › General) asks once; Paneflo, its shortcuts and the gesture keep running. Open Paneflo again from Spotlight, Launchpad or Applications to bring the icon back. The icon can't be hidden while setup is needed or macOS has stopped the shortcuts.
+- VoiceOver labels on every control and keyboard navigation in setup.
 
 ## 1.0.0 — Unreleased
 

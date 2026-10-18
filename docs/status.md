@@ -1,8 +1,15 @@
 # Implementation status
 
-Updated 2026-10-18 (source at `d337ed9`, 1.0.0 release candidate in preparation). Automated checks pass; the owner's hands-on acceptance on the final bundle is pending.
+Updated for 1.1.0 (source at `e5be2c1` plus release-docs edits). Automated checks pass; hands-on acceptance of the final bundle is pending.
 
-## Done
+## 1.1.0
+
+- Liquid Glass switcher without on-card labels, card sizes, full-display Overview with collapsing free slots (Settings: Keep empty places Off / Until Paneflo quits / Always).
+- Tile pairs: snap assist, open pair / open alone, automatic re-pairing when a member is replaced, one-step undo.
+- Front-window tiling with ⌃⌥ arrows anywhere (target read at keypress time) and a Tile Front Window menu.
+- Settings window with sidebar, four-step setup, Hide from Menu Bar. Details in [CHANGELOG.md](../CHANGELOG.md).
+
+## Done (1.0 milestones)
 
 Milestone numbers follow the order the work landed.
 
@@ -17,8 +24,8 @@ Milestone numbers follow the order the work landed.
 
 ## Verification
 
-- `./scripts/test.sh` at `2fa87c8`: **261 tests in 43 suites passed** (10 consecutive runs of the 0.8 branch passed), covering shortcut routing, switcher and Desktop sessions, layout and display placement, gesture recognition (synthetic replays), snapshot cache and scheduler, window matching, update parsing, verification and install planning.
-- Own-process tools (`Tools/`): a native UI check with synthetic windows (search, Escape ownership, input-method composition, stale cancellation, Desktop card, display and lock notifications, app-hide cleanup), a capture-ownership check, and surface, tiling and capture benches against Paneflo's own fixture windows.
+- `./scripts/test.sh` for 1.1.0: **405 tests in 61 suites passed**; CI (macOS build and tests) is green on the 1.1.0 line and sanitizer runs were clean earlier in the cycle. Coverage includes shortcut routing, switcher and Desktop sessions, layout and display placement, gesture recognition (synthetic replays), snapshot cache and scheduler, window matching, update parsing, verification and install planning.
+- Own-process tools (`Tools/`): a native UI check with synthetic windows, including setup, Settings, menu and tile-pair surfaces (search, Escape ownership, input-method composition, stale cancellation, Desktop card, display and lock notifications, app-hide cleanup), a capture-ownership check, and surface, tiling and capture benches against Paneflo's own fixture windows.
 - Synthetic own-process measurements on one host (Mac14,2, M2, 8 GB, macOS 27.0.1) using Paneflo's own fixture windows and synthetic cards. They are not comparative, say nothing about any other product, and are not physical footprint, total system memory or swipe latency.
   - Surface bench (20 / 60 synthetic cards, medians): warm Command-Tab present call about 4.5 ms / 7.6 ms with cached snapshots on every card; Tab step call about 0.4 ms; first Overview open call 63 ms median at 20 cards (15–30 ms on quiet launches, up to about 300 ms when the host was under memory pressure); Overview arrow step about 0.1 ms.
   - Tiling (fixture windows): tile request to final frame 8–11 ms; releasing Command to focus with a pending tile 12–13 ms. Focus on a fixture window: 11–18 ms.
@@ -27,7 +34,7 @@ Milestone numbers follow the order the work landed.
 
 ## Pending
 
-- Owner hands-on acceptance of the final bundle: three-finger up and down, Escape across input contexts, tiling (including across displays), search and Return, previews on real windows, Desktop entry.
+- Owner hands-on acceptance of the final 1.1.0 bundle, including Stage Manager and windows on other Spaces (not yet exercised by hand): three-finger up and down, Escape across input contexts, tiling (including across displays), search and Return, previews on real windows, Desktop entry.
 - Break-testing: permission revocation, protected and minimized windows, cache stress, multi-display recovery, input methods, VoiceOver.
 - Repeatable memory, CPU, energy and latency measurements, including against other tools. No comparative performance claim is made until those exist.
 
