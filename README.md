@@ -1,6 +1,23 @@
-# Paneflo
+<p align="center">
+  <img src="docs/icon.png" width="128" height="128" alt="Paneflo app icon: three tiled glass panes on teal, one in coral">
+</p>
 
-Every window. In its place.
+<h1 align="center">Paneflo</h1>
+
+<p align="center"><strong>Every window. In its place.</strong></p>
+
+<p align="center">
+  <a href="https://github.com/Jenish-Shobhit/Paneflo/actions/workflows/macos.yml"><img src="https://github.com/Jenish-Shobhit/Paneflo/actions/workflows/macos.yml/badge.svg" alt="macOS build and tests"></a>
+  <a href="https://github.com/Jenish-Shobhit/Paneflo/releases/latest"><img src="https://img.shields.io/github/v/release/Jenish-Shobhit/Paneflo?label=release" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/macOS-26%2B%20%C2%B7%20Apple%20silicon-lightgrey" alt="macOS 26 or later, Apple silicon">
+</p>
+
+<p align="center">
+  <a href="https://jenish-shobhit.github.io/Paneflo/"><strong>Download</strong></a> ·
+  <a href="https://github.com/Jenish-Shobhit/Paneflo/releases">Releases</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a>
+</p>
 
 Paneflo is a native macOS menu-bar app for finding, arranging and switching between individual windows. It has three modules that share one list of your windows: a ⌘Tab that lists windows instead of apps, keyboard tiling, and an organized Overview that keeps windows in slots you control. The Overview is Paneflo's own panel; it does not modify Apple's Mission Control or control native Spaces.
 
