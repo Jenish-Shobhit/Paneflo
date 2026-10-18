@@ -31,6 +31,9 @@ APP_SOURCES="$SOURCE_ROOT/Sources/PanefloApp"
 set -- "$APP_SOURCES/RuntimeDiagnostics.swift" "$APP_SOURCES/Capture/CaptureController.swift" \
     "$APP_SOURCES/WindowService.swift" "$APP_SOURCES/DesktopController.swift" "$APP_SOURCES/SampleViews.swift"
 if [ -f "$APP_SOURCES/TilePairController.swift" ]; then set -- "$@" "$APP_SOURCES/TilePairController.swift"; fi
+if [ -d "$APP_SOURCES/Design" ]; then
+    for file in "$APP_SOURCES"/Design/*.swift; do set -- "$@" "$file"; done
+fi
 if [ -d "$APP_SOURCES/Surfaces" ]; then
     for file in "$APP_SOURCES"/Surfaces/*.swift; do set -- "$@" "$file"; done
 fi
