@@ -20,7 +20,7 @@
 - Prefer AppKit and Core Animation on the latency-sensitive path; settings may use SwiftUI. Start with one process. Add helpers only for demonstrated isolation or recovery needs.
 - Read a prepared snapshot on shortcut input. Do not synchronously scan windows, capture frames, or make Accessibility calls in the input handler.
 - Keep MRU switching order separate from user-assigned overview slot order. Freeze switch order during a session.
-- Admit at most one continuous live preview, for the selected eligible window, while a switching surface is visible. Hidden surfaces have zero live streams. Label cached, unavailable, and paused previews honestly.
+- Admit at most one continuous live preview, for the selected eligible window, while a switching surface is visible. Hidden surfaces have zero live streams. Never present a cached preview as live; convey cached/unavailable/paused state through accessibility labels and subtle indicators rather than prominent text.
 - The organized overview is Paneflo's own overlay. Do not promise a modification of Apple's Mission Control internals, native Spaces, or gestures before the compatibility investigation proves it.
 
 ## Review and validation
