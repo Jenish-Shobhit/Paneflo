@@ -22,6 +22,8 @@ public enum ShortcutAction: Sendable {
     /// Selection movement inside a visible switcher: linear (←/→) or by grid row (↑/↓).
     case navigate(CycleDirection), navigateRow(CycleDirection)
     case overview, tile(LayoutZone), tileSelected(LayoutZone), restore
+    /// Command–Option–Return: open the selection together with its tile partner (ends a held switch session).
+    case openPair
 }
 
 /// Command chords that act on the held switcher's selected window instead of the frontmost app.
@@ -82,7 +84,8 @@ public struct ShortcutRoute: Sendable {
 /// Escape belongs to Paneflo whenever one of its surfaces is visible, independent of
 /// key-window or application-active state; the only exception is marked IME text.
 /// While Command is held in the switcher, arrows select. Command–Option–arrows arrange the selection
-/// in the switcher and in a keyboard-focused Overview (Down undoes).
+/// in the switcher and in a keyboard-focused Overview (Down undoes); Command–Option–Return opens the
+/// selection with its tile partner there.
 ///
 /// While the held switcher is up, every key-down belongs to Paneflo and never reaches the frontmost
 /// app: Command-W/M/H/Q become window commands for the selection, and other keys are swallowed.
@@ -169,6 +172,13 @@ public struct ShortcutSession: Sendable {
             case 126: action = .tileSelected(.maximize)
             default: action = .restore
             }
+        } else if (switching || selectionContextActive) && (keyCode == 36 || keyCode == 76)
+                    && modifiers == [.command, .option] {
+            // Opening is once per physical press; a held Return never reopens.
+            if isRepeat { return ShortcutRoute(suppress: switching || ownedKeys.contains(keyCode)) }
+            // Opening the pair commits the held switcher; the later Command release commits nothing.
+            switching = false
+            action = .openPair
         }
         if action == nil && !switching {
             if configuration.overview == chord { action = .overview }

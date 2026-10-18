@@ -259,6 +259,9 @@ final class DesktopController: NSObject, SurfaceHost {
     func navigateRow(_ direction: CycleDirection) { visibleSurface?.navigateRows(direction == .forward ? 1 : -1) }
     func commitShortcut() { if switcher.isShown { switcher.commitShortcut() } }
 
+    /// Command–Option–Return in the held switcher or a keyboard-focused Overview: open the selection.
+    func openPairSelected() { visibleSurface?.activateSelected() }
+
     func focusOverview(recognizedAtUptimeNanoseconds: UInt64? = nil) {
         pendingGestureRecognizedAt = recognizedAtUptimeNanoseconds
         if overview.isShown { overview.reacquireKeyboard(); updateKeyboardOwnership() }

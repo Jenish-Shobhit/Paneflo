@@ -170,7 +170,7 @@ public enum PairActivator {
                             schedule: (Double, @escaping @MainActor () -> Void) -> Void) {
         final class Box { var activation: PairActivation; init(_ a: PairActivation) { activation = a } }
         let box = Box(PairActivation(target: target, partner: partner))
-        weak var weakExecutor = executor
+        weak let weakExecutor = executor
         func run(_ steps: [PairActivationStep]) {
             guard let executor = weakExecutor else { return }
             for step in steps {

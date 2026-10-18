@@ -932,6 +932,7 @@ struct NativeUICheck {
             case .restore: actions.append("restore")
             case .overview: actions.append("overview")
             case .tile: actions.append("tile")
+            case .openPair: actions.append("openPair")
             }
         }
         desktop.onSurfaceVisibilityChanged = { input.surfaceVisible = $0 }
