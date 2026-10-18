@@ -165,6 +165,10 @@ final class CardView: NSButton {
     /// The held picker is never key; a click must still select on the first press.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override var intrinsicContentSize: NSSize { NSSize(width: 260, height: 168) }
+    /// Cards are placed by frame, but the glass shelf's window keeps a constraint engine, so every card move asks for
+    /// alignment insets. NSButton derives them from its title metrics (font and attribute lookups per card, measured
+    /// at about half of a warm 60-card present); a card has no title, so its alignment rect is its frame.
+    override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsetsZero }
     override var wantsUpdateLayer: Bool { true }
     /// The ring and the pair seam sit outside the card bounds; the card never clips them.
     override var clipsToBounds: Bool { get { false } set {} }
