@@ -15,8 +15,7 @@ Requires macOS 26 or later on Apple silicon. Free and open source under the [MIT
 - **Gesture (optional, experimental).** Three-finger swipe up opens the Overview, down closes it.
 - **Desktop entry.** A Desktop card at the end of the ⌘Tab loop and a Desktop tile in the Overview reveal the desktop by hiding other apps. Optional in Settings.
 - **Previews (optional).** Cached snapshots labelled with their age, and one live preview for the selected window. Each card says Live, Snapshot, Loading, Unavailable or Paused.
-<!-- Coming in 1.0 (hardening 0.8): -->
-- **Window actions while switching** (coming in 1.0): ⌘Q, ⌘W, ⌘M and ⌘H on the selected window.
+- **Window actions while switching.** With ⌘ held, W closes the selected window, M minimizes it, H hides its app and Q quits its app; the picker stays open. Other keys pressed while switching never reach the app behind it. Finder is never quit.
 
 Shortcuts, previews and the gesture are off until you enable them in Settings.
 

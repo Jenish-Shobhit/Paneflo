@@ -56,4 +56,10 @@ First release. Paneflo is a menu-bar app for macOS 26 or later on Apple silicon,
 
 ### Hardening (0.8)
 
-- _Placeholder: the orchestrator fills this group when milestone 0.8 lands._
+- While the ⌘Tab picker is held, ⌘W closes the selected window, ⌘M minimizes it, ⌘H hides its app and ⌘Q quits its app, and the picker stays open. Other keys pressed while switching no longer reach the app behind it.
+- Apps hidden by the Desktop entry come back when Paneflo quits, and at the next launch if Paneflo crashed or was force-quit.
+- If macOS keeps turning off the shortcut tap, shortcuts stay enabled in Settings and Paneflo retries on its own; turning Shortcuts on retries at once.
+- The ⌘Tab picker closes even if the ⌘ release was missed and no other key follows.
+- Previews keep working after screenshot or window-list requests that macOS never answers.
+- The trackpad gesture recovers from a missing built-in trackpad (for example a closed lid) without restarting Paneflo.
+- Unreadable or newer Overview arrangement data is kept as a backup instead of being overwritten.

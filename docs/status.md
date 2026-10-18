@@ -13,10 +13,11 @@ Milestone numbers follow the order the work landed.
 - **0.5 Gesture** (`ae95f54`, merge `4824c45`): centroid-based three-finger recognizer, runtime contact-layout sanity check, Settings guidance about conflicting system swipes; gated to Apple silicon on macOS 26 or later.
 - **0.6 Tiling** (`9b528e3`, merge `ab0a25d`): placement in one pass planned from a fresh frame, focus decoupled from placement, per-window undo, repeat-to-next-display, display-aware zones.
 - **0.7 Desktop entry and lifecycle** (`53ff066`, `005e342`, `d17cd0b`): Desktop card in the loop and Overview home tile (Show Desktop by hiding apps; wallpaper image, never captured); surfaces open on the pointer's display; display change, screen lock, display sleep and user switching close surfaces and purge snapshots.
+- **0.8 Hardening** (`5d15db4`, `74a2a6b`, `8dd13fe`, `5b94bd8`, `624020a`, `7b13253`, `d683dd8`, merge `2fa87c8`): ⌘W/⌘M/⌘H/⌘Q act on the selected window while switching and other keys are swallowed; Desktop-hidden apps journaled and restored on quit or next launch (one restore path); interrupted shortcut tap keeps the saved intent with bounded automatic retry; missed-⌘-release watchdog; lost screenshot and discovery callbacks release capacity after 30 s; bounded trackpad re-probe; unreadable Overview slot data backed up; deterministic timing tests.
 
 ## Verification
 
-- `./scripts/test.sh` at `d337ed9`: **242 tests in 38 suites passed**, covering shortcut routing, switcher and Desktop sessions, layout and display placement, gesture recognition (synthetic replays), snapshot cache and scheduler, window matching, update parsing, verification and install planning.
+- `./scripts/test.sh` at `2fa87c8`: **261 tests in 43 suites passed** (10 consecutive runs of the 0.8 branch passed), covering shortcut routing, switcher and Desktop sessions, layout and display placement, gesture recognition (synthetic replays), snapshot cache and scheduler, window matching, update parsing, verification and install planning.
 - Own-process tools (`Tools/`): a native UI check with synthetic windows (search, Escape ownership, input-method composition, stale cancellation, Desktop card, display and lock notifications, app-hide cleanup), a capture-ownership check, and surface, tiling and capture benches against Paneflo's own fixture windows.
 - Synthetic own-process measurements on one host (Mac14,2, M2, 8 GB, macOS 27.0.1) using Paneflo's own fixture windows and synthetic cards. They are not comparative, say nothing about any other product, and are not physical footprint, total system memory or swipe latency.
   - Surface bench (20 / 60 synthetic cards, medians): warm Command-Tab present call about 4.5 ms / 7.6 ms with cached snapshots on every card; Tab step call about 0.4 ms; first Overview open call 63 ms median at 20 cards (15–30 ms on quiet launches, up to about 300 ms when the host was under memory pressure); Overview arrow step about 0.1 ms.
@@ -27,7 +28,6 @@ Milestone numbers follow the order the work landed.
 ## Pending
 
 - Owner hands-on acceptance of the final bundle: three-finger up and down, Escape across input contexts, tiling (including across displays), search and Return, previews on real windows, Desktop entry.
-- Milestone 0.8 hardening (see the changelog for what has landed).
 - Break-testing: permission revocation, protected and minimized windows, cache stress, multi-display recovery, input methods, VoiceOver.
 - Repeatable memory, CPU, energy and latency measurements, including against other tools. No comparative performance claim is made until those exist.
 
