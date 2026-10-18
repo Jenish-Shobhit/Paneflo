@@ -89,6 +89,9 @@ public struct ShortcutRoute: Sendable {
 public struct ShortcutSession: Sendable {
     public var configuration: ShortcutConfiguration
     public private(set) var switching = false
+    /// Increments each time a switch session starts, so a delayed observation of a Command release can
+    /// never end a newer session.
+    public private(set) var sessionSerial: UInt64 = 0
     /// A switcher or Overview surface is on screen.
     public var surfaceVisible = false
     /// A persistent surface (Overview) holds real keyboard focus. Gates Command–Option–arrow arranging there.
@@ -107,6 +110,15 @@ public struct ShortcutSession: Sendable {
     public mutating func recoverAfterTapInterruption(commandHeld: Bool) -> ShortcutAction? {
         ownedKeys.removeAll()
         guard switching, !commandHeld else { return nil }
+        switching = false
+        return .commit
+    }
+
+    /// Watchdog for a Command release the tap never saw (and no later key revealed). The caller polls
+    /// the hardware modifier state while a session is open and passes the serial it saw Command up in;
+    /// only that same session commits.
+    public mutating func commitIfCommandReleased(commandHeld: Bool, serial: UInt64) -> ShortcutAction? {
+        guard switching, !commandHeld, serial == sessionSerial else { return nil }
         switching = false
         return .commit
     }
@@ -135,6 +147,7 @@ public struct ShortcutSession: Sendable {
         var action: ShortcutAction?
         if configuration.switcherEnabled && keyCode == 48 &&
             (modifiers == .command || modifiers == [.command, .shift]) {
+            if !switching { sessionSerial &+= 1 }
             switching = true
             action = modifiers.contains(.shift) ? .switchBackward : .switchForward
         } else if switching && keyCode == 53 && modifiers.subtracting([.command, .shift]).isEmpty {

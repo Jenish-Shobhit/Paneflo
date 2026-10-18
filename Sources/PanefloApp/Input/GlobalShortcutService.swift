@@ -11,6 +11,9 @@ final class GlobalShortcutService {
     typealias Configuration = ShortcutConfiguration
     enum State: Equatable {
         case disabled, arming, active, releasing, failed(String)
+        /// macOS kept disabling the tap. The user's enable intent is kept and Paneflo retries
+        /// automatically (bounded) or when the user turns shortcuts on again.
+        case interrupted(String)
     }
     private(set) var state: State = .disabled { didSet { onStateChange?(state) } }
     var onAction: ((ShortcutAction) -> Void)?
@@ -20,6 +23,16 @@ final class GlobalShortcutService {
     private(set) var installedTapDescription: String?
     private var engine: ShortcutTapEngine?
     private var context = ShortcutTapEngine.Context()
+    /// The configuration the user enabled; kept while recovering from an interrupted tap.
+    private var intendedConfiguration: Configuration?
+    private var recovery = TapRecoverySchedule()
+    private var recoveryRetry: DispatchWorkItem?
+    private var activationObserver: NSObjectProtocol?
+    /// Polls the hardware Command state while a switch session is open (missed-release watchdog).
+    private var releaseWatchdog: Timer?
+    private var releaseCandidate: UInt64?
+    private var releaseWatchdogEnabled = true
+    static let releaseWatchdogInterval: TimeInterval = 0.25
 
     /// A switcher or Overview surface is on screen: Escape belongs to Paneflo.
     var surfaceVisible: Bool {
@@ -37,32 +50,58 @@ final class GlobalShortcutService {
         set { context.compositionActive = newValue; engine?.update(context) }
     }
 
-    isolated deinit { engine?.stop() }
+    isolated deinit {
+        engine?.stop()
+        releaseWatchdog?.invalidate()
+        recoveryRetry?.cancel()
+        if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
+    }
 
+    /// The user (or startup restore) enables shortcuts. Also the manual re-enable after an interruption.
     @discardableResult
     func start(configuration: Configuration) -> Bool {
-        stop()
-        guard !configuration.isEmpty else { return true }
+        endRecovery()
+        recovery.reset()
+        intendedConfiguration = configuration.isEmpty ? nil : configuration
+        switch install(configuration) {
+        case .installed: return true
+        case .failed(let message): state = .failed(message); return false
+        }
+    }
+
+    /// The user disables shortcuts: the tap goes away and no automatic retry remains.
+    func stop() {
+        endRecovery()
+        recovery.reset()
+        intendedConfiguration = nil
+        teardown()
+    }
+
+    private enum InstallOutcome { case installed, failed(String) }
+
+    private func install(_ configuration: Configuration) -> InstallOutcome {
+        teardown()
+        guard !configuration.isEmpty else { return .installed }
         state = .arming
         guard CGPreflightListenEventAccess() else {
-            state = .failed("Input Monitoring permission is required. Enable it in System Settings, then enable shortcuts again.")
-            return false
+            return .failed("Input Monitoring permission is required. Enable it in System Settings, then enable shortcuts again.")
         }
         let engine = makeEngine(configuration: configuration)
         switch engine.install() {
         case .failure(let failure):
-            state = .failed(failure.message)
-            return false
+            return .failed(failure.message)
         case .success(let description):
             self.engine = engine
             installedTapDescription = description
+            recovery.noteActive(now: ProcessInfo.processInfo.systemUptime)
             // Active means installed, not proof of precedence over other taps/native UI.
             state = .active
-            return true
+            return .installed
         }
     }
 
-    func stop() {
+    private func teardown() {
+        stopReleaseWatchdog()
         guard let engine else { state = .disabled; return }
         state = .releasing
         let wasSwitching = engine.stop()
@@ -70,6 +109,93 @@ final class GlobalShortcutService {
         installedTapDescription = nil
         state = .disabled
         if wasSwitching { onAction?(.cancel) }
+    }
+
+    // MARK: Interrupted tap recovery
+
+    /// The tap was lost (re-enable budget spent, or macOS refused to re-enable it). Intent is kept.
+    private func interrupted(_ reason: String) {
+        teardown()
+        guard intendedConfiguration != nil else { state = .failed(reason + " Enable shortcuts again to retry."); return }
+        let now = ProcessInfo.processInfo.systemUptime
+        recoveryRetry?.cancel(); recoveryRetry = nil
+        if let at = recovery.scheduleAfterFailure(now: now) {
+            let work = DispatchWorkItem { [weak self] in
+                MainActor.assumeIsolated { self?.attemptRecovery(trigger: "timer") }
+            }
+            recoveryRetry = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + max(1, at - now), execute: work)
+            state = .interrupted(reason + " Paneflo will try again in \(Int((at - now).rounded())) s and when you return to it. Turn Shortcuts on in Settings to retry now.")
+        } else {
+            state = .interrupted(reason + " Automatic retries stopped. Turn Shortcuts on in Settings to try again.")
+        }
+        observeActivation()
+        RuntimeDiagnostics.mark("input tap interrupted attempts=\(recovery.attempts) exhausted=\(recovery.isExhausted)")
+    }
+
+    private func observeActivation() {
+        guard activationObserver == nil, !recovery.isExhausted else { return }
+        activationObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification,
+                                                                    object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.recovery.allowsActivationRetry(now: ProcessInfo.processInfo.systemUptime) else { return }
+                self.attemptRecovery(trigger: "activation")
+            }
+        }
+    }
+
+    private func attemptRecovery(trigger: String) {
+        guard case .interrupted = state, let configuration = intendedConfiguration else { return }
+        recovery.noteAttempt(now: ProcessInfo.processInfo.systemUptime)
+        RuntimeDiagnostics.mark("input tap recovery trigger=\(trigger) attempt=\(recovery.attempts)")
+        switch install(configuration) {
+        case .installed:
+            endRecovery()
+        case .failed(let message):
+            if CGPreflightListenEventAccess() {
+                interrupted(message)
+            } else {
+                // Permission was revoked: that is not a transient interruption.
+                endRecovery()
+                state = .failed(message)
+            }
+        }
+    }
+
+    private func endRecovery() {
+        recoveryRetry?.cancel(); recoveryRetry = nil
+        if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
+        activationObserver = nil
+    }
+
+    // MARK: Missed Command release watchdog
+
+    private func startReleaseWatchdog() {
+        guard releaseWatchdogEnabled, releaseWatchdog == nil else { return }
+        releaseCandidate = nil
+        let timer = Timer(timeInterval: Self.releaseWatchdogInterval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkCommandRelease() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        releaseWatchdog = timer
+    }
+
+    private func stopReleaseWatchdog() {
+        releaseWatchdog?.invalidate()
+        releaseWatchdog = nil
+        releaseCandidate = nil
+    }
+
+    /// Command must read as released on two consecutive polls of the same session before the
+    /// watchdog commits it, so an ordinary release (already handled by the tap) never doubles up and
+    /// a quick re-press starts a new session the watchdog cannot touch.
+    private func checkCommandRelease() {
+        guard let engine, let serial = engine.openSwitchSession() else { stopReleaseWatchdog(); return }
+        if CGEventSource.flagsState(.combinedSessionState).contains(.maskCommand) { releaseCandidate = nil; return }
+        guard releaseCandidate == serial else { releaseCandidate = serial; return }
+        stopReleaseWatchdog()
+        RuntimeDiagnostics.mark("input switch watchdog=missedCommandRelease")
+        engine.commitMissedRelease(serial: serial)
     }
 
     private func makeEngine(configuration: Configuration) -> ShortcutTapEngine {
@@ -91,14 +217,18 @@ final class GlobalShortcutService {
                 let waited = Double(DispatchTime.now().uptimeNanoseconds &- queuedAt) / 1_000_000
                 RuntimeDiagnostics.mark("input action queuedMilliseconds=\(waited)")
             }
+            switch action {
+            case .switchForward, .switchBackward: startReleaseWatchdog()
+            case .commit, .cancel: stopReleaseWatchdog()
+            default: break
+            }
             onAction?(action)
         case .windowCommand(let command, let source):
             guard engine === source else { return }
             onWindowCommand?(command)
         case .failed(let reason, let source):
             guard engine === source else { return }
-            stop()
-            state = .failed(reason + " Enable shortcuts again to retry.")
+            interrupted(reason)
         }
     }
 
@@ -106,6 +236,8 @@ final class GlobalShortcutService {
     /// Routes synthetic, never-posted events through the real callback path without installing a tap.
     func nativeCheckAttach(configuration: Configuration) {
         stop()
+        // Synthetic flags never reach the hardware modifier state the watchdog reads.
+        releaseWatchdogEnabled = false
         let engine = makeEngine(configuration: configuration)
         self.engine = engine
         state = .active
@@ -232,6 +364,19 @@ final class ShortcutTapEngine: Sendable {
         }
         RuntimeDiagnostics.mark("input tap installed=\(label) thread=dedicated")
         return .success(label)
+    }
+
+    /// The open switch session's serial, or nil when none is open.
+    func openSwitchSession() -> UInt64? {
+        shared.withLock { $0.stopped || !$0.router.switching ? nil : $0.router.sessionSerial }
+    }
+
+    /// The watchdog saw Command released for this session; commits it unless the tap already did.
+    func commitMissedRelease(serial: UInt64) {
+        let action = shared.withLock { state -> ShortcutAction? in
+            state.stopped ? nil : state.router.commitIfCommandReleased(commandHeld: false, serial: serial)
+        }
+        if let action { emit(.action(action, self)) }
     }
 
     struct InstallFailure: Error { let message: String; init(_ message: String) { self.message = message } }

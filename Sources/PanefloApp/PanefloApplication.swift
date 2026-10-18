@@ -74,6 +74,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.preferences.set(false, forKey: "shortcuts.enabled.v1")
                 controller?.setStatus(message)
             }
+            // An interrupted tap keeps the saved intent; the service retries on its own.
+            if case .interrupted(let message) = state { controller?.setStatus(message) }
         }
         gestures.onGestureEvent = { [weak self] event in
             guard let self else { return }

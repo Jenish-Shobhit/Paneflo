@@ -125,6 +125,30 @@ struct ShortcutSessionTests {
         guard case .cancel? = plainEscape.action else { Issue.record("Escape still cancels a held session"); return }
     }
 
+    @Test func watchdogCommitsAMissedReleaseOnlyForTheSameSession() {
+        var router = ShortcutSession(configuration: .init(switcherEnabled: true))
+        #expect(router.commitIfCommandReleased(commandHeld: false, serial: router.sessionSerial) == nil, "idle: nothing to commit")
+        _ = router.route(kind: .down, keyCode: 48, modifiers: .command)
+        let first = router.sessionSerial
+        _ = router.route(kind: .down, keyCode: 48, modifiers: .command)
+        #expect(router.sessionSerial == first, "Tab within a session keeps its serial")
+        #expect(router.commitIfCommandReleased(commandHeld: true, serial: first) == nil, "Command still held")
+        // The Command release was never seen and no other key followed: the picker would stay up.
+        guard case .commit? = router.commitIfCommandReleased(commandHeld: false, serial: first) else {
+            Issue.record("A missed release must commit"); return
+        }
+        #expect(!router.switching)
+        #expect(router.commitIfCommandReleased(commandHeld: false, serial: first) == nil, "commits once")
+        // A stale observation from the previous session cannot end a new one.
+        _ = router.route(kind: .down, keyCode: 48, modifiers: .command)
+        #expect(router.sessionSerial == first + 1)
+        #expect(router.commitIfCommandReleased(commandHeld: false, serial: first) == nil)
+        #expect(router.switching)
+        // A normal release already committed: the watchdog's later poll is a no-op.
+        _ = router.route(kind: .modifiersChanged, keyCode: 55, modifiers: [])
+        #expect(router.commitIfCommandReleased(commandHeld: false, serial: first + 1) == nil)
+    }
+
     @Test func tapInterruptionRecoveryCommitsOnlyWhenCommandWasReleased() {
         var router = ShortcutSession(configuration: .init(switcherEnabled: true))
         _ = router.route(kind: .down, keyCode: 48, modifiers: .command)
