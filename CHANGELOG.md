@@ -11,19 +11,21 @@ All notable changes to Paneflo are listed here. Versions follow [Semantic Versio
 - Previews look like the window: the Live and Snapshot labels are gone. A small symbol marks minimized, hidden, other-Space and paused previews; VoiceOver says whether a picture is live or a snapshot and how old it is, and the Overview shows it in a tooltip.
 - Tile pairs sit side by side in ⌘Tab with a link at the seam; selecting one rings it and outlines its partner. Snap assist shows a faint outline of the half you are about to fill instead of text.
 - The Overview is a full-display translucent overlay with a search field, a window count, the Desktop tile and your slots; click the background to close it. Free and kept slots have a new recessed look with hover and drop states. Drag a window onto a free slot to move it there (its old slot becomes free) or onto another window to swap them; right-click a free slot to remove it.
+- A warm ⌘Tab no longer recomputes button title metrics for every card it moves: cards report zero alignment insets, which cuts the warm present call at 60 windows by about 30 % in the surface bench.
 - Light and dark, Increase Contrast (thicker ring, card borders), Reduce Transparency (opaque backdrop) and Reduce Motion are respected. Selecting a card does no redrawing and no layout.
 
 ### Tile pairs
 
 - Two windows filling complementary halves of one display (left and right, or top and bottom) form a pair, whether Paneflo arranged them or they were already there. A pair ends when a window closes, minimizes, moves to another display or leaves its half, or when you choose Unpair. Pairs last until Paneflo quits.
 - Opening a paired window from ⌘Tab or the Overview brings its partner forward first, then focuses the window you chose, so both are visible. Turn this off with Settings › Tiling › Raise tile pairs together.
-- ⌘⌥Return (or keypad Enter) in the picker or a keyboard-focused Overview opens the selection with its partner regardless of that setting. The Overview's right-click menu offers Open Pair, Open Alone and Unpair for paired windows.
+- ⌘⌥Return (or keypad Enter) in the picker or a keyboard-focused Overview opens the selection with its partner regardless of that setting. The Overview's right-click menu offers Open Pair, Open Alone and Unpair for paired windows. ⌘A in the held picker, or ⌥Return in the Overview, opens the selection alone.
 - Snap assist in the picker: after ⌘⌥← tiles the selection to the left half, the selected card shows a faint outline of the right half; ⌘⌥→ on another window places it on the same display and pairs the two (and the other way round). Escape or releasing ⌘ ends it.
 - Bringing a partner forward activates its app for a moment before the chosen window's app takes focus: an Accessibility raise alone leaves a background window behind the frontmost app.
 
 ### Settings, setup and menu bar
 
 - Settings is a new window with a sidebar: General, Shortcuts & Help, Tiling, Overview & Gesture, Previews, Desktop, Permissions, Updates and About. Each pane says what it is for, and toggles explain any effect that isn't obvious.
+- Settings › General has the switcher's Card size (Automatic, Small, Medium, Large) and Show selected window title (on by default; off leaves only the cards on the shelf). Settings › Tiling adds Show pairs side by side and Snap assist. Settings › Overview & Gesture adds Show free slots, Remove Free Slots and Reset Slot Order… (it asks first).
 - Shortcuts & Help lists every key and gesture as keycaps with a one-line description, grouped (switcher, window actions, tiling, tile pairs, Overview, Desktop) and searchable.
 - Settings › Permissions shows live Accessibility, Input Monitoring and Screen Recording rows (refreshed every second while Settings is open), Restart Paneflo when macOS needs it, the reset for stuck permissions, and Open Setup Guide…. The sidebar always says whether ⌘Tab is ready.
 - Hiding the menu bar icon is now in Settings › General and asks in a sheet. Opening Paneflo again from Finder or Spotlight brings Settings back on General.
