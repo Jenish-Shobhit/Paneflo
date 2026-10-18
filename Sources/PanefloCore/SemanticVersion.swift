@@ -21,7 +21,8 @@ public struct SemanticVersion: Comparable, Hashable, Sendable, CustomStringConve
         self.preRelease = preRelease
     }
 
-    /// Nil for anything that isn't a version: an empty string, words, a negative or fourth component, an empty part.
+    /// Nil for anything that isn't a version: an empty string, words, a negative or fourth component, an empty part,
+    /// or a numeric pre-release part with a leading zero.
     public init?(_ text: String) {
         var s = Substring(text.trimmingCharacters(in: .whitespacesAndNewlines))
         if s.first == "v" || s.first == "V" { s = s.dropFirst() }
@@ -31,6 +32,9 @@ public struct SemanticVersion: Comparable, Hashable, Sendable, CustomStringConve
             let tail = s[s.index(after: dash)...]
             pre = tail.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
             guard !pre.isEmpty, pre.allSatisfy({ !$0.isEmpty && $0.allSatisfy(Self.isIdentifierCharacter) }) else { return nil }
+            // semver rule 9: numeric identifiers have no leading zeros. Accepting `01` would make `1.0.0-01` and
+            // `1.0.0-1` unequal yet neither before the other, which breaks ordering.
+            guard !pre.contains(where: { $0.count > 1 && $0.first == "0" && $0.allSatisfy({ $0.isASCII && $0.isNumber }) }) else { return nil }
             s = s[..<dash]
         }
         let parts = s.split(separator: ".", omittingEmptySubsequences: false)
