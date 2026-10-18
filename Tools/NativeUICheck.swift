@@ -127,6 +127,8 @@ struct NativeUICheck {
         }
         try await checkFastSurfaces(desktop, service: service, records: records)
         try await checkPreviews(desktop, service: service, records: records)
+        try await checkDesktopEntry(desktop, service: service, records: records)
+        try await checkLifecycle(desktop, service: service, records: records)
         service.nativeCheckInstall(records(20))
         await settle()
         try await checkInputRouting(desktop)
@@ -504,6 +506,287 @@ struct NativeUICheck {
         desktop.dismiss(restorePreviousApplication: false)
         await settle()
         print("PASS previews")
+    }
+
+    // MARK: Desktop entry
+
+    /// Stands in for the app's Show Desktop service: records intents, never hides an app or focuses a window.
+    @MainActor final class FakeDesktopEntry: DesktopEntryProvider {
+        var showsDesktopEntry = true
+        var isDesktopShown = false
+        var wallpaper: CGImage?
+        private(set) var activations = 0
+        private(set) var focusPreparations: [pid_t] = []
+        private(set) var refreshRequests = 0
+        private(set) var screenChanges = 0
+        func activateDesktopEntry() { activations += 1 }
+        /// Records the restore-before-focus step; the synthetic windows are never focused.
+        func prepareToFocus(pid: pid_t, then focus: @escaping @MainActor () -> Void) { focusPreparations.append(pid) }
+        func cachedWallpaper(for screen: NSScreen) -> CGImage? { wallpaper }
+        func refreshWallpaper(for screen: NSScreen, completion: @escaping @MainActor (CGImage?) -> Void) { refreshRequests += 1 }
+        func screensChanged() { screenChanges += 1 }
+    }
+
+    @MainActor static func key(_ desktop: DesktopController, code: UInt16, characters: String) -> NSEvent {
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                         windowNumber: desktop.nativeCheckWindow.windowNumber, context: nil, characters: characters,
+                         charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!
+    }
+
+    /// The Desktop card in the switcher loop and the Overview home tile, against a fake Desktop service.
+    @MainActor static func checkDesktopEntry(_ desktop: DesktopController, service: WindowService,
+                                             records: (Int) -> [WindowRecord]) async throws {
+        print("START desktop entry")
+        let fake = FakeDesktopEntry()
+        fake.wallpaper = fixtureImage(.systemPurple)
+        let previews = FakePreviews()
+        desktop.previews = previews
+        desktop.desktopEntry = fake
+        let windows = records(20)
+        service.nativeCheckInstall(windows)
+        await settle()
+
+        // Trailing: the Desktop is the last stop; the loop starts on the second window as before.
+        desktop.present(mode: .switcher, fromShortcut: true)
+        let loop = desktop.nativeCheckSwitcherTargets
+        try require(loop.count == 21 && loop.last == .desktop && loop.filter({ $0 == .desktop }).count == 1,
+                    "The Desktop must be the last of 21 switcher stops, got \(loop.count)")
+        try require(desktop.nativeCheckSelectedTarget == loop[1], "The held switcher must still start on the second stop")
+        guard let card = desktop.nativeCheckDesktopCard, card.isDesktopEntry, card.record == nil else {
+            throw Failure.check("Missing the Desktop card")
+        }
+        try require(card.nativeCheckLayerContents === fake.wallpaper && card.nativeCheckStatusText == "Wallpaper"
+                    && !card.nativeCheckLiveDotVisible && card.previewLabel != "Live",
+                    "The Desktop card must show the wallpaper labelled Wallpaper, never Live")
+        try require(fake.refreshRequests > 0, "Presenting must ask for a wallpaper refresh off the input path")
+        try require(previews.cards.allSatisfy { id in windows.contains { $0.id == id.id } } && previews.cards.count <= 20,
+                    "Only window cards may reach the capture engine")
+
+        // Tab onto the Desktop and back: two card redraws per step, no live stream for the Desktop.
+        CardView.invalidations = 0
+        desktop.switchStep(backwards: true)
+        try require(desktop.nativeCheckSelectedTarget == .window(windows[0].id), "Shift-Tab from the second stop must reach the first")
+        try require(CardView.invalidations == 2, "A step must redraw two cards, redrew \(CardView.invalidations)")
+        CardView.invalidations = 0
+        desktop.switchStep(backwards: true)
+        try require(desktop.nativeCheckSelectedTarget == .desktop, "Shift-Tab from the first stop must wrap to the Desktop")
+        try require(CardView.invalidations == 2, "Stepping onto the Desktop must redraw two cards, redrew \(CardView.invalidations)")
+        try require(previews.visible && previews.selected == nil && previews.liveStreamCount == 0,
+                    "The Desktop selection must never be sent to the capture engine as a live target")
+        try require(card.selected && card.nativeCheckStatusText == "Wallpaper", "The selected Desktop card keeps its Wallpaper label")
+        // Arranging the Desktop is a no-op: no badge, no failure text, the session continues.
+        desktop.tileSelected(.leftHalf)
+        try require(card.layoutBadge == nil && desktop.isVisible && desktop.nativeCheckSelectedTarget == .desktop,
+                    "Command-Option arrows on the Desktop card must do nothing")
+        desktop.commitShortcut()
+        try require(fake.activations == 1 && !desktop.isVisible && fake.focusPreparations.isEmpty,
+                    "Committing the Desktop must run the Desktop action and nothing else")
+        try require(desktop.nativeCheckPayloadCount == 0, "Dismissal must release the wallpaper too")
+
+        // A window commit asks the Desktop service to restore that window's app before focusing.
+        desktop.present(mode: .switcher, fromShortcut: true)
+        let chosen = desktop.nativeCheckSelected
+        desktop.commitShortcut()
+        try require(chosen != nil && fake.focusPreparations == [chosen!.process.pid] && fake.activations == 1,
+                    "Committing a window must restore its app before focusing")
+
+        // Current: the desktop was just shown. Desktop sits at index 1; release returns to the window left behind.
+        fake.isDesktopShown = true
+        desktop.desktopStateChanged()
+        desktop.present(mode: .switcher, fromShortcut: true)
+        let current = desktop.nativeCheckSwitcherTargets
+        try require(current.count == 21 && current[1] == .desktop && desktop.nativeCheckSelectedTarget == current[0],
+                    "With the desktop current, the Desktop must be stop 2 and the selection the first window")
+        try require(desktop.nativeCheckDesktopCard?.desktopIsCurrent == true, "The Desktop card must offer to bring windows back")
+        desktop.switchStep(backwards: false)
+        try require(desktop.nativeCheckSelectedTarget == .desktop, "One step must reach the Desktop when it is current")
+        desktop.dismiss(restorePreviousApplication: false)
+        fake.isDesktopShown = false
+        desktop.desktopStateChanged()
+
+        // Search in a manual switcher matches "desktop"; Return chooses it.
+        desktop.present(mode: .switcher)
+        await settle()
+        desktop.nativeCheckQuery("desk")
+        try require(desktop.nativeCheckSwitcherTargets == [.desktop] && desktop.nativeCheckSelectedTarget == .desktop,
+                    "Searching desk must leave only the Desktop, selected")
+        try require(desktop.nativeCheckDesktopCard?.nativeCheckLayerContents === fake.wallpaper,
+                    "A Desktop card rebuilt by search must show the wallpaper")
+        NSApp.sendEvent(key(desktop, code: 36, characters: "\r"))
+        try require(fake.activations == 2 && !desktop.isVisible, "Return on the Desktop must run the Desktop action")
+        desktop.present(mode: .tiling)
+        try require(!desktop.nativeCheckSwitcherTargets.contains(.desktop), "Arrange lists windows only")
+        desktop.dismiss(restorePreviousApplication: false)
+        await settle()
+
+        // Overview: a fixed home tile before the slots; slot order untouched; arrows, click and Return.
+        desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
+        await settle()
+        let slots = desktop.nativeCheckSlots
+        try require(desktop.nativeCheckCards.count == slots.count + 1,
+                    "The home tile must stay outside the slot store, got \(slots.count) slots for \(desktop.nativeCheckCards.count) cards")
+        guard let tile = desktop.nativeCheckCards.first, tile.isDesktopEntry, tile === desktop.nativeCheckDesktopCard else {
+            throw Failure.check("The Overview must start with the Desktop home tile")
+        }
+        try require(desktop.nativeCheckSelected != nil, "The Overview must open on a window, not the tile")
+        guard let firstWindow = slots.compactMap({ $0 }).first(where: { id in windows.contains { $0.id == id } }) else {
+            throw Failure.check("Missing a bound Overview slot")
+        }
+        desktop.nativeCheckSelect(.window(firstWindow))
+        try require(tile.nativeCheckLayerContents === fake.wallpaper, "The home tile must show the wallpaper")
+        CardView.invalidations = 0
+        desktop.navigate(.backward)
+        try require(desktop.nativeCheckSelectedTarget == .desktop && CardView.invalidations == 2,
+                    "Left from the first window must select the home tile with two redraws, redrew \(CardView.invalidations)")
+        try require(previews.selected == nil && previews.liveStreamCount == 0, "The home tile must never stream")
+        desktop.navigate(.forward)
+        try require(desktop.nativeCheckSelected == firstWindow, "Right from the tile must return to the first window")
+        desktop.navigateRow(.forward); desktop.navigateRow(.backward)
+        try require(desktop.nativeCheckSelectedTarget != nil, "Row navigation must keep a selection with the tile present")
+        _ = tile.sendAction(tile.action, to: tile.target)
+        try require(desktop.nativeCheckSelectedTarget == .desktop, "Clicking the home tile must select it")
+        desktop.nativeCheckQuery("document 12")
+        try require(!tile.matches && desktop.nativeCheckSelected?.number == 12, "A window search must dim the tile")
+        desktop.nativeCheckQuery("desktop")
+        try require(tile.matches && desktop.nativeCheckSelectedTarget == .desktop, "Searching desktop must select the tile")
+        try require(desktop.nativeCheckSlots == slots, "The home tile must not change slot order")
+        NSApp.sendEvent(key(desktop, code: 36, characters: "\r"))
+        try require(fake.activations == 3 && !desktop.isVisible, "Return on the home tile must run the Desktop action")
+        try require(desktop.nativeCheckPayloadCount == 0, "Dismissal must release the home tile's wallpaper")
+
+        // Overview Return on a window restores its app before focusing.
+        desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
+        await settle()
+        let overviewChoice = desktop.nativeCheckSelected
+        NSApp.sendEvent(key(desktop, code: 36, characters: "\r"))
+        try require(overviewChoice != nil && fake.focusPreparations.count == 2 && !desktop.isVisible,
+                    "Overview Return on a window must restore before focusing")
+
+        // Setting off: no Desktop anywhere.
+        fake.showsDesktopEntry = false
+        desktop.desktopStateChanged()
+        desktop.present(mode: .switcher, fromShortcut: true)
+        try require(!desktop.nativeCheckSwitcherTargets.contains(.desktop) && desktop.nativeCheckDesktopCard == nil,
+                    "With the setting off the switcher has no Desktop card")
+        desktop.dismiss(restorePreviousApplication: false)
+        desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
+        try require(desktop.nativeCheckCards.allSatisfy { !$0.isDesktopEntry } && desktop.nativeCheckSlots == slots,
+                    "With the setting off the Overview has no home tile and the same slots")
+        desktop.dismiss(restorePreviousApplication: false)
+        desktop.desktopEntry = nil
+        desktop.previews = nil
+        await settle()
+        print("PASS desktop entry")
+    }
+
+    // MARK: Display, lock and session lifecycle
+
+    /// AppKit rounds window frames to the backing grid.
+    static func sameSize(_ a: NSSize, _ b: NSSize) -> Bool { abs(a.width - b.width) <= 1 && abs(a.height - b.height) <= 1 }
+
+    @MainActor static func fits(_ window: NSWindow) -> NSScreen? {
+        NSScreen.screens.first { $0.visibleFrame.insetBy(dx: 15, dy: 15).contains(window.frame) }
+    }
+
+    /// Screen-parameter changes re-fit or close surfaces; lock, display sleep and session switches dismiss,
+    /// purge snapshots and refuse presentation until the session is back. Nothing here locks or reconfigures
+    /// the real displays: the workspace notifications are posted in-process and the lock path is invoked directly
+    /// (a distributed notification would reach other processes).
+    @MainActor static func checkLifecycle(_ desktop: DesktopController, service: WindowService,
+                                          records: (Int) -> [WindowRecord]) async throws {
+        print("START lifecycle")
+        let fake = FakeDesktopEntry()
+        desktop.desktopEntry = fake
+        service.nativeCheckInstall(records(20))
+        await settle()
+        let center = NotificationCenter.default
+
+        // Visible Overview knocked off its screen and resized: a parameter change re-fits it.
+        desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
+        await settle()
+        let overview = desktop.nativeCheckOverviewWindow
+        overview.setFrame(NSRect(x: -9000, y: -9000, width: 300, height: 200), display: false)
+        center.post(name: NSApplication.didChangeScreenParametersNotification, object: NSApp)
+        guard let overviewScreen = fits(overview) else { throw Failure.check("The Overview must be re-fitted inside a display") }
+        try require(sameSize(overview.frame.size, OverviewPanelController.contentSize(for: overviewScreen.visibleFrame)),
+                    "The re-fitted Overview must be sized for its display, got \(overview.frame) on \(overviewScreen.visibleFrame)")
+        try require(desktop.isOverviewVisible && fake.screenChanges == 1, "A parameter change must keep the Overview and drop cached wallpapers")
+        desktop.nativeCheckDetachPlacedScreen()
+        center.post(name: NSApplication.didChangeScreenParametersNotification, object: NSApp)
+        try require(!desktop.isVisible && outsideMonitors == 0, "A surface whose display disappeared must close")
+
+        // Held switcher: same re-fit.
+        desktop.present(mode: .switcher, fromShortcut: true)
+        let switcher = desktop.nativeCheckSwitcherWindow
+        let fitted = switcher.frame.size
+        switcher.setFrame(NSRect(x: -9000, y: -9000, width: 200, height: 100), display: false)
+        center.post(name: NSApplication.didChangeScreenParametersNotification, object: NSApp)
+        try require(fits(switcher) != nil && switcher.frame.size == fitted && desktop.isVisible,
+                    "The visible switcher must be re-fitted inside its display")
+        desktop.dismiss(restorePreviousApplication: false)
+
+        // Hidden panels are re-laid out for the pointer's display once the notification burst settles.
+        overview.setFrame(NSRect(x: -9000, y: -9000, width: 300, height: 200), display: false)
+        center.post(name: NSApplication.didChangeScreenParametersNotification, object: NSApp)
+        center.post(name: NSApplication.didChangeScreenParametersNotification, object: NSApp)
+        try await Task.sleep(for: .milliseconds(500))
+        guard let pointer = NSScreen.pointerScreen else { throw Failure.check("No screen") }
+        try require(sameSize(overview.frame.size, OverviewPanelController.contentSize(for: pointer.visibleFrame))
+                    && fits(overview) != nil && !overview.isVisible,
+                    "The hidden Overview must be re-sized for the pointer's display and stay hidden")
+        try await Task.sleep(for: .milliseconds(200))
+
+        // Lock with a visible surface and cached snapshots: dismiss, zero streams, purge, refuse until unlocked.
+        let previews = FakePreviews()
+        desktop.previews = previews
+        var purges = 0
+        desktop.onPrivacyPurge = { purges += 1; previews.cache.removeAll() }
+        desktop.present(mode: .switcher, fromShortcut: true)
+        guard let selected = desktop.nativeCheckSelected else { throw Failure.check("Missing a selection") }
+        previews.deliverSnapshot(fixtureImage(.systemRed), for: selected)
+        _ = previews.deliverLive(for: selected)
+        try require(previews.liveStreamCount == 1 && previews.cache.count == 1, "Lock fixture needs a stream and a cached snapshot")
+        desktop.nativeCheckReplaceSessionState { (locked: true, onConsole: true) }
+        desktop.suspend(.screenLocked)
+        try require(!desktop.isVisible && !previews.visible && previews.liveStreamCount == 0 && previews.budget.counts.current == 0,
+                    "Locking must close the surface and end the live stream")
+        try require(purges == 1 && previews.cache.count == 0 && desktop.nativeCheckPayloadCount == 0,
+                    "Locking must purge cached snapshots")
+        desktop.present(mode: .switcher, fromShortcut: true)
+        desktop.focusOverview()
+        try require(!desktop.isVisible, "No surface may open while the screen is locked")
+        desktop.resume(.screenLocked)
+        desktop.nativeCheckReplaceSessionState { (locked: false, onConsole: true) }
+        desktop.present(mode: .switcher, fromShortcut: true)
+        try require(desktop.isVisible, "Unlocking must allow surfaces again")
+        desktop.dismiss(restorePreviousApplication: false)
+
+        // Fast user switching and display sleep arrive as workspace notifications (posted in-process here).
+        let workspace = NSWorkspace.shared.notificationCenter
+        for (begin, end) in [(NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.sessionDidBecomeActiveNotification),
+                             (NSWorkspace.screensDidSleepNotification, NSWorkspace.screensDidWakeNotification)] {
+            desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
+            await settle()
+            let before = purges
+            desktop.nativeCheckReplaceSessionState { (locked: false, onConsole: false) }
+            workspace.post(name: begin, object: NSWorkspace.shared)
+            try require(!desktop.isVisible && purges == before + 1 && !previews.visible && outsideMonitors == 0,
+                        "\(begin.rawValue) must dismiss and purge")
+            desktop.focusOverview()
+            try require(!desktop.isVisible, "\(begin.rawValue) must refuse new surfaces")
+            workspace.post(name: end, object: NSWorkspace.shared)
+            desktop.nativeCheckReplaceSessionState { (locked: false, onConsole: true) }
+        }
+        // A missed unlock/wake notification heals itself: the session reports unlocked and on console.
+        desktop.suspend(.screenLocked)
+        desktop.present(mode: .switcher, fromShortcut: true)
+        try require(desktop.isVisible && desktop.suspensions.isEmpty, "A stale suspension must clear when the session is unlocked")
+        desktop.dismiss(restorePreviousApplication: false)
+        desktop.onPrivacyPurge = nil
+        desktop.previews = nil
+        desktop.desktopEntry = nil
+        await settle()
+        print("PASS lifecycle")
     }
 
     /// Synthetic, never-posted CGEvents go through the real tap callback and main-queue hop.

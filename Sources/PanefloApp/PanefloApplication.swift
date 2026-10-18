@@ -22,6 +22,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let shortcuts = GlobalShortcutService()
     private let capture = CaptureController()
     private let gestures = TrackpadGestureService.shared
+    /// Show Desktop for the switcher's Desktop card and the Overview home tile.
+    private let desktopService = DesktopService()
+    private var desktopEntry: DesktopEntryController?
     private let preferences = UserDefaults.standard
     private var startupShortcutRestorePending = false
     private var startupGestureRestorePending = false
@@ -36,6 +39,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         RuntimeDiagnostics.mark("delegate launched")
         let controller = DesktopController(service: windows)
         desktop = controller
+        let entry = DesktopEntryController(service: desktopService, settings: DesktopSettings())
+        desktopEntry = entry
+        controller.desktopEntry = entry
+        desktopService.onChange = { [weak controller] in controller?.desktopStateChanged() }
+        desktopService.start()
+        controller.setDesktopSettings(showsEntry: entry.showsDesktopEntry, usesSystemShowDesktop: entry.usesSystemShowDesktop)
+        controller.onToggleDesktopEntry = { [weak entry, weak controller] enabled in
+            entry?.showsDesktopEntry = enabled
+            controller?.desktopStateChanged()
+        }
+        controller.onToggleSystemShowDesktop = { [weak entry] enabled in entry?.usesSystemShowDesktop = enabled }
+        // Lock, display sleep and fast user switching: no window snapshot stays cached (the surface is closed and
+        // the live stream stopped by the dismissal itself).
+        controller.onPrivacyPurge = { [weak self] in self?.capture.purge(reason: "sessionSuspended") }
         windows.onChange = { [weak self, weak controller] in
             if let self, self.previewsEnabled { self.capture.windowsChanged(alive: Set(self.windows.snapshot.records.map(\.id))) }
             controller?.updateSnapshot()
@@ -312,5 +329,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func refreshWindows() { windows.refresh() }
     @objc private func showSample() { if sample == nil { sample = PreviewController() }; sample?.present(mode: 0) }
     @objc private func quit() { gestures.stop(); shortcuts.stop(); capture.stop(); desktop?.dismiss(); NSApp.terminate(nil) }
-    func applicationWillTerminate(_ notification: Notification) { gestures.stop(); shortcuts.stop(); capture.stop() }
+    func applicationWillTerminate(_ notification: Notification) {
+        gestures.stop(); shortcuts.stop(); capture.stop()
+        // Never leave apps hidden by a Desktop session behind when Paneflo quits.
+        desktopService.restoreAll()
+    }
 }

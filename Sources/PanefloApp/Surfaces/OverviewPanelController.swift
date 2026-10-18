@@ -1,8 +1,9 @@
 import AppKit
 import PanefloCore
 
-/// Paneflo's organized Overview: user-ordered slots in a dedicated, pre-sized,
-/// non-activating key panel. Registry changes while hidden are coalesced (at most one
+/// Paneflo's organized Overview: an optional Desktop home tile, then user-ordered slots in a
+/// dedicated, pre-sized, non-activating key panel. The home tile sits outside the slot store, so
+/// slot order, pins and bindings are unaffected by it. Registry changes while hidden are coalesced (at most one
 /// diff per second, and any pending change is applied on open); a dismissal never rebuilds.
 @MainActor
 final class OverviewPanelController: SurfacePanelController {
@@ -19,6 +20,9 @@ final class OverviewPanelController: SurfacePanelController {
     private var appliedQuery = ""
     private var appliedScreenFrame: NSRect?
     private var eligibleCache: [WindowIdentity]?
+    /// Grid cards before the first slot card: 1 while the Desktop home tile is displayed.
+    private var tileOffset = 0
+    private var homeTileMatches = true
     private var warmedWithCards = false
     private(set) var applyCount = 0
     /// Called once, after the first hidden diff that produced cards (launch warm-up).
@@ -49,19 +53,56 @@ final class OverviewPanelController: SurfacePanelController {
     // MARK: Presentation
 
     func present() {
-        guard let screen = panel.screen ?? NSScreen.main else { return }
+        guard let screen = NSScreen.pointerScreen else { return }
         beginPresentation()
         if !search.stringValue.isEmpty { search.stringValue = "" }
-        if screen.visibleFrame != appliedScreenFrame { snapshotDirty = true }
+        if screen.visibleFrame != appliedScreenFrame || wantsHomeTile != (tileOffset == 1) { snapshotDirty = true }
         if snapshotDirty { applySnapshot(screen: screen) }
         if appliedQuery != search.stringValue { updateMatches() }
         if !slots.slots.contains(where: { $0.id == selectedSlot && $0.binding != nil }) {
             selectedSlot = slots.slots.first(where: { $0.binding != nil })?.id
         }
-        select(slots.slots.first(where: { $0.id == selectedSlot })?.binding, notify: false)
+        // A window is selected first; the home tile is the selection only when no window is bound.
+        if let binding = slots.slots.first(where: { $0.id == selectedSlot })?.binding {
+            select(binding, notify: false)
+        } else {
+            select(target: tileOffset == 1 ? .desktop : nil, notify: false)
+        }
         place(contentSize: Self.contentSize(for: screen.visibleFrame), on: screen)
         orderFront(searchFocused: true)
-        if let id = selectedID, let card = cardsByWindow[id] { revealCard(card) }
+        if let target = selectedTarget, let card = card(for: target) { revealCard(card) }
+        showDesktopWallpaper()
+    }
+
+    private var wantsHomeTile: Bool { host?.showsDesktopHomeTile ?? false }
+
+    override func screenParametersChanged(to screen: NSScreen) {
+        appliedScreenFrame = nil
+        snapshotDirty = true
+        eligibleCache = nil
+        if isShown {
+            applySnapshot(screen: screen)
+            reconcileSelectionWithSearch()
+        } else {
+            // Size the pre-warmed panel for the new display and draw it once more off the input path.
+            place(contentSize: Self.contentSize(for: screen.visibleFrame), on: screen)
+            applySnapshot(screen: screen)
+            prewarm()
+        }
+    }
+
+    /// The Desktop setting or state changed: add/remove the home tile, or refresh its subtitle.
+    override func desktopStateChanged() {
+        guard wantsHomeTile == (tileOffset == 1) else {
+            snapshotDirty = true
+            if isShown, let screen = layoutScreen {
+                applySnapshot(screen: screen)
+                reconcileSelectionWithSearch()
+                showDesktopWallpaper()
+            }
+            return
+        }
+        super.desktopStateChanged()
     }
 
     /// Re-takes keyboard focus for an Overview that is already on screen. Never activates Paneflo.
@@ -74,7 +115,7 @@ final class OverviewPanelController: SurfacePanelController {
         snapshotDirty = true
         eligibleCache = nil
         if isShown {
-            guard let screen = panel.screen ?? NSScreen.main else { return }
+            guard let screen = layoutScreen else { return }
             applySnapshot(screen: screen)
             reconcileSelectionWithSearch()
             return
@@ -91,7 +132,7 @@ final class OverviewPanelController: SurfacePanelController {
             guard let self else { return }
             self.hiddenApplyScheduled = false
             guard self.snapshotDirty, !self.isShown, !NSApp.isHidden,
-                  let screen = self.panel.screen ?? NSScreen.main else { return }
+                  let screen = self.panel.screen ?? NSScreen.pointerScreen else { return }
             let started = ProcessInfo.processInfo.systemUptime
             self.lastHiddenApply = started
             self.applySnapshot(screen: screen)
@@ -132,16 +173,24 @@ final class OverviewPanelController: SurfacePanelController {
     private func applySlots() {
         guard let service else { return }
         let records = Dictionary(service.snapshot.records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let frame = appliedScreenFrame ?? (panel.screen ?? NSScreen.main)?.visibleFrame ?? .zero
-        grid.metrics = .init(columns: Self.columns(for: slots.slots.count, screenWidth: frame.width), cardHeight: Self.cardHeight(for: frame))
+        let frame = appliedScreenFrame ?? layoutScreen?.visibleFrame ?? .zero
+        let offset = wantsHomeTile ? 1 : 0
+        tileOffset = offset
+        if offset == 0, selectedTarget == .desktop { setSelectedTarget(nil) }
+        grid.metrics = .init(columns: Self.columns(for: slots.slots.count + offset, screenWidth: frame.width), cardHeight: Self.cardHeight(for: frame))
         let query = search.stringValue
         appliedQuery = query
         let matching = slots.matches(query: query, records: service.snapshot.records)
+        homeTileMatches = SwitcherSession.desktopMatches(query)
         let slotList = slots.slots
         let selected = selectedID
-        grid.apply(keys: slotList.map { AnyHashable($0.id) }) { card, index in
-            let slot = slotList[index]
+        let tileMatches = homeTileMatches
+        let keys = (offset == 1 ? [AnyHashable(SwitchTarget.desktop)] : []) + slotList.map { AnyHashable($0.id) }
+        grid.apply(keys: keys) { card, index in
+            guard index >= offset else { configureDesktopCard(card, matches: tileMatches); return }
+            let slot = slotList[index - offset]
             let record = slot.binding.flatMap { records[$0] }
+            card.isDesktopEntry = false
             card.record = record
             card.icon = record.flatMap { host?.icon(for: $0) }
             card.isVacancyPinned = slot.isPinned
@@ -152,7 +201,8 @@ final class OverviewPanelController: SurfacePanelController {
             card.matches = matches
             card.setEnabledIfChanged(matches || (record == nil && query.isEmpty))
         }
-        indexCards(slotList.map { slot in slot.binding.flatMap { records[$0] != nil ? $0 : nil } })
+        indexCards((offset == 1 ? [nil] : []) + slotList.map { slot in slot.binding.flatMap { records[$0] != nil ? $0 : nil } },
+                   desktopIndex: offset == 1 ? 0 : nil)
         eligibleCache = nil
         if slotList.isEmpty {
             grid.showEmpty(service.hasAccessibility ? "No eligible windows found. Open a normal application window, then refresh."
@@ -167,8 +217,10 @@ final class OverviewPanelController: SurfacePanelController {
         appliedQuery = query
         eligibleCache = nil
         let matching = slots.matches(query: query, records: service.snapshot.records)
-        for (index, card) in grid.cards.enumerated() where slots.slots.indices.contains(index) {
-            let matches = matching.contains(slots.slots[index].id)
+        homeTileMatches = SwitcherSession.desktopMatches(query)
+        if let desktopCard { desktopCard.matches = homeTileMatches; desktopCard.setEnabledIfChanged(homeTileMatches) }
+        for (index, card) in grid.cards.enumerated() where slots.slots.indices.contains(index - tileOffset) {
+            let matches = matching.contains(slots.slots[index - tileOffset].id)
             card.matches = matches
             card.setEnabledIfChanged(matches || (card.record == nil && query.isEmpty))
         }
@@ -189,8 +241,8 @@ final class OverviewPanelController: SurfacePanelController {
     }
 
     private func menu(for card: CardView) -> NSMenu? {
-        guard slots.slots.indices.contains(card.tag) else { return nil }
-        let slot = slots.slots[card.tag]
+        guard !card.isDesktopEntry, slots.slots.indices.contains(card.tag - tileOffset) else { return nil }
+        let slot = slots.slots[card.tag - tileOffset]
         let menu = NSMenu()
         for (title, action) in [("Move slot left", #selector(moveLeft(_:))), ("Move slot right", #selector(moveRight(_:))),
                                 (slot.isPinned ? "Unpin slot" : "Pin slot", #selector(togglePin(_:)))] {
@@ -210,35 +262,50 @@ final class OverviewPanelController: SurfacePanelController {
         return ids
     }
 
-    private func selectWindow(_ id: WindowIdentity?) {
-        selectedSlot = slots.slots.first(where: { $0.binding == id && $0.binding != nil })?.id
-        select(id)
+    override var isDesktopEligible: Bool { tileOffset == 1 && homeTileMatches }
+
+    /// Selectable targets in grid order: the home tile (when it matches), then matching bound slots.
+    private func eligibleTargets() -> [SwitchTarget] {
+        (isDesktopEligible ? [.desktop] : []) + eligibleSelectionIDs().map(SwitchTarget.window)
     }
 
+    /// The remembered slot follows window selections; the home tile or no selection clears it, so the next
+    /// presentation starts on the first window.
+    private func selectTarget(_ target: SwitchTarget?) {
+        let id = target?.windowID
+        selectedSlot = id.flatMap { id in slots.slots.first(where: { $0.binding == id })?.id }
+        select(target: target)
+    }
+
+    private func selectWindow(_ id: WindowIdentity?) { selectTarget(id.map(SwitchTarget.window)) }
+
     private func reconcileSelectionWithSearch() {
-        let eligible = eligibleSelectionIDs()
-        if selectedID.map({ eligible.contains($0) }) != true { selectWindow(eligible.first) }
-        else { select(selectedID) }
+        guard let selectedTarget, isEligible(selectedTarget) else {
+            // Prefer a window; the home tile when it is the only match (for example "desktop").
+            selectTarget(eligibleSelectionIDs().first.map(SwitchTarget.window) ?? (isDesktopEligible ? .desktop : nil))
+            return
+        }
+        select(target: selectedTarget)
     }
 
     override func navigate(_ direction: CycleDirection) {
         guard isShown else { return }
-        let eligible = eligibleSelectionIDs()
-        if let current = selectedID, let index = eligible.firstIndex(of: current), !eligible.isEmpty {
-            selectWindow(eligible[(index + (direction == .forward ? 1 : eligible.count - 1)) % eligible.count])
+        let eligible = eligibleTargets()
+        if let current = selectedTarget, let index = eligible.firstIndex(of: current), !eligible.isEmpty {
+            selectTarget(eligible[(index + (direction == .forward ? 1 : eligible.count - 1)) % eligible.count])
         } else {
-            selectWindow(direction == .forward ? eligible.first : eligible.last)
+            selectTarget(direction == .forward ? eligible.first : eligible.last)
         }
     }
 
     override func navigateRows(_ delta: Int) {
         guard isShown else { return }
-        let bindings = slotBindings
-        let eligible = Set(eligibleSelectionIDs())
-        let indices = bindings.indices.filter { bindings[$0].map { eligible.contains($0) } ?? false }
-        let current = bindings.firstIndex(where: { $0 != nil && $0 == selectedID })
-        if let next = GridNavigation.vertical(from: current, columns: grid.metrics.columns, count: bindings.count, eligible: indices, direction: delta) {
-            selectWindow(bindings[next])
+        let positions: [SwitchTarget?] = (tileOffset == 1 ? [.desktop] : []) + slotBindings.map { $0.map(SwitchTarget.window) }
+        let eligible = Set(eligibleTargets())
+        let indices = positions.indices.filter { positions[$0].map(eligible.contains) ?? false }
+        let current = positions.firstIndex(where: { $0 != nil && $0 == selectedTarget })
+        if let next = GridNavigation.vertical(from: current, columns: grid.metrics.columns, count: positions.count, eligible: indices, direction: delta) {
+            selectTarget(positions[next])
         }
     }
 
@@ -248,8 +315,9 @@ final class OverviewPanelController: SurfacePanelController {
     }
 
     override func cardSelected(_ card: CardView) {
-        guard slots.slots.indices.contains(card.tag) else { return }
-        selectedSlot = slots.slots[card.tag].id
+        if card.isDesktopEntry { select(target: .desktop); return }
+        guard slots.slots.indices.contains(card.tag - tileOffset) else { return }
+        selectedSlot = slots.slots[card.tag - tileOffset].id
         select(card.record?.id)
     }
 
@@ -260,12 +328,15 @@ final class OverviewPanelController: SurfacePanelController {
         slots.move(slotID: selectedSlot, to: index + delta); saveSlots(); applySlots(); select(selectedID)
     }
 
-    private func moveDraggedSlot(from index: Int, at point: NSPoint) {
+    private func moveDraggedSlot(from cardIndex: Int, at point: NSPoint) {
+        let index = cardIndex - tileOffset
         guard slots.slots.indices.contains(index), !grid.cards.isEmpty else { return }
-        let target = grid.cards.indices.min { a, b in
+        let nearest = grid.cards.indices.min { a, b in
             let ar = grid.cards[a].convert(grid.cards[a].bounds, to: nil), br = grid.cards[b].convert(grid.cards[b].bounds, to: nil)
             return hypot(ar.midX - point.x, ar.midY - point.y) < hypot(br.midX - point.x, br.midY - point.y)
         }!
+        // Dropping on the home tile moves the slot to the front; the tile itself never moves.
+        let target = max(0, nearest - tileOffset)
         let id = slots.slots[index].id
         selectedSlot = id
         setSelectedID(slots.slots[index].binding)

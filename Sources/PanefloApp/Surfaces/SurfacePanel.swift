@@ -41,6 +41,15 @@ protocol SurfaceHost: AnyObject {
     func surfaceActivate(_ id: WindowIdentity)
     func surfaceTile(_ zone: LayoutZone)
     func surfaceUndo()
+    /// Loop mode for a new switcher session (`.hidden` without a Desktop entry).
+    var desktopLoopMode: DesktopLoopMode { get }
+    /// Whether the Overview shows its Desktop home tile.
+    var showsDesktopHomeTile: Bool { get }
+    var desktopIsCurrent: Bool { get }
+    /// The Desktop entry was chosen.
+    func surfaceActivateDesktop()
+    /// Puts the current wallpaper on a visible surface's Desktop card (cached image at once, refresh later).
+    func surfaceShowWallpaper(_ card: CardView, on surface: SurfacePanelController)
 }
 
 /// Shared chrome, keyboard handling, selection and preview plumbing for one pre-created panel.
@@ -55,9 +64,16 @@ class SurfacePanelController: NSObject, NSSearchFieldDelegate, NSWindowDelegate 
     private(set) var grid: CardGrid!
     let failureFeedback = NSTextField(wrappingLabelWithString: "")
     let keyboardHint = NSTextField(labelWithString: "")
-    private(set) var selectedID: WindowIdentity?
+    /// The selected window or the Desktop entry.
+    private(set) var selectedTarget: SwitchTarget?
+    /// The selected window; nil while nothing or the Desktop entry is selected.
+    var selectedID: WindowIdentity? { selectedTarget?.windowID }
     /// Window → card for the cards on display, refreshed after every grid diff.
     private(set) var cardsByWindow: [WindowIdentity: CardView] = [:]
+    /// The Desktop entry's card while one is displayed.
+    private(set) var desktopCard: CardView?
+    /// The screen the panel was last placed on (the pointer's screen at presentation).
+    private(set) var placedScreen: NSScreen?
     private(set) var layoutFeedback: [WindowIdentity: String] = [:]
     /// Cards whose previews the engine should keep current; rebuilt after a diff, scroll or search.
     private var previewCandidates: [PreviewCard]?
@@ -162,6 +178,14 @@ class SurfacePanelController: NSObject, NSSearchFieldDelegate, NSWindowDelegate 
     /// Window identities that can be selected under the current search.
     func eligibleSelectionIDs() -> [WindowIdentity] { [] }
     func isEligible(_ id: WindowIdentity) -> Bool { eligibleSelectionIDs().contains(id) }
+    /// The Desktop entry is displayed and matches the current search.
+    var isDesktopEligible: Bool { false }
+    func isEligible(_ target: SwitchTarget) -> Bool {
+        switch target {
+        case .window(let id): isEligible(id)
+        case .desktop: isDesktopEligible
+        }
+    }
     func navigate(_ direction: CycleDirection) {}
     func navigateRows(_ delta: Int) {}
     func searchChanged() {}
@@ -170,9 +194,19 @@ class SurfacePanelController: NSObject, NSSearchFieldDelegate, NSWindowDelegate 
     /// Plain ←/→ in the search field move the selection (only when the query is empty).
     var linearArrowsLeaveSearch: Bool { false }
     func activateSelected() {
-        guard let id = selectedID, isEligible(id) else { return }
-        host?.surfaceActivate(id)
+        guard let target = selectedTarget, isEligible(target) else { return }
+        activate(target)
     }
+
+    func activate(_ target: SwitchTarget) {
+        switch target {
+        case .window(let id): host?.surfaceActivate(id)
+        case .desktop: host?.surfaceActivateDesktop()
+        }
+    }
+
+    /// Display configuration changed. Re-fits a visible panel to `screen`; prepares a hidden one for it.
+    func screenParametersChanged(to screen: NSScreen) {}
 
     // MARK: Presentation
 
@@ -236,30 +270,66 @@ class SurfacePanelController: NSObject, NSSearchFieldDelegate, NSWindowDelegate 
 
     // MARK: Selection and content
 
-    /// Records the grid's cards for window lookups after a diff.
-    func indexCards(_ ids: [WindowIdentity?]) {
+    /// Records the grid's cards for window lookups after a diff. `desktopIndex` is the Desktop entry's position.
+    func indexCards(_ ids: [WindowIdentity?], desktopIndex: Int? = nil) {
         var map: [WindowIdentity: CardView] = [:]
         map.reserveCapacity(ids.count)
         for (id, card) in zip(ids, grid.cards) { if let id { map[id] = card } }
         cardsByWindow = map
+        desktopCard = desktopIndex.flatMap { grid.cards.indices.contains($0) ? grid.cards[$0] : nil }
         previewCandidates = nil
     }
 
+    func card(for target: SwitchTarget) -> CardView? {
+        switch target {
+        case .window(let id): cardsByWindow[id]
+        case .desktop: desktopCard
+        }
+    }
+
     /// Moves the selection: only the previous and new cards change appearance.
-    func select(_ id: WindowIdentity?, notify: Bool = true) {
-        let previous = selectedID
-        selectedID = id
+    func select(_ id: WindowIdentity?, notify: Bool = true) { select(target: id.map(SwitchTarget.window), notify: notify) }
+
+    func select(target: SwitchTarget?, notify: Bool = true) {
+        let previous = selectedTarget
+        selectedTarget = target
         // Preview content follows engine updates; the outgoing card keeps its last frame, relabelled.
-        if let previous, previous != id, let card = cardsByWindow[previous] { card.selected = false }
-        if let id, let card = cardsByWindow[id] {
+        if let previous, previous != target, let card = card(for: previous) { card.selected = false }
+        if let target, let card = card(for: target) {
             card.selected = true
             if isShown { revealCard(card) }
         }
         if notify { host?.surfaceSelectionChanged(self) }
     }
 
-    /// Sets `selectedID` without touching cards (used before a diff that configures them).
-    func setSelectedID(_ id: WindowIdentity?) { selectedID = id }
+    /// Sets the selection without touching cards (used before a diff that configures them).
+    func setSelectedID(_ id: WindowIdentity?) { selectedTarget = id.map(SwitchTarget.window) }
+    func setSelectedTarget(_ target: SwitchTarget?) { selectedTarget = target }
+
+    /// Configures a grid card as the Desktop entry. Its wallpaper is applied by `showDesktopWallpaper` once shown.
+    func configureDesktopCard(_ card: CardView, matches: Bool = true) {
+        card.record = nil
+        card.isDesktopEntry = true
+        card.desktopIsCurrent = host?.desktopIsCurrent ?? false
+        card.icon = nil
+        card.isVacancyPinned = false
+        card.dragEnabled = false
+        card.layoutBadge = nil
+        card.selected = selectedTarget == .desktop
+        card.matches = matches
+        card.setEnabledIfChanged(matches)
+    }
+
+    /// Visible surfaces only: hidden cards hold no pixels, wallpaper included.
+    func showDesktopWallpaper() {
+        guard isShown, let desktopCard else { return }
+        host?.surfaceShowWallpaper(desktopCard, on: self)
+    }
+
+    /// The Desktop state changed (shown, restored, setting toggled) while this surface may be visible.
+    func desktopStateChanged() {
+        desktopCard?.desktopIsCurrent = host?.desktopIsCurrent ?? false
+    }
 
     func revealCard(_ card: CardView) {
         let visible = scroll.contentView.documentVisibleRect
@@ -325,7 +395,7 @@ class SurfacePanelController: NSObject, NSSearchFieldDelegate, NSWindowDelegate 
     // MARK: Input
 
     @objc private func cardClicked(_ card: CardView) { cardSelected(card) }
-    private func cardDoubleClicked(_ id: WindowIdentity) { select(id, notify: false); activateSelected() }
+    private func cardDoubleClicked(_ target: SwitchTarget) { select(target: target, notify: false); activateSelected() }
 
     func controlTextDidChange(_ notification: Notification) {
         host?.surfaceKeyboardChanged(self)
@@ -395,19 +465,42 @@ class SurfacePanelController: NSObject, NSSearchFieldDelegate, NSWindowDelegate 
         min(max(1, min(4, Int((screenWidth - 60) / 190))), max(1, count))
     }
 
-    /// Resizes and places the panel only when its size or screen changed.
+    /// The display the panel was last placed on.
+    var placedDisplayID: CGDirectDisplayID? {
+        #if PANEFLO_NATIVE_CHECK
+        if nativeCheckDetached { return CGDirectDisplayID.max }
+        #endif
+        return placedScreen?.displayID
+    }
+
+    #if PANEFLO_NATIVE_CHECK
+    private var nativeCheckDetached = false
+    func nativeCheckForgetPlacedScreen() { nativeCheckDetached = true }
+    #endif
+
+    /// The screen for layout decisions: where the panel was placed, else the pointer's screen.
+    var layoutScreen: NSScreen? { placedScreen ?? NSScreen.pointerScreen }
+
+    /// Resizes and places the panel only when its size or screen changed. A resized panel, or one outside
+    /// `screen`, is centred on `screen` (slightly above centre, like `NSWindow.center()`), never on its old screen.
     func place(contentSize: NSSize, on screen: NSScreen) {
+        placedScreen = screen
+        #if PANEFLO_NATIVE_CHECK
+        nativeCheckDetached = false
+        #endif
         let usable = screen.visibleFrame.insetBy(dx: 16, dy: 16)
-        if panel.contentRect(forFrameRect: panel.frame).size != contentSize {
-            panel.setContentSize(contentSize)
-            panel.contentView?.layoutSubtreeIfNeeded()
-            panel.center()
-        } else if !usable.contains(panel.frame) {
-            panel.center()
-        }
+        let size = panel.frameRect(forContentRect: NSRect(origin: .zero, size: contentSize)).size
         var frame = panel.frame
+        let resized = frame.size != size
+        frame.size = size
+        if resized || !usable.contains(panel.frame) {
+            frame.origin.x = (usable.midX - size.width / 2).rounded()
+            frame.origin.y = (usable.minY + (usable.height - size.height) * 0.6).rounded()
+        }
         frame.origin.x = min(max(frame.minX, usable.minX), usable.maxX - frame.width)
         frame.origin.y = min(max(frame.minY, usable.minY), usable.maxY - frame.height)
-        if frame != panel.frame { panel.setFrame(frame, display: false) }
+        guard frame != panel.frame else { return }
+        panel.setFrame(frame, display: false)
+        if resized { panel.contentView?.layoutSubtreeIfNeeded() }
     }
 }

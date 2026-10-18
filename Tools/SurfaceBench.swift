@@ -116,6 +116,12 @@ struct SurfaceBench {
         desktop.onPreviewSelection = { _, _, _ in }
         desktop.onThumbnailViewport = { _, _, _ in }
         #endif
+        #if SURFACE_BENCH_DESKTOP
+        // As in the app with the default setting: a Desktop card ends the switcher loop and the Overview starts
+        // with the home tile, both showing a cached wallpaper. Nothing is hidden or focused.
+        let desktopEntry = SyntheticDesktopEntry()
+        desktop.desktopEntry = desktopEntry
+        #endif
         desktop.onVisibilityChanged = { _ in }
         desktop.onSurfaceVisibilityChanged = { _ in }
         desktop.onCompositionChanged = { _ in }
@@ -211,6 +217,26 @@ struct SurfaceBench {
         await settle(1000)
         recorder.add("hidden.idle.busy1s", final.stop())
     }
+
+    #if SURFACE_BENCH_DESKTOP
+    @MainActor final class SyntheticDesktopEntry: DesktopEntryProvider {
+        let showsDesktopEntry = true
+        let isDesktopShown = false
+        private let wallpaper: CGImage? = {
+            let context = CGContext(data: nil, width: 640, height: 400, bitsPerComponent: 8, bytesPerRow: 640 * 4,
+                                    space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                    bitmapInfo: CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue)
+            context?.setFillColor(CGColor(red: 0.3, green: 0.5, blue: 0.4, alpha: 1))
+            context?.fill(CGRect(x: 0, y: 0, width: 640, height: 400))
+            return context?.makeImage()
+        }()
+        func activateDesktopEntry() {}
+        func prepareToFocus(pid: pid_t, then focus: @escaping @MainActor () -> Void) {}
+        func cachedWallpaper(for screen: NSScreen) -> CGImage? { wallpaper }
+        func refreshWallpaper(for screen: NSScreen, completion: @escaping @MainActor (CGImage?) -> Void) {}
+        func screensChanged() {}
+    }
+    #endif
 
     #if SURFACE_BENCH_PREVIEWS
     /// Mirrors the engine's synchronous behaviour: each visible card is emitted once per session

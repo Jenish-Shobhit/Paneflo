@@ -155,4 +155,13 @@ struct DesktopLoopTests {
         let r7 = session.commitTarget()
         #expect(r7 == nil)
     }
+
+    @Test
+    func testDesktopMatchesUsesWindowSearchRules() {
+        #expect(SwitcherSession.desktopMatches(""))
+        #expect(SwitcherSession.desktopMatches("desk"))
+        #expect(SwitcherSession.desktopMatches("DÉSKTOP"))
+        #expect(!SwitcherSession.desktopMatches("document 12"))
+        #expect(!SwitcherSession.desktopMatches("desk notes"))
+    }
 }
