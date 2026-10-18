@@ -1,0 +1,77 @@
+name: Bug report
+description: Something in Paneflo doesn't work as it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Security problems go through a [private advisory](https://github.com/Jenish-Shobhit/Paneflo/security/advisories/new), not here.
+        Please don't paste real window titles or screenshots of private content.
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      description: Apple menu > About This Mac.
+      placeholder: macOS 26.1
+    validations:
+      required: true
+  - type: input
+    id: paneflo
+    attributes:
+      label: Paneflo version
+      description: Paneflo's menu bar icon > About Paneflo.
+      placeholder: 1.1.0 (2)
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Switcher (Command-Tab)
+        - Tiling or tiled pairs
+        - Overview or three-finger gesture
+        - Desktop entry
+        - Previews
+        - Setup or permissions
+        - Settings
+        - Menu bar
+        - Updates
+        - Install or launch
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Exactly what you did, one step per line.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual
+      description: What happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: setup
+    attributes:
+      label: Setup
+      description: Number and kind of displays, apps involved, Spaces or full-screen use, which permissions are granted, and Reduce Motion or Reduce Transparency.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I'm on the latest release.
+          required: true
+        - label: I searched the existing issues.
+          required: true
