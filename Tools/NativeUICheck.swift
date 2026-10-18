@@ -377,8 +377,9 @@ struct NativeUICheck {
                             "General offers the switcher's Card size and Show selected window title, saw \(texts.prefix(24))")
             }
             if pane == .overviewGesture {
-                try require(texts.contains("Show free slots") && texts.contains("Remove Free Slots") && texts.contains("Reset Slot Order…"),
-                            "Overview & Gesture offers Show free slots, Remove Free Slots and Reset Slot Order…, saw \(texts.prefix(24))")
+                try require(texts.contains { $0.contains("Keep empty places for closed windows") } && texts.contains("Reset Slot Order…")
+                            && !texts.contains("Show free slots") && !texts.contains("Remove Free Slots"),
+                            "Overview & Gesture offers Keep empty places (Off: no Remove Free Slots) and Reset Slot Order…, saw \(texts.prefix(24))")
             }
             if pane == .help {
                 try require(texts.contains("Open it alone, without its tile partner") && texts.contains("In Overview: open the selected window alone")
@@ -409,7 +410,7 @@ struct NativeUICheck {
         defer { defaults.removePersistentDomain(forName: suite) }
         let preferences = SetupPreferences(defaults: defaults)
         let menu = StatusMenuController(preferences: preferences)
-        let common = ["Switch Windows…", "Arrange Windows…", "Overview", "Pause Shortcuts", "Refresh Window List",
+        let common = ["Switch Windows…", "Tile Front Window", "Overview", "Pause Shortcuts", "Refresh Window List",
                       "Settings…", "Check for Updates…", "About Paneflo", "Quit Paneflo"]
         menu.update(status: .setupNeeded, shortcutsWanted: true)
         var titles = menu.nativeCheckMenuTitles()
@@ -417,7 +418,8 @@ struct NativeUICheck {
         try require(menu.iconState == .setupNeeded, "Setup needed badges the icon")
         menu.update(status: .ready, shortcutsWanted: true)
         titles = menu.nativeCheckMenuTitles()
-        try require(titles == ["⌘Tab is ready"] + common, "Ready menu, saw \(titles)")
+        let withHide = common.filter { $0 != "Quit Paneflo" } + ["Hide from Menu Bar", "Quit Paneflo"]
+        try require(titles == ["⌘Tab is ready"] + withHide, "Ready menu (with Hide from Menu Bar), saw \(titles)")
         try require(menu.iconState == .normal, "Ready shows the plain icon")
         menu.update(status: .paused, shortcutsWanted: false)
         titles = menu.nativeCheckMenuTitles()
@@ -431,11 +433,21 @@ struct NativeUICheck {
                     && keys["Overview"].map { $0.0 == " " && $0.1 == [.control, .option] } == true,
                     "Menu key equivalents must match the spec")
         try require(menu.nativeCheckItemsWithoutSymbol.isEmpty, "Every actionable menu item has a symbol: \(menu.nativeCheckItemsWithoutSymbol)")
-        try require(!titles.contains("Developer"), "Developer fixtures stay out of the normal menu")
-        menu.showsDeveloperFixtures = true
-        try require(menu.nativeCheckMenuTitles().contains("Developer") && menu.nativeCheckDeveloperTitles == ["Synthetic Developer Fixtures"],
-                    "Diagnostics builds add the Developer submenu")
-        menu.showsDeveloperFixtures = false
+        try require(!titles.contains("Developer") && !titles.contains("Arrange Windows…"), "No Arrange list and no developer sample window")
+        // Tile Front Window: only the arrangements that exist, with the ⌃⌥ chords the shortcut table routes.
+        let tileItems = menu.nativeCheckTileItems
+        let arrows = [NSLeftArrowFunctionKey, NSRightArrowFunctionKey, NSUpArrowFunctionKey, NSDownArrowFunctionKey]
+            .map { String(UnicodeScalar($0)!) }
+        try require(tileItems.map(\.0) == ["Left Half", "Right Half", "Top Half", "Bottom Half", "Fill", "Undo"]
+                    && tileItems.map(\.1) == arrows + ["\r", "z"] && tileItems.allSatisfy { $0.2 == [.control, .option] },
+                    "Tile Front Window lists the ⌃⌥ arrangements, saw \(tileItems.map(\.0))")
+        var tiled: [LayoutZone] = []
+        var undone = 0
+        menu.onTile = { tiled.append($0) }
+        menu.onUndoTile = { undone += 1 }
+        for title in ["Left Half", "Right Half", "Top Half", "Bottom Half", "Fill", "Undo"] { menu.nativeCheckChooseTileItem(title) }
+        try require(tiled == [.leftHalf, .rightHalf, .topHalf, .bottomHalf, .maximize] && undone == 1,
+                    "Each Tile Front Window item runs its arrangement, got \(tiled) undo=\(undone)")
 
         // Icon images: 18 pt, template except the badge, drawn at 1x and 2x.
         for iconState in [MenuBarIcon.State.normal, .setupNeeded, .paused] {
@@ -467,28 +479,67 @@ struct NativeUICheck {
             }
         }
 
-        // Hide/show round trip: Settings asks (a sheet), the menu persists it, Settings mirrors it.
-        @MainActor final class HideAnswer { var confirm = false; var count = 0 }
+        // Hide from Menu Bar: the menu item and the Settings switch share one flow. It asks (with Don't show this again),
+        // the menu persists it, Settings mirrors it; reopening and attention bring it back.
+        @MainActor final class HideAnswer { var confirm = false; var dontAsk = false; var count = 0 }
         let answer = HideAnswer()
         let sheetConfirm = settings.confirmHideIcon
-        settings.confirmHideIcon = { reply in answer.count += 1; reply(answer.confirm) }
+        settings.confirmHideIcon = { reply in answer.count += 1; reply(answer.confirm, answer.dontAsk) }
         menu.onIconVisibilityChanged = { settings.setMenuBarIconVisible($0) }
         let previousIcon = settings.onToggleMenuBarIcon
+        let previousRequest = settings.onRequestHideMenuBarIcon
+        // The same decision the app makes in `requestHideMenuBarIcon`.
+        let requestHide: @MainActor () -> Void = {
+            switch menu.hideStep {
+            case .refuse: break
+            case .hide: menu.hide(dontAskAgain: false)
+            case .confirm: settings.confirmHideIcon { ok, dontAsk in if ok { menu.hide(dontAskAgain: dontAsk) } }
+            }
+        }
+        menu.onHideRequested = requestHide
+        settings.onRequestHideMenuBarIcon = requestHide
         settings.onToggleMenuBarIcon = { menu.setIconVisible($0) }
+        menu.update(status: .ready, shortcutsWanted: true)
+        try require(menu.nativeCheckMenuTitles().contains("Hide from Menu Bar"), "The menu offers Hide from Menu Bar")
         settings.setMenuBarIconVisible(true)
         settings.nativeCheckPerform(.setMenuBarIcon(false))
         try require(answer.count == 1 && menu.isIconVisible && !preferences.menuBarIconHidden && settings.model.menuBarIconVisible,
                     "Cancelling the hide confirmation must keep the icon and the toggle")
         answer.confirm = true
-        settings.nativeCheckPerform(.setMenuBarIcon(false))
+        menu.nativeCheckChooseHide()
         try require(answer.count == 2 && !menu.isIconVisible && !settings.model.menuBarIconVisible,
-                    "Confirming must hide the icon and clear Show menu bar icon")
+                    "Confirming Hide from Menu Bar must hide the icon and clear Show menu bar icon")
         try require(SetupPreferences(defaults: defaults).menuBarIconHidden && !StatusMenuController(preferences: SetupPreferences(defaults: defaults)).isIconVisible,
                     "The hidden icon must persist across launches")
+        try require(menu.reopened() && menu.isIconVisible && settings.model.menuBarIconVisible && !menu.reopened(),
+                    "Reopening Paneflo must bring the icon back once")
+        // Don't show this again: the next hide does not ask.
+        answer.dontAsk = true
+        menu.nativeCheckChooseHide()
+        try require(answer.count == 3 && !menu.isIconVisible && preferences.menuBarHideConfirmationSkipped, "Don't show this again must be saved")
         settings.nativeCheckPerform(.setMenuBarIcon(true))
-        try require(answer.count == 2 && menu.isIconVisible && !SetupPreferences(defaults: defaults).menuBarIconHidden
+        try require(answer.count == 3 && menu.isIconVisible && !SetupPreferences(defaults: defaults).menuBarIconHidden
                     && settings.model.menuBarIconVisible, "Show menu bar icon must bring it back without asking")
-        // The real confirmation is a sheet on Settings, not an app-modal alert.
+        menu.nativeCheckChooseHide()
+        try require(answer.count == 3 && !menu.isIconVisible, "With Don't show this again, Hide from Menu Bar hides at once")
+        // Attention: setup needed brings a hidden icon back, and hiding is refused (and not offered) meanwhile.
+        var restoredFor: [MenuBarIconPolicy.Attention] = []
+        menu.onRestoredForAttention = { restoredFor.append($0) }
+        menu.update(status: .setupNeeded, shortcutsWanted: true)
+        try require(menu.isIconVisible && settings.model.menuBarIconVisible && restoredFor == [.setupNeeded],
+                    "Setup needed must bring a hidden icon back")
+        try require(menu.hideStep == .refuse && !menu.nativeCheckMenuTitles().contains("Hide from Menu Bar"),
+                    "Hide from Menu Bar is not offered while setup is needed")
+        menu.nativeCheckChooseHide()
+        try require(menu.isIconVisible, "Hiding is refused while something needs attention")
+        menu.update(status: .ready, shortcutsWanted: true)
+        menu.hide(dontAskAgain: false)
+        menu.update(status: .starting, shortcutsWanted: true, shortcutsStopped: true)
+        try require(menu.isIconVisible && restoredFor == [.setupNeeded, .shortcutsStopped], "Shortcuts stopped by macOS bring the icon back")
+        menu.update(status: .ready, shortcutsWanted: true)
+        preferences.menuBarHideConfirmationSkipped = false
+        menu.onRestoredForAttention = nil
+        // The real confirmation is a sheet on Settings (with the checkbox), not an app-modal alert.
         settings.confirmHideIcon = sheetConfirm
         settings.show(pane: .general)
         await settle()
@@ -497,9 +548,17 @@ struct NativeUICheck {
         guard let window = settings.nativeCheckWindow, let sheet = window.attachedSheet else {
             throw Failure.check("Hiding the icon must ask in a sheet on Settings")
         }
+        func viewTexts(_ view: NSView) -> [String] {
+            let own = (view as? NSButton)?.title ?? (view as? NSTextField)?.stringValue
+            return (own.map { [$0] } ?? []) + view.subviews.flatMap(viewTexts)
+        }
+        let sheetTexts = sheet.contentView.map(viewTexts) ?? []
+        try require(sheetTexts.contains(SettingsWindowController.hideDetail) && sheetTexts.contains("Don’t show this again"),
+                    "The confirmation explains how to come back and offers Don't show this again, saw \(sheetTexts)")
         window.endSheet(sheet, returnCode: .alertSecondButtonReturn)
         await settle()
         try require(menu.isIconVisible && settings.model.menuBarIconVisible, "Cancel in the sheet keeps the icon")
+        settings.onRequestHideMenuBarIcon = previousRequest
         settings.onToggleMenuBarIcon = previousIcon
         try await snapshot(settings.nativeCheckWindow, "native-settings.png")
         settings.nativeCheckWindow?.close()
@@ -514,7 +573,7 @@ struct NativeUICheck {
     @MainActor static func checkSurfaceSettings(_ desktop: DesktopController) async throws {
         let settings = desktop.settingsController
         let defaults = UserDefaults.standard
-        let keys = SurfacePreferences.Option.allCases.map(\.key) + [SurfacePreferences.Key.cardSize]
+        let keys = SurfacePreferences.Option.allCases.map(\.key) + [SurfacePreferences.Key.cardSize, SurfacePreferences.Key.freeSlots]
         defer { for key in keys { defaults.removeObject(forKey: key) } }
         for key in keys { defaults.removeObject(forKey: key) }
         await settle()
@@ -565,7 +624,7 @@ struct NativeUICheck {
                     "Automatic must be written back")
 
         // Tile pairs and Overview toggles reach the coordinator.
-        for option in [SurfacePreferences.Option.sideBySide, .snapAssist, .showsFreeSlots, .raiseTogether] {
+        for option in [SurfacePreferences.Option.sideBySide, .snapAssist, .raiseTogether] {
             settings.nativeCheckPerform(.setSurfaceOption(option, false))
             await settle()
             try require(!desktop.preferences[option] && !settings.model.surface[option], "\(option) off must reach the surfaces")
@@ -574,6 +633,14 @@ struct NativeUICheck {
             try require(desktop.preferences[option], "\(option) on must reach the surfaces")
         }
         try require(desktop.pairs.raiseTogether, "Raise together follows the same key")
+        // Keep empty places: Off by default; each choice reaches the Overview's preferences.
+        try require(desktop.preferences.freeSlots == .off && settings.model.surface.freeSlots == .off, "Free slots default to Off")
+        for retention in [FreeSlotRetention.untilQuit, .always, .off] {
+            settings.nativeCheckPerform(.setFreeSlots(retention))
+            await settle()
+            try require(desktop.preferences.freeSlots == retention && defaults.string(forKey: SurfacePreferences.Key.freeSlots) == retention.rawValue,
+                        "Keep empty places \(retention) must reach the Overview")
+        }
 
         // Remove Free Slots reports what it did; Reset Slot Order asks first.
         settings.nativeCheckPerform(.removeFreeSlots)
@@ -974,10 +1041,7 @@ struct NativeUICheck {
         desktop.nativeCheckQuery("")
         desktop.dismiss(restorePreviousApplication: false)
 
-        // Arrange mode shows no previews; turning previews off detaches and clears.
-        desktop.present(mode: .tiling)
-        try require(!previews.visible, "Arrange mode must not report preview cards")
-        desktop.dismiss(restorePreviousApplication: false)
+        // Turning previews off detaches and clears.
         desktop.present(mode: .switcher, fromShortcut: true)
         try require(previews.visible, "Fixture needs a visible preview session")
         desktop.previews = nil
@@ -1094,8 +1158,6 @@ struct NativeUICheck {
                     "A Desktop card rebuilt by search must show the wallpaper")
         NSApp.sendEvent(key(desktop, code: 36, characters: "\r"))
         try require(fake.activations == 2 && !desktop.isVisible, "Return on the Desktop must run the Desktop action")
-        desktop.present(mode: .tiling)
-        try require(!desktop.nativeCheckSwitcherTargets.contains(.desktop), "Arrange lists windows only")
         desktop.dismiss(restorePreviousApplication: false)
         await settle()
 
@@ -1296,17 +1358,17 @@ struct NativeUICheck {
         }
         desktop.dismiss(restorePreviousApplication: false)
 
-        // Overview: closing window 5 leaves a free slot in place.
+        // Overview: a window closing while the Overview is up leaves a free slot in place; nothing moves under the pointer.
         desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
         await settle()
-        desktop.dismiss(restorePreviousApplication: false)
+        let open = desktop.nativeCheckSlots
         service.nativeCheckInstall(all.filter { $0.id != all[4].id })
         await settle()
-        desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
-        await settle()
+        try require(desktop.nativeCheckSlots == open.map { $0 == all[4].id ? nil : $0 },
+                    "Positions must hold while the Overview is open, got \(desktop.nativeCheckSlots)")
         let overview = desktop.nativeCheckOverview
         guard let free = desktop.nativeCheckCards.first(where: { $0.record == nil && !$0.isDesktopEntry }) else {
-            throw Failure.check("A closed window must leave a free slot")
+            throw Failure.check("A window closed during the session must leave a free slot")
         }
         try require(free.nativeCheckVacancyLabel == "Free slot" && free.accessibilityLabel() == "Free slot", "The free slot must read Free slot")
         try require(free.nativeCheckVacancyHintOpacity == 0, "No instructions are shown at rest")
@@ -1316,6 +1378,8 @@ struct NativeUICheck {
         free.isDropTarget = true
         try require(free.nativeCheckVacancyDropLabelOpacity == 1, "A drag over a free slot shows the drop state")
         free.isDropTarget = false
+        try require(free.layer?.backgroundColor.map { $0.alpha == 0 } ?? true && free.nativeCheckVacancyFillAlpha < 0.05,
+                    "A free slot is a faint well, not a grey block (fill alpha \(free.nativeCheckVacancyFillAlpha))")
         try require(overview.nativeCheckCountText.contains("1 free slot"), "The header counts free slots, got \(overview.nativeCheckCountText)")
         writeLayerPNG(desktop.nativeCheckOverviewWindow, name: "native-overview-redesign.png")
 
@@ -1333,7 +1397,56 @@ struct NativeUICheck {
         var swapped = after
         swapped.swapAt(0, 1)
         try require(desktop.nativeCheckSlots == swapped, "Dropping on a window must swap the two slots")
+
+        // The next open (Keep empty places: Off) has no gaps; windows keep their relative order.
+        desktop.dismiss(restorePreviousApplication: false)
+        desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
+        await settle()
+        try require(desktop.nativeCheckSlots == swapped.compactMap { $0 },
+                    "The next open must collapse free slots in order, got \(desktop.nativeCheckSlots)")
+        try require(!overview.nativeCheckCountText.contains("free"), "No free slots are counted after the collapse")
+        try require(desktop.removeFreeSlots() == 0, "Off leaves no free slots to remove")
+
+        // A pinned slot is kept: its window closes and it waits for its app, across opens.
+        guard let pinnedCard = desktop.nativeCheckCard(for: swapped[2]!), let pinnedID = pinnedCard.record?.id,
+              let pin = pinnedCard.menuProvider?(pinnedCard)?.items.first(where: { $0.title == "Pin Slot" }), let pinAction = pin.action else {
+            throw Failure.check("Missing Pin Slot fixture")
+        }
+        NSApp.sendAction(pinAction, to: pin.target, from: pin)
+        desktop.dismiss(restorePreviousApplication: false)
+        service.nativeCheckInstall(all.filter { $0.id != all[4].id && $0.id != pinnedID })
+        await settle()
+        desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
+        await settle()
+        guard let kept = desktop.nativeCheckCards.first(where: { $0.record == nil && !$0.isDesktopEntry }) else {
+            throw Failure.check("A pinned slot must stay as a kept vacancy")
+        }
+        try require(desktop.nativeCheckSlots.filter { $0 == nil }.count == 1 && desktop.nativeCheckSlots[2] == nil,
+                    "Only the kept slot stays, in its place, got \(desktop.nativeCheckSlots)")
+        try require(kept.nativeCheckVacancyLabel == "Waiting for Synthetic app 1" && kept.accessibilityLabel() == "Kept slot, waiting for Synthetic app 1",
+                    "A kept slot names the app it waits for, got \(kept.nativeCheckVacancyLabel ?? "nil")")
+        writeLayerPNG(desktop.nativeCheckOverviewWindow, name: "native-overview-kept-slot.png")
+        if let unpin = kept.menuProvider?(kept)?.items.first(where: { $0.title == "Remove Slot" }), let action = unpin.action {
+            NSApp.sendAction(action, to: unpin.target, from: unpin)
+        }
+        try require(!desktop.nativeCheckSlots.contains(where: { $0 == nil }), "Remove Slot drops the kept vacancy")
+        desktop.dismiss(restorePreviousApplication: false)
+
+        // Keep empty places "Until Paneflo quits": a window closed while hidden leaves a free slot across opens, and
+        // Remove Free Slots drops it.
+        UserDefaults.standard.set(FreeSlotRetention.untilQuit.rawValue, forKey: SurfacePreferences.Key.freeSlots)
+        defer { UserDefaults.standard.removeObject(forKey: SurfacePreferences.Key.freeSlots) }
+        await settle()
+        desktop.preferencesChanged()
+        service.nativeCheckInstall(all.filter { $0.id != all[4].id && $0.id != pinnedID && $0.id != swapped[0] })
+        await settle()
+        desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
+        await settle()
+        try require(desktop.nativeCheckSlots.first == .some(nil), "Until Paneflo quits keeps the free slot, got \(desktop.nativeCheckSlots)")
         try require(desktop.removeFreeSlots() == 1 && !desktop.nativeCheckSlots.contains(where: { $0 == nil }), "Remove Free Slots must drop the vacancy")
+        UserDefaults.standard.removeObject(forKey: SurfacePreferences.Key.freeSlots)
+        await settle()
+        desktop.preferencesChanged()
 
         // Accessibility display options: Reduce Transparency drops the scrim for an opaque backdrop.
         PanefloStyle.Accessibility.nativeCheckOverride(.init(increaseContrast: true, reduceTransparency: true, reduceMotion: true, differentiateWithoutColor: false))

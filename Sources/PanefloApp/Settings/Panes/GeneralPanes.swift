@@ -47,10 +47,14 @@ struct GeneralPane: View {
             } footer: {
                 Footnote("Automatic picks the largest cards that fit your windows on screen. Every key is in Shortcuts & Help.")
             }
-            Section("Menu Bar") {
+            Section {
                 SubtitledToggle("Show menu bar icon",
-                                subtitle: "When it’s hidden, open Paneflo from Finder or Spotlight to come back here.",
+                                subtitle: "When it’s hidden, open Paneflo again from Spotlight, Launchpad or Applications to bring it back.",
                                 isOn: model.toggle(\.menuBarIconVisible, SettingsAction.setMenuBarIcon))
+            } header: {
+                Text("Menu Bar")
+            } footer: {
+                if let note = model.menuBarNote { Footnote(note) }
             }
         }
     }

@@ -26,6 +26,9 @@ TARGET_TRIPLE="$(uname -m)-apple-macosx26.0"
 APP_SOURCES="$SOURCE_ROOT/Sources/PanefloApp"
 FLAGS=""
 if [ -f "$SOURCE_ROOT/Sources/PanefloCore/SelectionCommitGate.swift" ]; then FLAGS="-D BENCH_LEGACY_GATE"; fi
+# The pair coordinator (--replace mode) exists from 1.1; older trees build without it.
+PAIR_SOURCES=""
+if [ -f "$SOURCE_ROOT/Sources/PanefloCore/TileReplacement.swift" ]; then PAIR_SOURCES="$APP_SOURCES/TilePairController.swift"; else FLAGS="$FLAGS -D BENCH_NO_REPLACE"; fi
 
 xcrun swiftc -target "$TARGET_TRIPLE" -swift-version 6 -parse-as-library -O \
     -module-cache-path "$OUTPUT_DIR/module-cache" -emit-library -emit-module \
@@ -35,7 +38,7 @@ xcrun swiftc -target "$TARGET_TRIPLE" -swift-version 6 -parse-as-library -O \
 xcrun swiftc -target "$TARGET_TRIPLE" -swift-version 6 -O -D PANEFLO_NATIVE_CHECK $FLAGS \
     -I "$OUTPUT_DIR" -L "$OUTPUT_DIR" -lPanefloCore -Xlinker -rpath -Xlinker "$OUTPUT_DIR" \
     -parse-as-library -module-cache-path "$OUTPUT_DIR/module-cache" \
-    "$APP_SOURCES/RuntimeDiagnostics.swift" "$APP_SOURCES/WindowService.swift" \
+    "$APP_SOURCES/RuntimeDiagnostics.swift" "$APP_SOURCES/WindowService.swift" $PAIR_SOURCES \
     "$PROJECT_ROOT/Tools/TileBench.swift" -o "$OUTPUT_DIR/tile-bench"
 codesign --force --sign - "$OUTPUT_DIR/libPanefloCore.dylib" "$OUTPUT_DIR/tile-bench"
 echo "Built $OUTPUT_DIR/tile-bench from $SOURCE_ROOT${FLAGS:+ ($FLAGS)}"

@@ -135,8 +135,10 @@ final class VacancyLayer: CALayer {
         glyph.isHidden = showsKeptIcon
         glyph.setSymbol(drop ? "arrow.down.to.line" : "plus.square.dashed", pointSize: 20, weight: .regular, scale: scale)
         glyph.backgroundColor = drop ? palette.accent : palette.tertiaryLabel
-        let text = kept ? "Kept for \(keptName ?? "an app")" : "Free slot"
+        let text = kept ? "Waiting for \(keptName ?? "its app")" : "Free slot"
         if (label.string as? String) != text { label.string = text }
+        let hint = kept ? "A \(keptName ?? "matching") window returns here" : "Drag a window here"
+        if (hoverHint.string as? String) != hint { hoverHint.string = hint }
         label.foregroundColor = palette.secondaryLabel
         dropLabel.foregroundColor = palette.accent
         hoverHint.foregroundColor = palette.tertiaryLabel

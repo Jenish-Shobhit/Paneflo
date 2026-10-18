@@ -99,11 +99,18 @@ struct SwitcherLayoutTests {
         #expect(!SurfacePreferences(defaults: defaults).raiseTogether)
         defaults.set(true, forKey: SurfacePreferences.Key.raiseTogether)
         defaults.set("small", forKey: SurfacePreferences.Key.cardSize)
-        defaults.set(false, forKey: SurfacePreferences.Key.showsFreeSlots)
+        defaults.set("untilQuit", forKey: SurfacePreferences.Key.freeSlots)
         let read = SurfacePreferences(defaults: defaults)
-        #expect(read.raiseTogether && read.cardSize == .small && !read.showsFreeSlots && read.sideBySide && read.snapAssist)
+        #expect(read.raiseTogether && read.cardSize == .small && read.freeSlots == .untilQuit && read.sideBySide && read.snapAssist)
         defaults.set("bogus", forKey: SurfacePreferences.Key.cardSize)
+        defaults.set("bogus", forKey: SurfacePreferences.Key.freeSlots)
         #expect(SurfacePreferences(defaults: defaults).cardSize == .automatic)
+        // Free slots default to off; the 1.0 display toggle no longer reads as anything.
+        #expect(SurfacePreferences(defaults: defaults).freeSlots == .off && SurfacePreferences().freeSlots == .off)
+        for retention in FreeSlotRetention.allCases {
+            SurfacePreferences.write(freeSlots: retention, to: defaults)
+            #expect(SurfacePreferences(defaults: defaults).freeSlots == retention)
+        }
     }
 
     @Test

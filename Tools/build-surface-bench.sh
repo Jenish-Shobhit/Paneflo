@@ -29,7 +29,9 @@ TARGET_TRIPLE="$(uname -m)-apple-macosx26.0"
 APP_SOURCES="$SOURCE_ROOT/Sources/PanefloApp"
 
 set -- "$APP_SOURCES/RuntimeDiagnostics.swift" "$APP_SOURCES/Capture/CaptureController.swift" \
-    "$APP_SOURCES/WindowService.swift" "$APP_SOURCES/DesktopController.swift" "$APP_SOURCES/SampleViews.swift"
+    "$APP_SOURCES/WindowService.swift" "$APP_SOURCES/DesktopController.swift"
+# Older trees (--source) still carry the removed developer sample views, which their DesktopController needs.
+if [ -f "$APP_SOURCES/SampleViews.swift" ]; then set -- "$@" "$APP_SOURCES/SampleViews.swift"; fi
 if [ -f "$APP_SOURCES/TilePairController.swift" ]; then set -- "$@" "$APP_SOURCES/TilePairController.swift"; fi
 for directory in Design Settings Settings/Panes Setup; do
     if [ -d "$APP_SOURCES/$directory" ]; then

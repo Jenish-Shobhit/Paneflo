@@ -2,7 +2,7 @@ import AppKit
 import PanefloCore
 
 @MainActor
-enum DesktopMode: Int { case switcher, tiling, overview }
+enum DesktopMode: Int { case switcher, overview }
 
 /// A borderless, non-activating key panel. Escape is taken here only when the panel is key
 /// and no input method is composing; the event tap owns Escape whenever a surface is visible.

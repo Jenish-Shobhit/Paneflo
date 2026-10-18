@@ -11,6 +11,8 @@ final class DesktopController: NSObject, SurfaceHost {
     private let settings: SettingsWindowController
     /// Tile pairs, snap assist and the raise-together setting.
     let pairs = TilePairController()
+    /// Says why an arrangement did not happen when no surface is up to show it.
+    let feedback = FeedbackHUD()
     /// Set for the duration of an explicit "Open pair" activation.
     private var explicitPairOpen = false
     /// Set for the duration of an explicit "Open alone" activation.
@@ -102,6 +104,10 @@ final class DesktopController: NSObject, SurfaceHost {
         overview.host = self
         overview.onFirstCards = { [weak self] in self?.switcher.prepareHidden() }
         settings.onRemoveFreeSlots = { [weak self] in self?.removeFreeSlots() ?? 0 }
+        // A tile or an undo changed the pairs: the visible surface's pair chips and groups follow at once.
+        pairs.onPairsChanged = { [weak self] in self?.visibleSurface?.refreshPairs() }
+        // Never fail silently: the visible surface shows the reason inline, otherwise a transient HUD does.
+        service.onPlacementFailed = { [weak self] id, message in self?.arrangementFailed(message, window: id) }
         settings.onResetSlots = { [weak self] in self?.resetSlots() }
         // Settings writes the shared preference keys; re-read them when defaults change (never on input).
         observers.append(NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: UserDefaults.standard,
@@ -261,7 +267,7 @@ final class DesktopController: NSObject, SurfaceHost {
         } else {
             if overview.isShown { overview.hide(); overviewReturnApplication = nil }
             stopOutsideClickMonitor()
-            switcher.present(mode: mode, fromShortcut: fromShortcut, backwards: backwards)
+            switcher.present(fromShortcut: fromShortcut, backwards: backwards)
             surface = switcher
         }
         lastSurface = surface
@@ -276,7 +282,7 @@ final class DesktopController: NSObject, SurfaceHost {
     }
 
     func switchStep(backwards: Bool) {
-        if !switcher.isShown || switcher.mode != .switcher || !switcher.shortcutSession {
+        if !switcher.isShown || !switcher.shortcutSession {
             present(mode: .switcher, fromShortcut: true, backwards: backwards)
         } else { switcher.step(backwards: backwards) }
     }
@@ -333,7 +339,7 @@ final class DesktopController: NSObject, SurfaceHost {
     func preferencesChanged() {
         let next = SurfacePreferences(defaults: .standard)
         guard next != preferences else { return }
-        let overviewChanged = next.showsFreeSlots != preferences.showsFreeSlots
+        let overviewChanged = next.freeSlots != preferences.freeSlots
         preferences = next
         if overviewChanged { overview.preferencesChanged() }
         showPairingHint()
@@ -409,31 +415,54 @@ final class DesktopController: NSObject, SurfaceHost {
     }
 
     func tileSelected(_ zone: LayoutZone) {
-        guard let surface = visibleSurface, let id = surface.selectedID, surface.isEligible(id) else { return }
+        guard let surface = visibleSurface else { return }
+        guard let id = surface.selectedID, surface.isEligible(id) else {
+            // The Desktop entry (or nothing) is selected: say so rather than doing nothing.
+            RuntimeDiagnostics.mark("tile chord ignored reason=noEligibleSelection")
+            surface.showFailure("Choose a window to arrange")
+            return
+        }
         latestPlacement &+= 1
         let generation = latestPlacement
         let presentedGeneration = presentationGeneration
         surface.setLayoutBadge(zone == .leftHalf ? "Left half" : zone == .rightHalf ? "Right half" : "Fill screen", for: id)
         // Snap assist: the second half of a pair goes on the first half's display.
-        let (request, token) = preferences.snapAssist ? pairs.willTile(id, zone: zone) : (SnapAssistSession.Request(), 0)
-        showPairingHint()
-        service.tile(id, zone: zone, screenIndex: request.explicitDisplay) { [weak self, weak surface] outcome in
+        RuntimeDiagnostics.mark("tile chord zone=\(zone.rawValue) surface=\(surface === overview ? "overview" : "switcher")")
+        pairs.tile(id, zone: zone, service: service, snapAssist: preferences.snapAssist) { [weak self, weak surface] outcome, _ in
             guard let self else { return }
-            // Every outcome reaches snap assist, including one a newer placement superseded for feedback.
-            if self.pairs.didTile(id, zone: zone, token: token, outcome: outcome, snapshot: self.service.snapshot,
-                                  displays: WindowService.displayAreas()) {
-                self.visibleSurface?.refreshPairs()
-            }
             self.showPairingHint()
             guard self.latestPlacement == generation else { return }
-            let accepted = outcome != nil
-            if !accepted, let surface {
-                surface.setLayoutBadge(nil, for: id)
-                if surface.isShown, self.presentationGeneration == presentedGeneration {
-                    surface.showFailure("Couldn’t arrange this window. Try another window or check Accessibility in Settings.")
-                }
-            }
+            // The reason was already shown (`arrangementFailed`); only the optimistic badge is withdrawn here.
+            if outcome == nil, let surface, self.presentationGeneration == presentedGeneration { surface.setLayoutBadge(nil, for: id) }
         }
+        showPairingHint()
+    }
+
+    /// ⌃⌥ arrangement (or the menu bar's Tile Front Window) of the frontmost window, with the same pair handling as
+    /// the surfaces. A visible surface arranges its selection instead.
+    func tileFrontWindow(_ zone: LayoutZone) {
+        if isVisible { tileSelected(zone); return }
+        pairs.tileFrontWindow(zone, service: service, failed: { [weak self] failure in self?.feedback.show(failure.message) },
+                              notResizable: { [weak self] frame in self?.feedback.show("This window can’t be resized, so it was moved", near: frame) })
+    }
+
+    /// Why an arrangement did not happen, where the user is looking: inline on a visible surface, else the HUD.
+    private func arrangementFailed(_ message: String, window id: WindowIdentity?) {
+        RuntimeDiagnostics.mark("tile failure shown surface=\(visibleSurface != nil)")
+        if let surface = visibleSurface, surface.isShown { surface.showFailure(message); return }
+        feedback.show(message, near: id.flatMap { id in service.snapshot.records.first { $0.id == id }?.frame })
+    }
+
+    /// ⌃⌥Z (or the menu bar's Undo): undo the selection's last arrangement while a surface is up, else the frontmost
+    /// window's (else the most recent one), re-forming the pairs it ended.
+    func undoArrangement() {
+        guard isVisible else {
+            pairs.undoFrontWindow(service: service) { [weak self] message in self?.feedback.show(message) }
+            return
+        }
+        let preferred = visibleSurface?.selectedID
+        restoreRequested()
+        if !pairs.undo(preferring: preferred, service: service) { visibleSurface?.showFailure("Nothing to undo for this window") }
     }
 
     // MARK: Keyboard ownership
@@ -633,10 +662,7 @@ final class DesktopController: NSObject, SurfaceHost {
     }
 
     func surfaceTile(_ zone: LayoutZone) { tileSelected(zone) }
-    func surfaceUndo() {
-        restoreRequested()
-        service.undo(preferring: visibleSurface?.selectedID)
-    }
+    func surfaceUndo() { undoArrangement() }
 
     #if PANEFLO_NATIVE_CHECK
     /// Records an activation (the window and the partner it would raise) instead of focusing anything.

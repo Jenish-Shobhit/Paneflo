@@ -13,12 +13,20 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     var onToggleShortcuts: ((Bool) -> Void)?
     var onRefreshWindows: (() -> Void)?
     var onCheckForUpdates: (() -> Void)?
-    var onDeveloperFixtures: (() -> Void)?
+    /// Tile Front Window › a half or Fill: arranges the frontmost window (the ⌃⌥ shortcuts' action).
+    var onTile: ((LayoutZone) -> Void)?
+    /// Tile Front Window › Undo (⌃⌥Z).
+    var onUndoTile: (() -> Void)?
     var onQuit: (() -> Void)?
     /// The icon was shown or hidden (Settings mirrors it in "Show menu bar icon").
     var onIconVisibilityChanged: ((Bool) -> Void)?
+    /// Hide from Menu Bar was chosen; the app runs the confirmation (`hideStep`) and calls `hide(dontAskAgain:)`.
+    var onHideRequested: (() -> Void)?
+    /// A hidden icon came back on its own because something needs attention.
+    var onRestoredForAttention: ((MenuBarIconPolicy.Attention) -> Void)?
+    /// Setup needed, or shortcuts the user wants stopped by macOS: the icon must stay reachable.
+    private(set) var attention = MenuBarIconPolicy.Attention.none
 
-    var showsDeveloperFixtures = false
     /// Drives the header line, the icon state and Finish Setup….
     private(set) var status: PanefloStatus = .starting
     /// The user's saved shortcuts choice: Pause Shortcuts while on, Resume Shortcuts while off.
@@ -32,11 +40,21 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         super.init()
     }
 
-    var isIconVisible: Bool { !preferences.menuBarIconHidden }
+    var isIconVisible: Bool { preferences.menuBarIcon.isVisible }
+    /// What Hide from Menu Bar does right now.
+    var hideStep: MenuBarIconPolicy.HideStep { preferences.menuBarIcon.hideStep(attention: attention) }
     var iconState: MenuBarIcon.State { MenuBarIcon.state(for: status) }
 
-    func update(status: PanefloStatus, shortcutsWanted: Bool) {
+    /// `shortcutsStopped`: macOS refused or kept disabling the event tap.
+    func update(status: PanefloStatus, shortcutsWanted: Bool, shortcutsStopped: Bool = false) {
         self.shortcutsWanted = shortcutsWanted
+        attention = MenuBarIconPolicy.attention(status: status, shortcutsWanted: shortcutsWanted, shortcutsStopped: shortcutsStopped)
+        var policy = preferences.menuBarIcon
+        if policy.attentionChanged(attention) {
+            preferences.menuBarIcon = policy
+            applyVisibility()
+            onRestoredForAttention?(attention)
+        }
         guard status != self.status else { return }
         self.status = status
         updateIcon()
@@ -54,10 +72,35 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         item.isVisible = isIconVisible
     }
 
+    /// The Settings switch. Hiding goes through `hide(dontAskAgain:)` after the confirmation; this shows or, for
+    /// own-window checks, hides without asking.
     func setIconVisible(_ visible: Bool) {
-        preferences.menuBarIconHidden = !visible
-        statusItem?.isVisible = visible
-        onIconVisibilityChanged?(visible)
+        var policy = preferences.menuBarIcon
+        if visible { policy.show() } else { policy.hide(dontAskAgain: false) }
+        preferences.menuBarIcon = policy
+        applyVisibility()
+    }
+
+    /// Hides the icon after the user confirmed (or chose not to be asked again).
+    func hide(dontAskAgain: Bool) {
+        var policy = preferences.menuBarIcon
+        policy.hide(dontAskAgain: dontAskAgain)
+        preferences.menuBarIcon = policy
+        applyVisibility()
+    }
+
+    /// Paneflo was opened again while running: a hidden icon comes back. Returns true when it did.
+    func reopened() -> Bool {
+        var policy = preferences.menuBarIcon
+        guard policy.reopened() else { return false }
+        preferences.menuBarIcon = policy
+        applyVisibility()
+        return true
+    }
+
+    private func applyVisibility() {
+        statusItem?.isVisible = isIconVisible
+        onIconVisibilityChanged?(isIconVisible)
     }
 
     private func updateIcon() {
@@ -70,7 +113,18 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
     // MARK: Menu
 
-    private enum Tag: Int { case header = 100, headerSeparator, finishSetup, finishSeparator, shortcuts, developer }
+    private enum Tag: Int { case header = 100, headerSeparator, finishSetup, finishSeparator, shortcuts, tile, hide }
+
+    /// Tile Front Window's items: the ⌃⌥ chords the shortcut table already routes (`AppDelegate.setShortcuts`), shown as
+    /// display-only key equivalents. Only arrangements that exist are listed.
+    static let tileItems: [(title: String, symbol: String, zone: LayoutZone?, key: String)] = [
+        ("Left Half", "rectangle.lefthalf.filled", .leftHalf, String(UnicodeScalar(NSLeftArrowFunctionKey)!)),
+        ("Right Half", "rectangle.righthalf.filled", .rightHalf, String(UnicodeScalar(NSRightArrowFunctionKey)!)),
+        ("Top Half", "rectangle.tophalf.filled", .topHalf, String(UnicodeScalar(NSUpArrowFunctionKey)!)),
+        ("Bottom Half", "rectangle.bottomhalf.filled", .bottomHalf, String(UnicodeScalar(NSDownArrowFunctionKey)!)),
+        ("Fill", "rectangle.fill", .maximize, "\r"),
+        ("Undo", "arrow.uturn.backward", nil, "z"),
+    ]
 
     func makeMenu() -> NSMenu {
         let menu = NSMenu()
@@ -92,7 +146,18 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         // Display-only key equivalents: the actions are global shortcuts, so choosing them here runs the same action.
         menu.addItem(item("Switch Windows…", "rectangle.stack", #selector(open(_:)), key: "\t", modifiers: .command,
                           tag: DesktopMode.switcher.rawValue))
-        menu.addItem(item("Arrange Windows…", "rectangle.split.2x1", #selector(open(_:)), tag: DesktopMode.tiling.rawValue))
+        let tile = NSMenuItem(title: "Tile Front Window", action: nil, keyEquivalent: "")
+        tile.tag = Tag.tile.rawValue
+        tile.image = NSImage(systemSymbolName: "rectangle.split.2x1", accessibilityDescription: nil)
+        let tileMenu = NSMenu(title: "Tile Front Window")
+        tileMenu.autoenablesItems = false
+        for (index, entry) in Self.tileItems.enumerated() {
+            if entry.zone == nil { tileMenu.addItem(.separator()) }
+            tileMenu.addItem(item(entry.title, entry.symbol, #selector(tileFront(_:)), key: entry.key, modifiers: [.control, .option],
+                                  tag: index))
+        }
+        tile.submenu = tileMenu
+        menu.addItem(tile)
         menu.addItem(item("Overview", "square.grid.2x2", #selector(open(_:)), key: " ", modifiers: [.control, .option],
                           tag: DesktopMode.overview.rawValue))
         menu.addItem(.separator())
@@ -102,15 +167,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         menu.addItem(item("Settings…", "gearshape", #selector(settings), key: ",", modifiers: .command))
         menu.addItem(item("Check for Updates…", "arrow.down.circle", #selector(checkForUpdates)))
         menu.addItem(item("About Paneflo", "info.circle", #selector(about)))
+        menu.addItem(item("Hide from Menu Bar", "eye.slash", #selector(hideFromMenuBar), tag: Tag.hide.rawValue))
         menu.addItem(.separator())
-        let developer = NSMenuItem(title: "Developer", action: nil, keyEquivalent: "")
-        developer.tag = Tag.developer.rawValue
-        developer.image = NSImage(systemSymbolName: "hammer", accessibilityDescription: nil)
-        let developerMenu = NSMenu(title: "Developer")
-        developerMenu.autoenablesItems = false
-        developerMenu.addItem(item("Synthetic Developer Fixtures", "rectangle.dashed", #selector(fixtures)))
-        developer.submenu = developerMenu
-        menu.addItem(developer)
         menu.addItem(item("Quit Paneflo", nil, #selector(quit), key: "q", modifiers: .command))
         refresh(menu)
         return menu
@@ -129,11 +187,12 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         let setupNeeded = status == .setupNeeded
         menu.item(withTag: Tag.finishSetup.rawValue)?.isHidden = !setupNeeded
         menu.item(withTag: Tag.finishSeparator.rawValue)?.isHidden = !setupNeeded
+        // Never offered while the icon is what tells the user something needs attention.
+        menu.item(withTag: Tag.hide.rawValue)?.isHidden = attention != .none
         if let toggle = menu.item(withTag: Tag.shortcuts.rawValue) {
             toggle.title = shortcutsWanted ? "Pause Shortcuts" : "Resume Shortcuts"
             toggle.image = NSImage(systemSymbolName: shortcutsWanted ? "pause.circle" : "play.circle", accessibilityDescription: nil)
         }
-        menu.item(withTag: Tag.developer.rawValue)?.isHidden = !showsDeveloperFixtures
     }
 
     private var dotColor: NSColor {
@@ -165,7 +224,11 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     @objc private func toggleShortcuts() { onToggleShortcuts?(!shortcutsWanted) }
     @objc private func refreshWindows() { onRefreshWindows?() }
     @objc private func checkForUpdates() { onCheckForUpdates?() }
-    @objc private func fixtures() { onDeveloperFixtures?() }
+    @objc private func hideFromMenuBar() { onHideRequested?() }
+    @objc private func tileFront(_ sender: NSMenuItem) {
+        guard Self.tileItems.indices.contains(sender.tag) else { return }
+        if let zone = Self.tileItems[sender.tag].zone { onTile?(zone) } else { onUndoTile?() }
+    }
     @objc private func quit() { onQuit?() }
 
     #if PANEFLO_NATIVE_CHECK
@@ -178,8 +241,17 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         Dictionary(makeMenu().items.filter { !$0.isSeparatorItem && !$0.isHidden && !$0.keyEquivalent.isEmpty }
             .map { ($0.title, ($0.keyEquivalent, $0.keyEquivalentModifierMask)) }, uniquingKeysWith: { a, _ in a })
     }
-    var nativeCheckDeveloperTitles: [String] {
-        makeMenu().item(withTag: Tag.developer.rawValue)?.submenu?.items.map(\.title) ?? []
+    /// Tile Front Window's items: title, key equivalent and modifiers (separators skipped).
+    var nativeCheckTileItems: [(String, String, NSEvent.ModifierFlags)] {
+        (makeMenu().item(withTag: Tag.tile.rawValue)?.submenu?.items ?? []).filter { !$0.isSeparatorItem }
+            .map { ($0.title, $0.keyEquivalent, $0.keyEquivalentModifierMask) }
+    }
+    /// Chooses Hide from Menu Bar, as a click would.
+    func nativeCheckChooseHide() { hideFromMenuBar() }
+    /// Chooses one Tile Front Window item by title, as a click would.
+    func nativeCheckChooseTileItem(_ title: String) {
+        guard let item = makeMenu().item(withTag: Tag.tile.rawValue)?.submenu?.items.first(where: { $0.title == title }) else { return }
+        tileFront(item)
     }
     var nativeCheckItemsWithoutSymbol: [String] {
         makeMenu().items.filter { !$0.isSeparatorItem && $0.isEnabled && $0.image == nil && $0.title != "Quit Paneflo" }.map(\.title)

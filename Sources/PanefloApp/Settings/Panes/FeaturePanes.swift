@@ -7,18 +7,21 @@ struct OverviewGesturePane: View {
     var body: some View {
         PaneForm(pane: .overviewGesture) {
             Section {
-                SubtitledToggle("Show free slots",
-                                subtitle: "A free slot is where a closed window was. The next window you open takes it.",
-                                isOn: model.surfaceToggle(.showsFreeSlots))
+                Picker("Keep empty places for closed windows", selection: model.freeSlotsBinding) {
+                    ForEach(FreeSlotRetention.allCases, id: \.self) { retention in Text(retention.title).tag(retention) }
+                }
                 HStack(spacing: 8) {
-                    Button("Remove Free Slots") { model.perform(.removeFreeSlots) }
+                    // Only the keep modes leave free slots behind to remove.
+                    if model.surface.freeSlots != .off {
+                        Button("Remove Free Slots") { model.perform(.removeFreeSlots) }
+                    }
                     Button("Reset Slot Order…") { model.perform(.resetSlots) }
                     Spacer(minLength: 0)
                 }
             } header: {
                 Text("Overview")
             } footer: {
-                Footnote(model.slotNote ?? "Reset clears slots and pins and places your windows in their current order. The Overview keys are in Shortcuts & Help.")
+                Footnote(model.slotNote ?? model.surface.freeSlots.footnote)
             }
             Section {
                 Toggle(GestureGuidance.toggleTitle, isOn: model.toggle(\.gestureEnabled, SettingsAction.toggleGesture))
@@ -111,6 +114,25 @@ struct DesktopPane: View {
                 }
                 .accessibilityLabel("Use macOS Show Desktop, experimental")
             }
+        }
+    }
+}
+
+extension FreeSlotRetention {
+    var title: String {
+        switch self {
+        case .off: "Off"
+        case .untilQuit: "Until Paneflo quits"
+        case .always: "Always"
+        }
+    }
+
+    /// What the choice does, under the Overview section.
+    var footnote: String {
+        switch self {
+        case .off: "Slots hold their places while the Overview is open; it opens next time without gaps. Pinned slots always wait for their app."
+        case .untilQuit: "A closed window leaves a free slot the next window takes, until Paneflo quits. Pinned slots always wait for their app."
+        case .always: "A closed window leaves a free slot the next window takes, kept across launches. Pinned slots always wait for their app."
         }
     }
 }

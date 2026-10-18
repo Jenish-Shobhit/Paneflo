@@ -11,8 +11,10 @@ final class OverviewPanelController: SurfacePanelController {
     static let hiddenCoalescingInterval: TimeInterval = 1.0
     static let hiddenBurstDelay: TimeInterval = 0.3
     private var slots = OverviewSlotStore()
-    /// The slots on display: all of them, or without free slots when that setting is off.
+    /// The slots on display (a copy of the store's, taken when the cards were last applied).
     private var shownSlots: [OverviewSlot] = []
+    /// Set once the 1.0 pile of accumulated free slots was dropped from the saved metadata.
+    static let freeSlotMigrationKey = "overview.slots.freeSlotsCollapsed.v1_1"
     private var selectedSlot: UUID?
     private let defaults = UserDefaults.standard
     private var lastSavedMetadata: Data?
@@ -42,6 +44,13 @@ final class OverviewPanelController: SurfacePanelController {
         let frame = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         super.init(contentSize: OverviewPanelController.contentSize(for: frame))
         if let data = defaults.data(forKey: "overview.slots.v1"), let stored = try? OverviewSlotStore(metadata: data) { slots = stored }
+        // First launch of 1.1: every closed window had left a free slot that persisted; keep only kept (pinned) slots.
+        if !defaults.bool(forKey: Self.freeSlotMigrationKey) {
+            let dropped = slots.removeFreeSlots()
+            defaults.removeObject(forKey: "overview.showsFreeSlots")
+            defaults.set(true, forKey: Self.freeSlotMigrationKey)
+            RuntimeDiagnostics.mark("overview freeSlotMigration dropped=\(dropped)")
+        }
         panel.hasShadow = false
         countLabel.font = PanefloStyle.Font.overviewHeaderCount
         countLabel.textColor = .secondaryLabelColor
@@ -136,8 +145,9 @@ final class OverviewPanelController: SurfacePanelController {
         guard let screen = NSScreen.pointerScreen else { return }
         beginPresentation()
         if !search.stringValue.isEmpty { search.stringValue = "" }
-        if screen.visibleFrame != appliedScreenFrame || wantsHomeTile != (tileOffset == 1)
-            || (host?.preferences.showsFreeSlots ?? true) != showsFreeSlots { snapshotDirty = true }
+        if screen.visibleFrame != appliedScreenFrame || wantsHomeTile != (tileOffset == 1) { snapshotDirty = true }
+        // Free slots from the last session collapse now, before anything is on screen (Off), never while it is.
+        if slots.collapseFreeSlots(retention: retention, visible: false) > 0 { snapshotDirty = true }
         if snapshotDirty { applySnapshot(screen: screen) }
         if appliedQuery != search.stringValue { updateMatches() }
         if !shownSlots.contains(where: { $0.id == selectedSlot && $0.binding != nil }) {
@@ -171,7 +181,7 @@ final class OverviewPanelController: SurfacePanelController {
     }
 
     private var wantsHomeTile: Bool { host?.showsDesktopHomeTile ?? false }
-    private var showsFreeSlots = true
+    private var retention: FreeSlotRetention { host?.preferences.freeSlots ?? .off }
 
     override func screenParametersChanged(to screen: NSScreen) {
         appliedScreenFrame = nil
@@ -204,7 +214,7 @@ final class OverviewPanelController: SurfacePanelController {
         super.desktopStateChanged()
     }
 
-    /// Preferences changed (free slots shown or hidden). Hidden: applied on next open.
+    /// Preferences changed (how long free slots are kept). Hidden: applied on next open.
     func preferencesChanged() {
         snapshotDirty = true
         if isShown, let screen = layoutScreen { applySnapshot(screen: screen); reconcileSelectionWithSearch() }
@@ -260,6 +270,7 @@ final class OverviewPanelController: SurfacePanelController {
         snapshotDirty = false
         applyCount += 1
         slots.reconcile(service.snapshot.records)
+        slots.collapseFreeSlots(retention: retention, visible: isShown)
         saveSlots()
         if screen.visibleFrame != appliedScreenFrame {
             appliedScreenFrame = screen.visibleFrame
@@ -294,8 +305,7 @@ final class OverviewPanelController: SurfacePanelController {
         let frame = appliedScreenFrame ?? layoutScreen?.visibleFrame ?? .zero
         let offset = wantsHomeTile ? 1 : 0
         tileOffset = offset
-        showsFreeSlots = host?.preferences.showsFreeSlots ?? true
-        shownSlots = showsFreeSlots ? slots.slots : slots.slots.filter { !OverviewSlotStore.isFree($0) }
+        shownSlots = slots.slots
         if offset == 0, selectedTarget == .desktop { setSelectedTarget(nil) }
         if scroll.bounds.width < 1 { layoutChrome() }
         grid.layout = gridLayout(width: scroll.bounds.width, visibleFrame: frame)
@@ -374,7 +384,8 @@ final class OverviewPanelController: SurfacePanelController {
     }
 
     private func saveSlots() {
-        if let metadata = try? slots.encodedMetadata(), metadata != lastSavedMetadata {
+        // Free slots are saved only when they are kept always; kept (pinned) slots always are.
+        if let metadata = try? slots.encodedMetadata(keepingFreeSlots: retention.persistsFreeSlots), metadata != lastSavedMetadata {
             defaults.set(metadata, forKey: "overview.slots.v1"); lastSavedMetadata = metadata
         }
     }

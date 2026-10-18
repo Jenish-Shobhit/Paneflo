@@ -6,7 +6,8 @@ public struct SurfacePreferences: Equatable, Sendable {
     public enum Key {
         public static let cardSize = "switcher.cardSize"
         public static let showsSelectedTitle = "switcher.showsSelectedTitle"
-        public static let showsFreeSlots = "overview.showsFreeSlots"
+        /// `FreeSlotRetention` raw value (replaces 1.0's display-only "overview.showsFreeSlots").
+        public static let freeSlots = "overview.keepFreeSlots"
         /// The key Settings › Tiling already writes (shipped with tile pairs).
         public static let raiseTogether = "tilePairs.raiseTogether"
         public static let snapAssist = "pairs.snapAssist"
@@ -17,12 +18,11 @@ public struct SurfacePreferences: Equatable, Sendable {
     public enum Option: String, CaseIterable, Sendable {
         /// The selected window's full title on one line under the switcher's cards.
         case showsSelectedTitle
-        case showsFreeSlots, raiseTogether, snapAssist, sideBySide
+        case raiseTogether, snapAssist, sideBySide
 
         public var key: String {
             switch self {
             case .showsSelectedTitle: Key.showsSelectedTitle
-            case .showsFreeSlots: Key.showsFreeSlots
             case .raiseTogether: Key.raiseTogether
             case .snapAssist: Key.snapAssist
             case .sideBySide: Key.sideBySide
@@ -32,7 +32,8 @@ public struct SurfacePreferences: Equatable, Sendable {
 
     public var cardSize: CardSizePreference = .automatic
     public var showsSelectedTitle = true
-    public var showsFreeSlots = true
+    /// How long a closed window's empty place stays in the Overview (default off).
+    public var freeSlots: FreeSlotRetention = .off
     public var raiseTogether = true
     public var snapAssist = true
     public var sideBySide = true
@@ -41,6 +42,7 @@ public struct SurfacePreferences: Equatable, Sendable {
 
     public init(defaults: UserDefaults) {
         cardSize = defaults.string(forKey: Key.cardSize).flatMap(CardSizePreference.init(rawValue:)) ?? .automatic
+        freeSlots = defaults.string(forKey: Key.freeSlots).flatMap(FreeSlotRetention.init(rawValue:)) ?? .off
         for option in Option.allCases {
             self[option] = defaults.object(forKey: option.key) as? Bool ?? true
         }
@@ -50,7 +52,6 @@ public struct SurfacePreferences: Equatable, Sendable {
         get {
             switch option {
             case .showsSelectedTitle: showsSelectedTitle
-            case .showsFreeSlots: showsFreeSlots
             case .raiseTogether: raiseTogether
             case .snapAssist: snapAssist
             case .sideBySide: sideBySide
@@ -59,7 +60,6 @@ public struct SurfacePreferences: Equatable, Sendable {
         set {
             switch option {
             case .showsSelectedTitle: showsSelectedTitle = newValue
-            case .showsFreeSlots: showsFreeSlots = newValue
             case .raiseTogether: raiseTogether = newValue
             case .snapAssist: snapAssist = newValue
             case .sideBySide: sideBySide = newValue
@@ -74,5 +74,9 @@ public struct SurfacePreferences: Equatable, Sendable {
 
     public static func write(cardSize: CardSizePreference, to defaults: UserDefaults) {
         defaults.set(cardSize.rawValue, forKey: Key.cardSize)
+    }
+
+    public static func write(freeSlots: FreeSlotRetention, to defaults: UserDefaults) {
+        defaults.set(freeSlots.rawValue, forKey: Key.freeSlots)
     }
 }

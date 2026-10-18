@@ -1,7 +1,7 @@
 import AppKit
 import PanefloCore
 
-/// The ⌘Tab picker (held, non-activating) and the manual Switch/Arrange lists.
+/// The ⌘Tab picker (held, non-activating) and the manual Switch Windows list (menu bar).
 ///
 /// A compact Liquid Glass shelf that hugs the cards: no heading and no key hints, just the cards and, unless Settings
 /// turns it off (Show selected window title), one line with the selected window's full title. Tier, columns, rows and panel size are computed once per presentation; a
@@ -10,7 +10,6 @@ import PanefloCore
 final class SwitcherPanelController: SurfacePanelController {
     /// The glass shelf; false falls back to the HUD material (kept for measurement and as a safety valve).
     static var usesGlass = true
-    private(set) var mode = DesktopMode.switcher
     private(set) var shortcutSession = false
     private var session = SwitcherSession(snapshot: WindowSnapshot(records: []))
     /// Cards in display order: windows and, in a switching session, the Desktop entry.
@@ -22,8 +21,6 @@ final class SwitcherPanelController: SurfacePanelController {
     private(set) var plan = SwitcherLayout.plan(count: 8, width: 1200, height: 800, chrome: 80)
     private let focusLine = FocusLineView()
     private var viewportHeight: CGFloat = 200
-
-    override var showsPreviews: Bool { mode != .tiling }
 
     init() {
         let initial = NSSize(width: 4 * 214 + 28, height: 2 * 177 + 10 + 70)
@@ -57,27 +54,24 @@ final class SwitcherPanelController: SurfacePanelController {
         return root
     }
 
-    func present(mode: DesktopMode, fromShortcut: Bool, backwards: Bool) {
+    func present(fromShortcut: Bool, backwards: Bool) {
         guard let service else { return }
         beginPresentation()
-        self.mode = mode
-        shortcutSession = fromShortcut && mode == .switcher
+        shortcutSession = fromShortcut
         if search.isHidden != shortcutSession { search.isHidden = shortcutSession }
         if !search.stringValue.isEmpty { search.stringValue = "" }
         let snapshot = service.snapshot
         let screen = NSScreen.pointerScreen
-        // Arrange lists windows only; switching sessions may include the Desktop entry and keep pairs side by side.
+        // Switching sessions may include the Desktop entry and keep pairs side by side.
         session = SwitcherSession(snapshot: snapshot, direction: backwards ? .backward : .forward,
-                                  desktop: mode == .switcher ? host?.desktopLoopMode ?? .hidden : .hidden,
-                                  pairs: mode == .switcher ? host?.sessionPairs ?? [] : [])
-        if mode == .switcher { setSelectedTarget(session.selectedTarget) }
-        else { setSelectedID(service.focusedID ?? snapshot.orderedRecords.first?.id) }
+                                  desktop: host?.desktopLoopMode ?? .hidden, pairs: host?.sessionPairs ?? [])
+        setSelectedTarget(session.selectedTarget)
         applyTitlePreference()
         rebuild(snapshot: snapshot, screen: screen)
         fit(on: screen)
         refreshPairs()
         // The held picker receives every key through the event tap, so it never takes key focus
-        // from the frontmost app. Manual Switch/Arrange sessions need the search field.
+        // from the frontmost app. A manual Switch Windows session needs the search field.
         if shortcutSession { orderFrontWithoutKey() } else { orderFront(searchFocused: true) }
         if let target = selectedTarget, let card = self.card(for: target) { revealCard(card) }
         selectionDidChange()
@@ -89,7 +83,6 @@ final class SwitcherPanelController: SurfacePanelController {
     func prepareHidden(on preferredScreen: NSScreen? = nil) {
         guard !isShown, let service else { return }
         let snapshot = service.snapshot
-        mode = .switcher
         shortcutSession = true
         search.isHidden = true
         session = SwitcherSession(snapshot: snapshot, desktop: host?.desktopLoopMode ?? .hidden, pairs: host?.sessionPairs ?? [])
@@ -119,15 +112,13 @@ final class SwitcherPanelController: SurfacePanelController {
     func snapshotChanged() {
         guard isShown, let service else { return }
         let snapshot = service.snapshot
-        if mode == .switcher {
-            if shortcutSession {
-                let live = Set(snapshot.records.map(\.id))
-                for id in session.orderedIDs where !live.contains(id) { session.remove(id) }
-            } else {
-                session.refresh(snapshot: snapshot)
-            }
-            setSelectedTarget(session.selectedTarget)
+        if shortcutSession {
+            let live = Set(snapshot.records.map(\.id))
+            for id in session.orderedIDs where !live.contains(id) { session.remove(id) }
+        } else {
+            session.refresh(snapshot: snapshot)
         }
+        setSelectedTarget(session.selectedTarget)
         rebuild(snapshot: snapshot)
         fit()
         refreshPairs()
@@ -179,7 +170,7 @@ final class SwitcherPanelController: SurfacePanelController {
 
     private func rebuild(snapshot: WindowSnapshot, screen: NSScreen? = nil) {
         records = Dictionary(snapshot.records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        targets = mode == .switcher ? session.filteredTargets : snapshot.orderedRecords.map { .window($0.id) }
+        targets = session.filteredTargets
         appliedQuery = search.stringValue
         let area = usableArea(screen)
         plan = SwitcherLayout.plan(count: targets.count, pairStarts: session.pairStarts(in: targets),
@@ -203,10 +194,8 @@ final class SwitcherPanelController: SurfacePanelController {
             card.dragEnabled = false
             card.layoutBadge = layoutFeedback[id]
             card.selected = record != nil && id == selected
-            let matches = mode != .tiling || query.isEmpty
-                || record.map { ($0.appName + " " + $0.title).localizedCaseInsensitiveContains(query) } ?? false
-            card.matches = matches
-            card.setEnabledIfChanged(matches)
+            card.matches = true
+            card.setEnabledIfChanged(true)
         }
         indexCards(targets.map(\.windowID), desktopIndex: targets.firstIndex(of: .desktop))
         if targets.allSatisfy({ $0 == .desktop }), query.isEmpty || targets.isEmpty {
@@ -275,66 +264,38 @@ final class SwitcherPanelController: SurfacePanelController {
 
     // MARK: Navigation
 
-    override var isDesktopEligible: Bool { mode == .switcher && session.filteredTargets.contains(.desktop) }
+    override var isDesktopEligible: Bool { session.filteredTargets.contains(.desktop) }
 
-    override func eligibleSelectionIDs() -> [WindowIdentity] {
-        if mode == .switcher { return session.filteredIDs }
-        let query = search.stringValue
-        guard !query.isEmpty else { return displayed }
-        return displayed.filter { id in
-            records[id].map { ($0.appName + " " + $0.title).localizedCaseInsensitiveContains(query) } ?? false
-        }
-    }
+    override func eligibleSelectionIDs() -> [WindowIdentity] { session.filteredIDs }
 
     override func navigate(_ direction: CycleDirection) {
         guard isShown else { return }
-        if mode == .switcher { session.advance(direction); select(target: session.selectedTarget); return }
-        let eligible = eligibleSelectionIDs()
-        guard !eligible.isEmpty else { select(nil); return }
-        if let current = selectedID, let index = eligible.firstIndex(of: current) {
-            select(eligible[(index + (direction == .forward ? 1 : eligible.count - 1)) % eligible.count])
-        } else {
-            select(direction == .forward ? eligible.first : eligible.last)
-        }
+        session.advance(direction)
+        select(target: session.selectedTarget)
     }
 
     override func navigateRows(_ delta: Int) {
         guard isShown else { return }
         let current = selectedTarget.flatMap { targets.firstIndex(of: $0) }
-        if mode == .switcher {
-            // Rows exist only when the picker wraps; a single row has nothing above or below.
-            if let next = plan.vertical(from: current, direction: delta), session.select(targets[next]) {
-                select(target: session.selectedTarget)
-            }
-            return
-        }
-        let eligible = Set(eligibleSelectionIDs())
-        let indices = Set(targets.indices.filter { targets[$0].windowID.map(eligible.contains) ?? false })
-        if let next = plan.vertical(from: current, direction: delta, eligible: indices) {
-            select(target: targets[next])
+        // Rows exist only when the picker wraps; a single row has nothing above or below.
+        if let next = plan.vertical(from: current, direction: delta), session.select(targets[next]) {
+            select(target: session.selectedTarget)
         }
     }
 
     override func searchChanged() {
-        if mode == .switcher {
-            session.setSearchQuery(search.stringValue)
-            setSelectedTarget(session.selectedTarget)
-            if let service { rebuild(snapshot: service.snapshot) }
-            fit()
-            refreshPairs()
-            select(target: selectedTarget)
-            showDesktopWallpaper()
-            return
-        }
-        let eligible = eligibleSelectionIDs()
-        if selectedID.map({ eligible.contains($0) }) != true { setSelectedID(eligible.first) }
+        session.setSearchQuery(search.stringValue)
+        setSelectedTarget(session.selectedTarget)
         if let service { rebuild(snapshot: service.snapshot) }
-        select(selectedID)
+        fit()
+        refreshPairs()
+        select(target: selectedTarget)
+        showDesktopWallpaper()
     }
 
     override func cardSelected(_ card: CardView) {
         guard let target = card.switchTarget else { return }
-        if mode == .switcher { _ = session.select(target) }
+        _ = session.select(target)
         select(target: target)
     }
 
@@ -343,7 +304,7 @@ final class SwitcherPanelController: SurfacePanelController {
             if shortcutSession { host?.surfaceDismiss(self) }
             return
         }
-        if mode == .switcher { _ = session.commitTarget() }
+        _ = session.commitTarget()
         activate(target)
     }
 

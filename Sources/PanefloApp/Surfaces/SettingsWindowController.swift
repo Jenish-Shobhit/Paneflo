@@ -25,8 +25,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     var onToggleSystemShowDesktop: ((Bool) -> Void)?
     var onToggleAutomaticUpdates: ((Bool) -> Void)?
     var onCheckForUpdates: (() -> Void)?
-    /// The icon's new visibility, after the hide confirmation.
+    /// Show menu bar icon turned on (showing never asks).
     var onToggleMenuBarIcon: ((Bool) -> Void)?
+    /// Show menu bar icon turned off: the app runs Hide from Menu Bar (confirmation, attention rule).
+    var onRequestHideMenuBarIcon: (() -> Void)?
     var onToggleLaunchAtLogin: ((Bool) -> Void)?
     var onOpenLoginItems: (() -> Void)?
     var onOpenSetup: (() -> Void)?
@@ -41,10 +43,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     var onRefreshScreenRecording: (() -> Void)?
     /// Read when Settings opens: the date of the last update check.
     var lastUpdateCheck: () -> Date? = { nil }
-    /// Asks before hiding the menu bar icon and answers through the callback. Default: a sheet on the Settings window.
-    /// Replaceable in own-window checks.
-    lazy var confirmHideIcon: (@escaping @MainActor (Bool) -> Void) -> Void = { [weak self] answer in
-        self?.presentHideSheet(answer)
+    /// Asks before hiding the menu bar icon and answers (confirmed, don't show again) through the callback. Default: a
+    /// sheet on Settings when it is open, otherwise an alert. Replaceable in own-window checks.
+    lazy var confirmHideIcon: (@escaping @MainActor (Bool, Bool) -> Void) -> Void = { [weak self] answer in
+        self?.presentHideConfirmation(answer)
     }
     /// Asks before resetting the Overview's slots. Default: a sheet on the Settings window. Replaceable in own-window
     /// checks.
@@ -96,6 +98,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         model.launchAtLoginNeedsApproval = needsApproval
     }
     func setMenuBarIconVisible(_ visible: Bool) { if model.menuBarIconVisible != visible { model.menuBarIconVisible = visible } }
+    /// A one-line note under Settings › General › Menu Bar ("Menu bar icon restored"); nil clears it.
+    func showMenuBarNote(_ note: String?) { model.menuBarNote = note }
     func setAutomaticUpdates(_ enabled: Bool) { model.automaticUpdates = enabled }
 
     // MARK: Window
@@ -178,14 +182,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         case .openLoginItems: onOpenLoginItems?()
         case .setMenuBarIcon(true):
             model.menuBarIconVisible = true
+            model.menuBarNote = nil
             onToggleMenuBarIcon?(true)
         case .setMenuBarIcon(false):
+            // The switch follows the icon (`setMenuBarIconVisible`); a cancelled or refused hide leaves it on.
             guard model.menuBarIconVisible else { return }
-            confirmHideIcon { [weak self] confirmed in
-                guard let self, confirmed else { return }
-                self.model.menuBarIconVisible = false
-                self.onToggleMenuBarIcon?(false)
-            }
+            onRequestHideMenuBarIcon?()
         case .toggleGesture(let on): model.gestureEnabled = on; onToggleGesture?(on)
         case .openTrackpadSettings:
             if let url = URL(string: GestureGuidance.trackpadSettingsURL), NSWorkspace.shared.open(url) { return }
@@ -205,6 +207,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         case .setCardSize(let size):
             model.surface.cardSize = size
             SurfacePreferences.write(cardSize: size, to: defaults)
+        case .setFreeSlots(let retention):
+            model.surface.freeSlots = retention
+            SurfacePreferences.write(freeSlots: retention, to: defaults)
         case .setSurfaceOption(let option, let on):
             model.surface[option] = on
             SurfacePreferences.write(option, on, to: defaults)
@@ -219,11 +224,27 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// "Hide the menu bar icon?" as a sheet on Settings (app-modal only if Settings is somehow not open).
-    private func presentHideSheet(_ answer: @escaping @MainActor (Bool) -> Void) {
-        presentConfirmation(message: "Hide the menu bar icon?",
-                            detail: "Paneflo keeps running and ⌘Tab keeps working. To get the icon back, open Paneflo again from Finder or Spotlight.",
-                            confirm: "Hide Icon", answer)
+    static let hideMessage = "Hide Paneflo from the menu bar?"
+    static let hideDetail = "Paneflo keeps running and your shortcuts and gesture keep working. To bring the icon back, open Paneflo again from Spotlight, Launchpad or Applications."
+
+    /// Hide from Menu Bar's confirmation (with the app icon): a sheet on Settings when it is open, otherwise an alert.
+    private func presentHideConfirmation(_ answer: @escaping @MainActor (Bool, Bool) -> Void) {
+        let alert = NSAlert()
+        alert.messageText = Self.hideMessage
+        alert.informativeText = Self.hideDetail
+        alert.addButton(withTitle: "Hide")
+        alert.addButton(withTitle: "Cancel")
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "Don’t show this again"
+        let reply: @MainActor (NSApplication.ModalResponse) -> Void = { response in
+            answer(response == .alertFirstButtonReturn, alert.suppressionButton?.state == .on)
+        }
+        guard let window, window.isVisible else {
+            NSApp.activate(ignoringOtherApps: true)
+            reply(alert.runModal())
+            return
+        }
+        alert.beginSheetModal(for: window) { response in MainActor.assumeIsolated { reply(response) } }
     }
 
     /// A two-button confirmation as a sheet on Settings (app-modal only if Settings is somehow not open).

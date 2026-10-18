@@ -586,8 +586,8 @@ final class CardView: NSButton {
     @objc func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
         if isDesktopEntry { return desktopIsCurrent ? "Desktop — bring your windows back" : "Desktop — show the desktop" }
         guard let record else {
-            if case .kept(let name)? = vacancy { return "Slot kept for \(name ?? "an app"). A window of that app returns here." }
-            return "Free slot. The next window you open takes it; drag a window here to place it."
+            if case .kept(let name)? = vacancy { return "Waiting for \(name ?? "its app"). A window of that app returns here." }
+            return "Free slot, where a closed window was. The next window you open takes it; drag a window here to place it."
         }
         var lines = [record.title.isEmpty ? record.appName : record.title]
         var detail = [record.appName]
@@ -608,7 +608,7 @@ final class CardView: NSButton {
             if isPinned { label += ", pinned" }
             setAccessibilityLabel(label)
         } else if case .kept(let name)? = vacancy {
-            setAccessibilityLabel("Slot kept for \(name ?? "an app")")
+            setAccessibilityLabel("Kept slot, waiting for \(name ?? "its app")")
         } else {
             setAccessibilityLabel("Free slot")
         }
@@ -694,6 +694,7 @@ final class CardView: NSButton {
     var nativeCheckVacancyLabel: String? { chrome.vacancy.flatMap { $0.isHidden ? nil : $0.label.string as? String } }
     var nativeCheckVacancyHintOpacity: Float? { chrome.vacancy?.hoverHint.opacity }
     var nativeCheckVacancyDropLabelOpacity: Float? { chrome.vacancy?.dropLabel.opacity }
+    var nativeCheckVacancyFillAlpha: CGFloat { chrome.vacancy?.border.fillColor?.alpha ?? 0 }
     var nativeCheckBadgeVisible: Bool { !chrome.badge.isHidden }
     /// True when any chrome layer has a running animation (selection must never animate).
     var nativeCheckAnimating: Bool {

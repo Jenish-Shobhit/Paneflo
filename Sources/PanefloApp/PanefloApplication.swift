@@ -34,7 +34,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The user asked for previews in this process, so re-probing Screen Recording is expected.
     private var previewPermissionRequested = false
     private var desktop: DesktopController?
-    private var sample: PreviewController?
 
     // Setup state for this process (see `SetupModel`).
     private var requestedPermissions: Set<SetupPermission> = []
@@ -187,7 +186,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         desktop?.settingsController.setSetupModel(model)
         let wanted = setupPreferences.shortcutsEnabled
         let status = PanefloStatus(setupComplete: model.isComplete, shortcutsWanted: wanted, shortcutsActive: shortcuts.state == .active)
-        statusMenu.update(status: status, shortcutsWanted: wanted)
+        let stopped: Bool
+        switch shortcuts.state {
+        case .failed, .interrupted: stopped = true
+        default: stopped = false
+        }
+        statusMenu.update(status: status, shortcutsWanted: wanted, shortcutsStopped: stopped)
         desktop?.settingsController.setShortcutState(wanted: wanted, status: status)
         return model
     }
@@ -358,8 +362,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.onCheckForUpdates = { UpdateController.shared.checkForUpdates() }
         settings.lastUpdateCheck = { UpdateSettings().lastCheck }
         settings.setMenuBarIconVisible(statusMenu.isIconVisible)
-        // Settings asks before hiding (a sheet); showing never asks.
+        // Hiding asks first (Hide from Menu Bar); showing never asks.
         settings.onToggleMenuBarIcon = { [weak self] visible in self?.statusMenu.setIconVisible(visible) }
+        settings.onRequestHideMenuBarIcon = { [weak self] in self?.requestHideMenuBarIcon() }
         settings.onToggleLaunchAtLogin = { [weak self] in self?.setLaunchAtLogin($0) }
         settings.onOpenLoginItems = { SMAppService.openSystemSettingsLoginItems() }
         showLaunchAtLoginState()
@@ -411,7 +416,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func installStatusMenu() {
         let menu = statusMenu
-        menu.showsDeveloperFixtures = RuntimeDiagnostics.isEnabled
         menu.onCheckForUpdates = { UpdateController.shared.checkForUpdates() } // updates hook
         menu.onOpen = { [weak self] in self?.desktop?.present(mode: $0) }
         menu.onSettings = { [weak self] in self?.showSettings(pane: nil) }
@@ -419,8 +423,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.onFinishSetup = { [weak self] in self?.showSetup(step: .permissions) }
         menu.onToggleShortcuts = { [weak self] in self?.setShortcuts($0) }
         menu.onRefreshWindows = { [weak self] in self?.windows.refresh() }
-        menu.onDeveloperFixtures = { [weak self] in self?.showSample() }
+        menu.onTile = { [weak self] zone in self?.desktop?.tileFrontWindow(zone) }
+        menu.onUndoTile = { [weak self] in self?.desktop?.undoArrangement() }
         menu.onQuit = { [weak self] in self?.quit() }
+        menu.onHideRequested = { [weak self] in self?.requestHideMenuBarIcon() }
+        menu.onRestoredForAttention = { [weak self] _ in
+            self?.desktop?.settingsController.showMenuBarNote("The menu bar icon is back because Paneflo needs your attention.")
+        }
         menu.onIconVisibilityChanged = { [weak self] visible in
             self?.desktop?.settingsController.setMenuBarIconVisible(visible)
         }
@@ -565,10 +574,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .overview:
             if desktop?.isVisible == true { desktop?.dismiss() } else { desktop?.present(mode: .overview, fromShortcut: true) }
         case .tileSelected(let zone): desktop?.tileSelected(zone)
-        case .tile(let zone):
-            if desktop?.isVisible == true { desktop?.tileSelected(zone) }
-            else { windows.tile(zone: zone) }
-        case .restore: desktop?.restoreRequested(); windows.undo()
+        case .tile(let zone): desktop?.tileFrontWindow(zone)
+        case .restore: desktop?.undoArrangement()
         case .openPair: desktop?.openPairSelected()
         case .openAlone: desktop?.openAloneSelected()
         }
@@ -582,19 +589,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     func applicationDidResignActive(_ notification: Notification) { desktop?.updateKeyboardOwnership() }
 
-    /// Opening Paneflo again (Finder, Spotlight, Launchpad, the Dock) shows setup while something required is missing,
-    /// otherwise Settings — on General while the menu bar icon is hidden, where "Show menu bar icon" brings it back.
+    /// Opening Paneflo again (Finder, Spotlight, Launchpad, the Dock) brings a hidden menu bar icon back, then shows
+    /// setup while something required is missing, otherwise Settings — on General, saying the icon is back, when it was
+    /// hidden.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        let restored = statusMenu.reopened()
         let model = reconcile()
-        if model.isComplete { showSettings(pane: statusMenu.isIconVisible ? nil : .general) }
-        else { setup.show(step: .permissions) }
+        if model.isComplete {
+            showSettings(pane: restored ? .general : nil)
+            if restored { desktop?.settingsController.showMenuBarNote("Menu bar icon restored.") }
+        } else {
+            setup.show(step: .permissions)
+        }
         return false
+    }
+
+    /// Hide from Menu Bar (the menu item or the Settings switch): refused while something needs attention, asks once
+    /// unless the user chose "Don't show this again".
+    private func requestHideMenuBarIcon() {
+        let settings = desktop?.settingsController
+        switch statusMenu.hideStep {
+        case .refuse:
+            if statusMenu.attention != .none {
+                settings?.showMenuBarNote("The icon stays while Paneflo needs your attention (setup or shortcuts).")
+            }
+        case .hide:
+            statusMenu.hide(dontAskAgain: false)
+        case .confirm:
+            guard let settings else { return }
+            settings.confirmHideIcon { [weak self] confirmed, dontAskAgain in
+                guard confirmed, let self, self.statusMenu.hideStep != .refuse else { return }
+                self.statusMenu.hide(dontAskAgain: dontAskAgain)
+            }
+        }
     }
 
     @objc private func openSettings() { showSettings(pane: nil) }
     @objc private func showAbout() { showSettings(pane: .about) }
     private func showSettings(pane: SettingsPane?) { reconcile(); desktop?.showPreferences(pane: pane) }
-    private func showSample() { if sample == nil { sample = PreviewController() }; sample?.present(mode: 0) }
     @objc private func quit() { gestures.stop(); shortcuts.stop(); capture.stop(); desktop?.dismiss(); NSApp.terminate(nil) }
     func applicationWillTerminate(_ notification: Notification) {
         gestures.stop(); shortcuts.stop(); capture.stop()

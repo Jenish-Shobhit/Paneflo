@@ -96,6 +96,8 @@ enum SettingsAction: Equatable {
     case openURL(URL)
     /// Switcher card size (`SurfacePreferences.Key.cardSize`).
     case setCardSize(CardSizePreference)
+    /// Overview › Keep empty places for closed windows (`SurfacePreferences.Key.freeSlots`).
+    case setFreeSlots(FreeSlotRetention)
     /// A switcher, tile-pair or Overview on/off preference, written to its `SurfacePreferences` key.
     case setSurfaceOption(SurfacePreferences.Option, Bool)
     /// Overview › Remove Free Slots.
@@ -123,6 +125,8 @@ final class SettingsModel {
     var launchAtLoginNote: String?
     var launchAtLoginNeedsApproval = false
     var menuBarIconVisible = true
+    /// "Menu bar icon restored" and similar, under the Menu Bar section; nil hides it.
+    var menuBarNote: String?
 
     // Switcher appearance, tile pairs and Overview slots: the keys the surfaces read.
     var surface = SurfacePreferences()
@@ -164,6 +168,10 @@ final class SettingsModel {
 
     var cardSizeBinding: Binding<CardSizePreference> {
         Binding(get: { self.surface.cardSize }, set: { self.perform(.setCardSize($0)) })
+    }
+
+    var freeSlotsBinding: Binding<FreeSlotRetention> {
+        Binding(get: { self.surface.freeSlots }, set: { self.perform(.setFreeSlots($0)) })
     }
 
     /// The note after Remove Free Slots.

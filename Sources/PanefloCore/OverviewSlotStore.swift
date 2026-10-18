@@ -78,6 +78,19 @@ public enum SlotMetadataAssessment: Equatable, Sendable {
     }
 }
 
+/// How long the empty place a closed window leaves in the Overview is kept (Settings › Overview).
+public enum FreeSlotRetention: String, CaseIterable, Sendable {
+    /// Positions hold while the Overview is on screen; it opens again without free slots (default).
+    case off
+    /// Free slots stay from one Overview to the next and are gone at the next launch.
+    case untilQuit
+    /// Free slots persist across launches until removed (the 1.0 behaviour).
+    case always
+
+    /// Free slots are written to the saved metadata only when they outlive the process.
+    public var persistsFreeSlots: Bool { self == .always }
+}
+
 public struct OverviewSlotStore: Sendable {
     public private(set) var slots: [OverviewSlot] = []
 
@@ -159,6 +172,15 @@ public struct OverviewSlotStore: Sendable {
         return true
     }
 
+    /// Applies `retention` while the Overview is not on screen: with `.off` the free slots collapse, so windows keep
+    /// their relative order without gaps and only kept (pinned) vacancies remain. Never moves anything while
+    /// `visible` (a slot never jumps under the pointer). Returns how many were removed.
+    @discardableResult
+    public mutating func collapseFreeSlots(retention: FreeSlotRetention, visible: Bool) -> Int {
+        guard retention == .off, !visible else { return 0 }
+        return removeFreeSlots()
+    }
+
     /// Removes every free slot; kept (pinned) vacancies stay. Returns how many were removed.
     @discardableResult
     public mutating func removeFreeSlots() -> Int {
@@ -185,8 +207,10 @@ public struct OverviewSlotStore: Sendable {
         return slots.filter { matchingSlots.contains($0.id) }.compactMap(\.binding)
     }
 
-    public func encodedMetadata() throws -> Data {
-        let envelope = Envelope(schemaVersion: 1, slots: slots.map {
+    /// `keepingFreeSlots` false leaves free slots out (they never outlive the process unless the user keeps them always).
+    public func encodedMetadata(keepingFreeSlots: Bool = true) throws -> Data {
+        let saved = keepingFreeSlots ? slots : slots.filter { !Self.isFree($0) }
+        let envelope = Envelope(schemaVersion: 1, slots: saved.map {
             Metadata(id: $0.id, isPinned: $0.isPinned, matchingRule: $0.matchingRule)
         })
         let encoder = JSONEncoder()

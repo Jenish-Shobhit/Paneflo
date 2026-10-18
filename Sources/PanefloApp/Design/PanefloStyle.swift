@@ -113,15 +113,28 @@ enum PanefloStyle {
         static var partnerRing: NSColor { .controlAccentColor.withAlphaComponent(0.6) }
         /// Behind a letterboxed preview: black 6 % light, 28 % dark.
         static func wellFill(dark: Bool) -> NSColor { NSColor.black.withAlphaComponent(dark ? 0.28 : 0.06) }
-        static var vacancyFill: NSColor { NSColor.quaternarySystemFill.withAlphaComponent(0.5) }
+        /// Half of the fill's own opacity (`withAlphaComponent` would *replace* the system fill's ~3 % with 50 %: a solid
+        /// grey block instead of a faint well).
+        static var vacancyFill: NSColor { fraction(.quaternarySystemFill, 0.5) }
         static var vacancyBorder: NSColor { .separatorColor }
         static var keptBorder: NSColor { .controlAccentColor.withAlphaComponent(0.45) }
+        /// `color` at `factor` of its own resolved opacity, per appearance.
+        static func fraction(_ color: NSColor, _ factor: CGFloat) -> NSColor {
+            NSColor(name: nil) { appearance in
+                var resolved = color
+                appearance.performAsCurrentDrawingAppearance {
+                    let base = color.cgColor
+                    resolved = base.copy(alpha: base.alpha * factor).flatMap { NSColor(cgColor: $0) } ?? color
+                }
+                return resolved
+            }
+        }
         static var pairGroup: NSColor { .quaternarySystemFill }
         static var pairGroupActive: NSColor { .controlAccentColor.withAlphaComponent(0.08) }
         /// Chips sit on pixels, so they are the same in light and dark.
         static func chipBackground(increaseContrast: Bool) -> NSColor { NSColor.black.withAlphaComponent(increaseContrast ? 0.8 : 0.55) }
         static var chipText: NSColor { .white }
-        static var hairline: NSColor { NSColor.separatorColor.withAlphaComponent(0.5) }
+        static var hairline: NSColor { fraction(.separatorColor, 0.5) }
         static var keycapFill: NSColor { .quaternarySystemFill }
         static var keycapBorder: NSColor { .separatorColor }
         static var snapBanner: NSColor { .controlAccentColor.withAlphaComponent(0.14) }

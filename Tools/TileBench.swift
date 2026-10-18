@@ -8,6 +8,8 @@ import PanefloCore
 ///
 ///   tile-bench <PanefloFixture.app> [--runs N] [--min-width W] [--max-width W]
 ///   tile-bench <PanefloFixture.app> --pair [--same-app] [--runs N]
+///   tile-bench <PanefloFixture.app> --replace [--constrained] [--runs N]
+///   tile-bench <PanefloFixture.app> --frontmost [--runs N]
 ///
 /// `--pair` launches three single-window fixture instances (pair left, pair right, cover), tiles the pair into
 /// the primary display's halves, covers it with the third window and measures opening the pair from a
@@ -18,6 +20,22 @@ import PanefloCore
 ///   releaseToTargetFocused release until the target app is frontmost with the target focused
 ///   plain focus (no partner) is measured alongside as the baseline. `--same-app` puts both pair windows in one
 ///   fixture instance.
+///
+/// `--replace` launches three single-window fixture instances (A, B, C), pairs A (left) and B (right) through the
+/// app's own tiling coordinator (`TilePairController.tile`), then per run: C replaces A (⌘⌥← path), undo, and a swap
+/// (A into B's half). Correctness after each step: every window's final AX frame and the registry's pair.
+///   replaceToFinalFrame   C's tile request until C's frame is final in the left half
+///   replaceToDisplacedHome  request until the displaced A is back at its pre-tile (home) frame
+///   swapToBothFinal       swap request until both A (right) and B (left) are final
+///   wrongFinalFrames / wrongPairs  end-state failures over all steps
+/// `--constrained` gives C a minimum width of 62 % of the display: C keeps it against the left edge and B takes the
+/// rest of the display (the pair stays complementary); undo and swap are skipped in that variant.
+///
+/// `--frontmost` drives the standalone ⌃⌥ path (`TilePairController.tileFrontWindow`, as the shortcut and the menu bar's
+/// Tile Front Window do) with the fixture frontmost and focus notifications dropped, so the service's cached focus is
+/// deliberately stale: each run focuses the other fixture window (bench-side AX), tiles a half, checks the focused
+/// window landed and the other did not move, then undoes (⌃⌥Z path) and checks the window is back. A first "cold" run
+/// tiles before any window scan finished (the window is adopted at keypress time).
 ///
 /// Metrics (milliseconds, own-process windows):
 ///   tileToFinalFrame      tile request until the window's AX frame reaches and keeps its final value
@@ -37,8 +55,11 @@ struct TileBench {
         var minWidth: Int?
         var maxWidth: Int?
         let pairMode = arguments.contains("--pair")
+        let replaceMode = arguments.contains("--replace")
+        let frontmostMode = arguments.contains("--frontmost")
         let sameApp = arguments.contains("--same-app")
-        let options = arguments.filter { $0 != "--pair" && $0 != "--same-app" }
+        let constrained = arguments.contains("--constrained")
+        let options = arguments.filter { !["--pair", "--same-app", "--replace", "--constrained", "--frontmost"].contains($0) }
         var index = 1
         while index + 1 < options.count {
             switch options[index] {
@@ -54,6 +75,12 @@ struct TileBench {
         application.setActivationPolicy(.accessory)
         application.finishLaunching()
         Task { @MainActor in
+            #if BENCH_NO_REPLACE
+            if replaceMode || frontmostMode { print("--replace and --frontmost need a tree with the pair coordinator."); exit(2) }
+            #else
+            if replaceMode { exit(await ReplaceBench(path: path, runs: runs, constrained: constrained).run()) }
+            if frontmostMode { exit(await FrontmostBench(path: path, runs: runs).run()) }
+            #endif
             let code = pairMode ? await PairBench(path: path, runs: runs, sameApp: sameApp).run()
                 : await Bench(path: path, runs: runs, minWidth: minWidth, maxWidth: maxWidth).run()
             exit(code)
@@ -442,3 +469,287 @@ private final class PairBench {
         return 0
     }
 }
+
+// MARK: - Pair replacement
+#if !BENCH_NO_REPLACE
+
+/// Polls several windows' frames.
+private final class FramePoller: @unchecked Sendable {
+    private let lock = NSLock()
+    private var running = true
+    private var samples: [(time: Double, frames: [CGRect])] = []
+    init(_ windows: [AXUIElement]) {
+        let thread = Thread { [self] in
+            while lock.withLock({ running }) {
+                let sample = (time: now(), frames: windows.map { axFrame($0) ?? .zero })
+                lock.withLock { samples.append(sample) }
+                Thread.sleep(forTimeInterval: 0.001)
+            }
+        }
+        thread.qualityOfService = .userInteractive
+        thread.start()
+    }
+    func stop() -> [(time: Double, frames: [CGRect])] { lock.withLock { running = false; return samples } }
+}
+
+@MainActor
+private final class ReplaceBench {
+    let path: String, runs: Int, constrained: Bool
+    let service = WindowService()
+    let pairs: TilePairController
+    let defaults: UserDefaults
+    init(path: String, runs: Int, constrained: Bool) {
+        self.path = path; self.runs = runs; self.constrained = constrained
+        let suite = "org.paneflo.TileBench.\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suite) ?? .standard
+        pairs = TilePairController(defaults: defaults)
+    }
+
+    func sleep(_ milliseconds: Int) async { try? await Task.sleep(for: .milliseconds(milliseconds)) }
+
+    func launch(_ label: String, minWidth: Int? = nil) async -> NSRunningApplication? {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.arguments = ["--count", "1", "--label", label] + (minWidth.map { ["--min-width", "\($0)"] } ?? [])
+        configuration.createsNewApplicationInstance = true
+        return try? await NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: path), configuration: configuration)
+    }
+
+    /// Tiles through the coordinator and waits for its completion (bounded).
+    func tile(_ id: WindowIdentity, _ zone: LayoutZone) async {
+        var done = false
+        pairs.tile(id, zone: zone, service: service, snapAssist: false) { _, _ in done = true }
+        for _ in 0..<100 where !done { await sleep(10) }
+    }
+
+    func run() async -> Int32 {
+        let previous = NSWorkspace.shared.frontmostApplication
+        let minWidth = constrained ? WindowService.displayAreas().first.map { min(4000, max(200, Int($0.visibleFrame.width * 0.62))) } : nil
+        guard let appA = await launch("RepA"), let appB = await launch("RepB"), let appC = await launch("RepC", minWidth: minWidth) else {
+            print("Could not launch the fixtures."); return 4
+        }
+        let apps = [appA, appB, appC]
+        defer {
+            for app in apps { app.terminate() }
+            if let previous, previous.processIdentifier != ProcessInfo.processInfo.processIdentifier { previous.activate(options: []) }
+        }
+        let pids = Set(apps.map(\.processIdentifier))
+        service.nativeCheckProcessFilter = { pids.contains($0) }
+        service.onChange = { [unowned self] in self.pairs.reconcile(self.service.snapshot, displays: WindowService.displayAreas()) }
+        service.start()
+        var records: [WindowRecord] = []
+        for _ in 0..<100 {
+            await sleep(100)
+            records = service.snapshot.records.filter { pids.contains($0.id.process.pid) }
+            if Set(records.map(\.id.process.pid)).count == 3 { break }
+            service.refresh()
+        }
+        func record(_ app: NSRunningApplication) -> WindowRecord? { records.first { $0.id.process.pid == app.processIdentifier } }
+        func element(_ app: NSRunningApplication) -> AXUIElement? {
+            (attribute(AXUIElementCreateApplication(app.processIdentifier), kAXWindowsAttribute) as? [AXUIElement])?.first
+        }
+        guard let a = record(appA)?.id, let b = record(appB)?.id, let c = record(appC)?.id,
+              let ea = element(appA), let eb = element(appB), let ec = element(appC),
+              let display = WindowService.displayAreas().first,
+              let left = LayoutEngine.plan(zone: .leftHalf, in: display.visibleFrame, gap: 8, backingScale: display.backingScale).rect,
+              let right = LayoutEngine.plan(zone: .rightHalf, in: display.visibleFrame, gap: 8, backingScale: display.backingScale).rect else {
+            print("Fixture windows or display not found: records \(records.count) pids \(Set(records.map(\.id.process.pid)).count)"
+                  + " elements \([appA, appB, appC].map { element($0) != nil })")
+            return 5
+        }
+        let v = display.visibleFrame
+        func cg(_ r: WindowRect) -> CGRect { CGRect(x: r.x, y: r.y, width: r.width, height: r.height) }
+        let startA = CGRect(x: v.x + 60, y: v.y + 60, width: 520, height: 360)
+        let startB = CGRect(x: v.x + 160, y: v.y + 120, width: 520, height: 360)
+        let startC = CGRect(x: v.x + 260, y: v.y + 180, width: 520, height: 360)
+        let leftRect = cg(left), rightRect = cg(right)
+
+        var replaceFinal: [Double] = [], displacedHome: [Double] = [], swapFinal: [Double] = []
+        var wrongFrames = 0, wrongPairs = 0, steps = 0
+        func check(_ label: String, _ expected: [(AXUIElement, CGRect)], pair: (WindowIdentity, WindowIdentity)?) {
+            steps += 1
+            for (index, (window, rect)) in expected.enumerated() {
+                let frame = axFrame(window) ?? .zero
+                if !close(frame, rect, 3) { wrongFrames += 1; print("\(label): window \(index) at \(frame), expected \(rect)") }
+            }
+            let ok: Bool
+            if let pair { ok = pairs.groups.group(containing: pair.0).map { $0.first == pair.0 && $0.second == pair.1 } ?? false }
+            else { ok = true }
+            if !ok { wrongPairs += 1; print("\(label): pairs \(pairs.groups.groups.map { ($0.first.number, $0.second.number) })") }
+        }
+        func settleSnapshot() async { await sleep(350); service.refresh(); await sleep(250) }
+
+        // Warm-up and per-run reset: all three float; A then B tile through the coordinator and pair.
+        func reset() async {
+            axSet(ea, startA); axSet(eb, startB); axSet(ec, startC)
+            await settleSnapshot()
+            await tile(a, .leftHalf)
+            await tile(b, .rightHalf)
+            await settleSnapshot()
+        }
+        for run in 0...runs {
+            await reset()
+            if run > 0 { check("pair", [(ea, leftRect), (eb, rightRect)], pair: (a, b)) }
+            // 1. C replaces A (left half): C+B pair, A back at its pre-tile frame, B untouched.
+            let poller = FramePoller([ec, ea])
+            await sleep(20)
+            let t0 = now()
+            await tile(c, .leftHalf)
+            await sleep(700)
+            let series = poller.stop()
+            if run > 0, minWidth == nil {
+                if let i = series.lastIndex(where: { !close($0.frames[0], leftRect, 1) }), i + 1 < series.count { replaceFinal.append(series[i + 1].time - t0) }
+                else if close(series.first?.frames[0] ?? .zero, leftRect, 1) { replaceFinal.append(0) }
+                if let i = series.lastIndex(where: { !close($0.frames[1], startA, 1) }), i + 1 < series.count { displacedHome.append(series[i + 1].time - t0) }
+            }
+            await settleSnapshot()
+            if let minWidth {
+                // C keeps its minimum width against the left edge; B takes exactly the rest.
+                let cRect = CGRect(x: leftRect.minX, y: leftRect.minY, width: CGFloat(minWidth), height: leftRect.height)
+                let bRect = CGRect(x: cRect.maxX + 8, y: rightRect.minY, width: rightRect.maxX - cRect.maxX - 8, height: rightRect.height)
+                if run > 0 { check("replace constrained", [(ec, cRect), (ea, startA), (eb, bRect)], pair: (c, b)) }
+                continue
+            }
+            if run > 0 { check("replace", [(ec, leftRect), (ea, startA), (eb, rightRect)], pair: (c, b)) }
+            // 2. Undo C: C back to its start, A back to the left half, A+B re-formed.
+            pairs.undo(preferring: c, service: service)
+            await sleep(500)
+            await settleSnapshot()
+            if run > 0 { check("undo", [(ec, startC), (ea, leftRect), (eb, rightRect)], pair: (a, b)) }
+            // 3. Swap: A into B's half; B takes A's.
+            let swapPoller = FramePoller([ea, eb])
+            await sleep(20)
+            let s0 = now()
+            await tile(a, .rightHalf)
+            await sleep(700)
+            let swapSeries = swapPoller.stop()
+            if run > 0, let i = swapSeries.lastIndex(where: { !close($0.frames[0], rightRect, 1) || !close($0.frames[1], leftRect, 1) }),
+               i + 1 < swapSeries.count { swapFinal.append(swapSeries[i + 1].time - s0) }
+            await settleSnapshot()
+            if run > 0 { check("swap", [(ea, rightRect), (eb, leftRect)], pair: (b, a)) }
+        }
+        func summary(_ name: String, _ values: [Double]) {
+            let sorted = values.sorted()
+            guard !sorted.isEmpty else { print("\(name): no samples"); return }
+            func p(_ q: Double) -> Double { sorted[max(0, min(sorted.count - 1, Int((Double(sorted.count) * q).rounded(.up)) - 1))] }
+            print(String(format: "%@ n=%d median=%.1f p90=%.1f min=%.1f max=%.1f", name, sorted.count, p(0.5), p(0.9), sorted.first!, sorted.last!))
+        }
+        print("variant: pair replacement via TilePairController; three fixture apps\(constrained ? "; C min width \(minWidth ?? 0)" : ""); runs=\(runs)")
+        summary("replaceToFinalFrame ms", replaceFinal)
+        summary("replaceToDisplacedHome ms", displacedHome)
+        summary("swapToBothFinal ms", swapFinal)
+        print("checkedSteps=\(steps) wrongFinalFrames=\(wrongFrames) wrongPairs=\(wrongPairs)")
+        return wrongFrames == 0 && wrongPairs == 0 ? 0 : 1
+    }
+}
+
+// MARK: - Standalone (⌃⌥) path with a stale cached focus
+
+@MainActor
+private final class FrontmostBench {
+    let path: String, runs: Int
+    let service = WindowService()
+    let pairs: TilePairController
+    init(path: String, runs: Int) {
+        self.path = path; self.runs = runs
+        pairs = TilePairController(defaults: UserDefaults(suiteName: "org.paneflo.TileBench.front.\(UUID().uuidString)") ?? .standard)
+    }
+
+    func sleep(_ milliseconds: Int) async { try? await Task.sleep(for: .milliseconds(milliseconds)) }
+
+    /// Runs the standalone tile and waits for its completion; returns the failure reason, if any.
+    func tileFront(_ zone: LayoutZone) async -> String? {
+        var done = false, failure: String?
+        pairs.tileFrontWindow(zone, service: service, failed: { failure = $0.message; done = true }, completion: { _ in done = true })
+        for _ in 0..<150 where !done { await sleep(10) }
+        return done ? failure : "timeout"
+    }
+
+    func run() async -> Int32 {
+        let previous = NSWorkspace.shared.frontmostApplication
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.arguments = ["--count", "2", "--label", "FrontBench"]
+        configuration.createsNewApplicationInstance = true
+        guard let fixture = try? await NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: path), configuration: configuration) else {
+            print("Could not launch the fixture."); return 4
+        }
+        defer {
+            fixture.terminate()
+            if let previous, previous.processIdentifier != ProcessInfo.processInfo.processIdentifier { previous.activate(options: []) }
+        }
+        let pid = fixture.processIdentifier
+        let app = AXUIElementCreateApplication(pid)
+        var elements: [AXUIElement] = []
+        for _ in 0..<100 {
+            elements = attribute(app, kAXWindowsAttribute) as? [AXUIElement] ?? []
+            if elements.count >= 2 { break }
+            await sleep(100)
+        }
+        guard let one = elements.first(where: { (attribute($0, kAXTitleAttribute) as? String)?.hasSuffix("One") == true }),
+              let two = elements.first(where: { (attribute($0, kAXTitleAttribute) as? String)?.hasSuffix("Two") == true }),
+              let display = WindowService.displayAreas().first else { print("Fixture AX windows not found."); return 5 }
+        let v = display.visibleFrame
+        let starts = [CGRect(x: v.x + 60, y: v.y + 80, width: 460, height: 300), CGRect(x: v.x + 200, y: v.y + 160, width: 460, height: 300)]
+        let windows = [one, two]
+        func focus(_ index: Int) async {
+            AXUIElementSetAttributeValue(app, kAXFocusedWindowAttribute as CFString, windows[index])
+            AXUIElementSetAttributeValue(windows[index], kAXMainAttribute as CFString, kCFBooleanTrue)
+            AXUIElementPerformAction(windows[index], kAXRaiseAction as CFString)
+            fixture.activate(options: [])
+            for _ in 0..<50 where NSWorkspace.shared.frontmostApplication?.processIdentifier != pid { await sleep(10) }
+            await sleep(150)
+        }
+        func reset() { for (window, start) in zip(windows, starts) { axSet(window, start) } }
+        var failures = 0, staleRuns = 0, tileMs: [Double] = []
+        func check(_ label: String, _ index: Int, _ expected: CGRect) {
+            let frame = axFrame(windows[index]) ?? .zero
+            let other = axFrame(windows[1 - index]) ?? .zero
+            if !close(frame, expected, 3) || !close(other, starts[1 - index], 3) {
+                failures += 1
+                print("\(label): focused window \(index) at \(frame) expected \(expected); other at \(other) expected \(starts[1 - index])")
+            }
+        }
+
+        // Cold: the chord arrives before any scan finished; the window is adopted at keypress time.
+        reset()
+        await focus(1)
+        service.nativeCheckProcessFilter = { $0 == pid }
+        service.nativeCheckDropFocusEvents = true
+        service.start()
+        let emptyBefore = service.snapshot.records.isEmpty
+        if let reason = await tileFront(.leftHalf) { failures += 1; print("cold: failed \(reason)") }
+        await sleep(400)
+        if let expected = expectedRect(.leftHalf, window: starts[1]) { check("cold", 1, expected) }
+        print("coldStartRegistryEmptyAtChord=\(emptyBefore)")
+        await sleep(800)
+
+        let zones: [LayoutZone] = [.leftHalf, .rightHalf, .topHalf, .bottomHalf]
+        for run in 0..<runs {
+            reset()
+            let index = run % 2
+            await focus(index)
+            let ids = service.snapshot.records.filter { $0.id.process.pid == pid }
+            let targetID = ids.first { ($0.title.hasSuffix("One") ? 0 : 1) == index }?.id
+            if service.focusedID != targetID { staleRuns += 1 }
+            let zone = zones[run % zones.count]
+            let t0 = now()
+            if let reason = await tileFront(zone) { failures += 1; print("run \(run): failed \(reason)"); continue }
+            tileMs.append(now() - t0)
+            await sleep(350)
+            if let expected = expectedRect(zone, window: starts[index]) { check("run \(run) \(zone.rawValue)", index, expected) }
+            // ⌃⌥Z on the same (still stale-cached) window.
+            var undoFailed: String?
+            pairs.undoFrontWindow(service: service) { undoFailed = $0 }
+            await sleep(450)
+            if let undoFailed { failures += 1; print("run \(run): undo failed \(undoFailed)") }
+            else { check("run \(run) undo", index, starts[index]) }
+        }
+        let sorted = tileMs.sorted()
+        if !sorted.isEmpty {
+            print(String(format: "chordToCompletion ms n=%d median=%.1f p90=%.1f max=%.1f", sorted.count, sorted[sorted.count / 2],
+                         sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.9))], sorted.last!))
+        }
+        print("variant: standalone ⌃⌥ path, focus notifications dropped; runs=\(runs) staleCachedFocusRuns=\(staleRuns) failures=\(failures)")
+        return failures == 0 ? 0 : 1
+    }
+}
+#endif

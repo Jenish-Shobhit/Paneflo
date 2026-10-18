@@ -392,6 +392,8 @@ public struct SetupPreferences {
     public static let previewsKey = "previews.enabled.v1"
     public static let missingBeforeRelaunchKey = "setup.missingBeforeRelaunch.v1"
     public static let menuBarIconHiddenKey = "menuBar.iconHidden.v1"
+    /// "Don't show this again" in the Hide from Menu Bar confirmation.
+    public static let menuBarHideConfirmationSkippedKey = "menuBar.hideConfirmationSkipped.v1"
     public static let welcomeSeenKey = "setup.welcomeSeen.v1"
 
     private let defaults: UserDefaults
@@ -423,6 +425,20 @@ public struct SetupPreferences {
     public var menuBarIconHidden: Bool {
         get { defaults.bool(forKey: Self.menuBarIconHiddenKey) }
         nonmutating set { defaults.set(newValue, forKey: Self.menuBarIconHiddenKey) }
+    }
+
+    public var menuBarHideConfirmationSkipped: Bool {
+        get { defaults.bool(forKey: Self.menuBarHideConfirmationSkippedKey) }
+        nonmutating set { defaults.set(newValue, forKey: Self.menuBarHideConfirmationSkippedKey) }
+    }
+
+    /// The menu bar icon's saved state.
+    public var menuBarIcon: MenuBarIconPolicy {
+        get { MenuBarIconPolicy(hidden: menuBarIconHidden, skipsConfirmation: menuBarHideConfirmationSkipped) }
+        nonmutating set {
+            menuBarIconHidden = newValue.hidden
+            menuBarHideConfirmationSkipped = newValue.skipsConfirmation
+        }
     }
 
     /// The setup window's Welcome step was shown. Someone who settled the shortcuts choice in an earlier version has

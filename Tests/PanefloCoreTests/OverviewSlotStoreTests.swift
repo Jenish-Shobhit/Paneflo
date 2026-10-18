@@ -129,4 +129,63 @@ struct OverviewSlotStoreTests {
         store.reset([record(7), record(8)])
         #expect(store.slots.map(\.binding) == [windowID(7), windowID(8)] && store.slots.allSatisfy { !$0.isPinned })
     }
+
+    // MARK: Free slot retention (v1.1)
+
+    @Test
+    func testFreeSlotsHoldWhileVisibleAndCollapseOnTheNextOpenKeepingOrderAndPins() {
+        var store = OverviewSlotStore()
+        store.reconcile([record(1), record(2), record(3), record(4)])
+        store.pin(slotID: store.slots[3].id, matchingRule: SlotMatchingRule(appIdentifier: "mail.app"))
+        let ids = store.slots.map(\.id)
+        // Windows 2 and 4 close while the Overview is up: nothing moves.
+        store.reconcile([record(1), record(3)])
+        #expect(store.collapseFreeSlots(retention: .off, visible: true) == 0)
+        #expect(store.slots.map(\.id) == ids && store.slots.map(\.binding) == [windowID(1), nil, windowID(3), nil])
+        // A window opened during the session takes the interior free slot.
+        store.reconcile([record(1), record(3), record(5)])
+        #expect(store.slots.map(\.binding) == [windowID(1), windowID(5), windowID(3), nil])
+        store.reconcile([record(1), record(3)])
+        // Next open: the free slot collapses, relative order is kept, the pinned vacancy stays.
+        #expect(store.collapseFreeSlots(retention: .off, visible: false) == 1)
+        #expect(store.slots.map(\.binding) == [windowID(1), windowID(3), nil] && store.slots[2].isPinned)
+        // A new window appends after the others instead of filling a gap.
+        store.reconcile([record(1), record(3), record(6)])
+        #expect(store.slots.map(\.binding) == [windowID(1), windowID(3), nil, windowID(6)])
+    }
+
+    @Test
+    func testKeepModesKeepFreeSlotsAndOnlyAlwaysSavesThem() throws {
+        var store = OverviewSlotStore()
+        store.reconcile([record(1), record(2), record(3)])
+        store.pin(slotID: store.slots[2].id, matchingRule: SlotMatchingRule(appIdentifier: "example.app"))
+        store.reconcile([record(1)])
+        for retention in [FreeSlotRetention.untilQuit, .always] {
+            var copy = store
+            #expect(copy.collapseFreeSlots(retention: retention, visible: false) == 0)
+            #expect(copy.slots.count == 3)
+        }
+        #expect(!FreeSlotRetention.off.persistsFreeSlots && !FreeSlotRetention.untilQuit.persistsFreeSlots)
+        #expect(FreeSlotRetention.always.persistsFreeSlots)
+        // Without keeping free slots, the saved metadata holds the bound slot and the pinned vacancy only.
+        let trimmed = try OverviewSlotStore(metadata: store.encodedMetadata(keepingFreeSlots: false))
+        #expect(trimmed.slots.map(\.id) == [store.slots[0].id, store.slots[2].id] && trimmed.slots[1].isPinned)
+        let full = try OverviewSlotStore(metadata: store.encodedMetadata())
+        #expect(full.slots.map(\.id) == store.slots.map(\.id))
+    }
+
+    @Test
+    func testMigrationDropsAccumulatedFreeSlotsAndKeepsKeptOnes() throws {
+        // 1.0 metadata after many closed windows: 12 free slots around one pinned slot.
+        var old = OverviewSlotStore()
+        old.reconcile((1...13).map { record(UInt32($0)) })
+        old.pin(slotID: old.slots[6].id, matchingRule: SlotMatchingRule(appIdentifier: "example.app"))
+        var loaded = try OverviewSlotStore(metadata: old.encodedMetadata())
+        #expect(loaded.slots.allSatisfy { $0.binding == nil })
+        #expect(loaded.removeFreeSlots() == 12)
+        #expect(loaded.slots.count == 1 && loaded.slots[0].isPinned)
+        // The kept slot still claims a window of its app first.
+        loaded.reconcile([record(20, app: "other.app"), record(21)])
+        #expect(loaded.slots.map(\.binding) == [windowID(21), windowID(20)])
+    }
 }

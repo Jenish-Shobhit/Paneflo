@@ -54,12 +54,38 @@ private struct PlacementReport: Sendable {
     var message: String
     /// The display index a tile landed on (nil for restores and failures).
     var display: Int? = nil
+    /// The rectangle the placement asked for.
+    var requested: WindowRect? = nil
 }
 
-/// A finished tile: where it landed (display index in `WindowService.displayAreas()` order) and its frame.
+/// A finished placement: where it landed (display index in `WindowService.displayAreas()` order) and its frame.
 struct TileOutcome: Sendable {
     let display: Int?
     let frame: WindowRect
+    /// The window's frame read just before the placement.
+    var before: WindowRect? = nil
+    /// What Paneflo asked for; a different `frame` means the window limits its own size.
+    var requested: WindowRect? = nil
+    /// A newer placement of the same window was requested meanwhile: the frame is real, but nothing should be
+    /// decided from it (the newer request owns the window).
+    var superseded = false
+}
+
+/// The window a ⌃⌥ arrangement acts on, resolved fresh at keypress time.
+enum FrontWindowTarget: Sendable {
+    /// `resizable` false: the window can only be moved.
+    case window(WindowIdentity, resizable: Bool)
+    case failure(FrontWindowResolution.Failure)
+}
+
+/// The worker's fresh read of the frontmost app. `target`/`record` are set when it arranged a window; `adopted` when
+/// that window was not in the registry yet.
+private struct FrontResolution: Sendable {
+    var decision: FrontWindowResolution.Decision
+    var target: AXWindowTarget?
+    var record: WindowRecord?
+    var adopted = false
+    var path = ""
 }
 
 private enum WindowEvent: Sendable {
@@ -108,6 +134,9 @@ final class WindowService {
     private var scanInFlight = false
     private var needsRescan = false
     private var undoHistory = GeometryUndoHistory()
+    private var nextOperation: UInt64 = 0
+    /// The latest placement token per window while its placement runs.
+    private var placementsInFlight: [WindowIdentity: UInt64] = [:]
     private var processTokens: [pid_t: (Date?, UInt64)] = [:]
     private var nextToken: UInt64 = 0
     private var latestFocusIntent: UInt64 = 0
@@ -116,9 +145,14 @@ final class WindowService {
     private(set) var focusedID: WindowIdentity?
     var onChange: (() -> Void)?
     var onStatus: ((String) -> Void)?
+    /// A placement could not be made (window gone, refused, full screen, Accessibility off): the reason, for visible
+    /// feedback. Superseded placements are not failures.
+    var onPlacementFailed: ((WindowIdentity?, String) -> Void)?
     var hasAccessibility: Bool { AXIsProcessTrusted() }
 
     #if PANEFLO_NATIVE_CHECK
+    /// Drops focus observations so a bench can keep `focusedID` deliberately stale.
+    var nativeCheckDropFocusEvents = false
     /// Restricts discovery to the given processes so checks never read unrelated apps.
     var nativeCheckProcessFilter: ((pid_t) -> Bool)?
     private(set) var nativeCheckScanCount = 0
@@ -264,7 +298,11 @@ final class WindowService {
         if !discovered.stacking.isEmpty { lastStacking = discovered.stacking }
         rebuildIndexes()
         registry.updateStacking(frontToBack: lastStacking.compactMap { identityByNumber[$0] })
-        if let focus = discovered.focus, admitted.contains(focus) {
+        var dropFocus = false
+        #if PANEFLO_NATIVE_CHECK
+        dropFocus = nativeCheckDropFocusEvents
+        #endif
+        if !dropFocus, let focus = discovered.focus, admitted.contains(focus) {
             lastFocusedByPID[focus.process.pid] = focus
             if NSWorkspace.shared.frontmostApplication?.processIdentifier == focus.process.pid,
                registry.observeFocus(focus, sequence: discovered.epoch) { focusedID = focus }
@@ -294,6 +332,9 @@ final class WindowService {
 
     /// Records the app's focused window and moves it to the MRU front when its app is frontmost.
     private func noteFocus(_ id: WindowIdentity, epoch: UInt64) {
+        #if PANEFLO_NATIVE_CHECK
+        if nativeCheckDropFocusEvents { return }
+        #endif
         guard isCurrent(id.process), targets[id] != nil else { return }
         lastFocusedByPID[id.process.pid] = id
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == id.process.pid else { return }
@@ -408,55 +449,174 @@ final class WindowService {
         }
     }
 
-    /// Tiles a window on its own display. The display is chosen from a fresh Accessibility
-    /// frame read on the placement lane, never from the snapshot's record. Placement never blocks
-    /// or is blocked by focus: both run on their own lanes with independent supersession.
-    func tile(_ id: WindowIdentity? = nil, zone: LayoutZone, screenIndex: Int? = nil, gap: Double = 8, completion: (@MainActor @Sendable (TileOutcome?) -> Void)? = nil) {
-        if id == nil, focusedID?.process.pid != NSWorkspace.shared.frontmostApplication?.processIdentifier {
-            onStatus?("The frontmost window changed. Try again after its focus is confirmed.")
-            scheduleRefresh(); completion?(nil); return
+    /// One user action's undo step. Pass it to every placement the action issues (the tile and its pair
+    /// follow-ups) so a single undo puts all of them back.
+    func beginOperation() -> UInt64 { nextOperation &+= 1; return nextOperation }
+
+    /// Pairs an operation ended, re-formed when it is undone.
+    func attachUndoPairs(_ pairs: [TilePairMembers], to operation: UInt64) { undoHistory.attach(pairs: pairs, to: operation) }
+
+    /// A pair follow-up is about to move `id` to `planned`: it joins `operation` now (from the window's last known
+    /// frame), so an undo issued before it lands still restores it, superseding the move.
+    func recordPlanned(_ id: WindowIdentity, to planned: WindowRect, operation: UInt64) {
+        guard let current = recordIndex[id]?.frame else { return }
+        undoHistory.record([GeometryChange(id: id, before: current, after: planned)], operation: operation)
+    }
+
+    /// Windows with a placement still running. O(1) per window; no Accessibility call.
+    var busyWindows: Set<WindowIdentity> { Set(placementsInFlight.keys) }
+
+    /// The window a ⌃⌥ arrangement acts on, read fresh on the interactive lane: the frontmost app's focused window,
+    /// else its main window, else its first standard window (never for Finder's desktop); a sheet or dialog stands for
+    /// its parent. Never decided from the cached `focusedID`, which a missed notification, a click or a window not
+    /// scanned yet can leave stale. A window not in the registry yet is adopted at once (a full scan follows).
+    func resolveFrontmostWindow(_ completion: @escaping @MainActor (FrontWindowTarget) -> Void) {
+        let started = ProcessInfo.processInfo.systemUptime
+        guard let app = NSWorkspace.shared.frontmostApplication else { completion(.failure(.noWindow)); return }
+        let own = app.processIdentifier == ProcessInfo.processInfo.processIdentifier
+        if case .fail(let failure) = FrontWindowResolution.decide(accessibilityTrusted: hasAccessibility, frontmostIsPaneflo: own,
+                                                                  frontmostIsFinder: false, candidates: [.init(source: .focused, role: "AXWindow", subrole: nil)]) {
+            RuntimeDiagnostics.mark("tile front resolve failure=\(failure)")
+            completion(.failure(failure)); return
         }
-        guard hasAccessibility, let id = id ?? focusedID, validLifetime(id), recordIndex[id] != nil, let target = targets[id] else {
-            onStatus?("Select a window before arranging it."); completion?(nil); return
-        }
-        let displays = Self.displayAreas()
-        guard !displays.isEmpty else { completion?(nil); return }
-        let token = worker.beginPlacement(for: id)
-        worker.place(target, request: .tile(zone: zone, displays: displays, explicitDisplay: screenIndex, gap: gap), token: token) { [weak self] report in
+        let process = processIdentity(for: app)
+        let descriptor = AppDescriptor(process: process, identifier: app.bundleIdentifier ?? "pid.\(app.processIdentifier)",
+                                       name: app.localizedName ?? "Application")
+        worker.resolveFront(descriptor, isFinder: app.bundleIdentifier == "com.apple.finder") { [weak self] resolution in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    guard let self else { completion?(nil); return }
-                    if let before = report.before, let after = report.after {
-                        self.undoHistory.record([GeometryChange(id: id, before: before, after: after)])
+                    guard let self else { return }
+                    let elapsed = (ProcessInfo.processInfo.systemUptime - started) * 1000
+                    RuntimeDiagnostics.mark("tile front resolve path=\(resolution.path) decision=\(resolution.decision) adopted=\(resolution.adopted) milliseconds=\(elapsed)")
+                    switch resolution.decision {
+                    case .fail(let failure): completion(.failure(failure))
+                    case .arrange(_, _, let resizable):
+                        guard let target = resolution.target, let record = resolution.record, self.isCurrent(record.id.process) else {
+                            completion(.failure(.noWindow)); return
+                        }
+                        let id = record.id
+                        if self.targets[id] == nil || self.recordIndex[id] == nil {
+                            self.registry.upsert(record)
+                            self.targets[id] = target
+                            self.scannedProcesses.insert(id.process)
+                            self.rebuildIndexes()
+                            self.publish(force: true)
+                            self.scheduleRefresh()
+                        }
+                        // The fresh read is the truth: the cached focus catches up.
+                        self.lastFocusedByPID[id.process.pid] = id
+                        if self.registry.observeFocus(id, sequence: self.worker.currentEpoch()) { self.focusedID = id; self.publish(force: false) }
+                        completion(.window(id, resizable: resizable))
                     }
-                    self.onStatus?(report.message)
-                    self.worker.markDirty(target)
-                    completion?(report.after.map { TileOutcome(display: report.display, frame: $0) })
                 }
             }
         }
     }
 
-    /// Restores the exact pre-tile frame of the preferred window (the switcher selection, else the
-    /// focused window); a position that left every display is clamped into the nearest one.
-    func undo(preferring preferred: WindowIdentity? = nil) {
+    /// The launch-token identity for a running app, assigned now when no scan has seen it yet (same rule as `refresh`).
+    private func processIdentity(for app: NSRunningApplication) -> ProcessIdentity {
+        let pid = app.processIdentifier
+        if let current = processTokens[pid], current.0 == app.launchDate { return ProcessIdentity(pid: pid, launchToken: current.1) }
+        nextToken += 1
+        processTokens[pid] = (app.launchDate, nextToken)
+        return ProcessIdentity(pid: pid, launchToken: nextToken)
+    }
+
+    /// Tiles a window on its own display. The display is chosen from a fresh Accessibility
+    /// frame read on the placement lane, never from the snapshot's record. Placement never blocks
+    /// or is blocked by focus: both run on their own lanes with independent supersession.
+    /// A hidden app is unhidden first and a minimized window is restored by the worker, so the tile is visible.
+    func tile(_ id: WindowIdentity? = nil, zone: LayoutZone, screenIndex: Int? = nil, gap: Double = 8, operation: UInt64? = nil,
+              completion: (@MainActor @Sendable (TileOutcome?) -> Void)? = nil) {
+        if id == nil, focusedID?.process.pid != NSWorkspace.shared.frontmostApplication?.processIdentifier {
+            onStatus?("The frontmost window changed. Try again after its focus is confirmed.")
+            scheduleRefresh(); completion?(nil); return
+        }
+        guard hasAccessibility else {
+            onPlacementFailed?(id, FrontWindowResolution.Failure.accessibilityOff.message); completion?(nil); return
+        }
+        guard let id = id ?? focusedID, validLifetime(id), recordIndex[id] != nil, let target = targets[id] else {
+            onStatus?("Select a window before arranging it.")
+            onPlacementFailed?(id, "That window is no longer available"); completion?(nil); return
+        }
+        let displays = Self.displayAreas()
+        guard !displays.isEmpty else { completion?(nil); return }
+        if let app = currentApplication(for: id), app.isHidden { app.unhide() }
+        RuntimeDiagnostics.mark("tile request zone=\(zone.rawValue) explicitDisplay=\(screenIndex.map(String.init) ?? "none")")
+        run(.tile(zone: zone, displays: displays, explicitDisplay: screenIndex, gap: gap), for: id, target: target,
+            operation: operation, completion: completion)
+    }
+
+    /// Moves a window to an exact frame (a pair follow-up: a displaced member's home, the rest of the display beside
+    /// a size-limited partner). A frame that left every display is clamped into the nearest one.
+    func place(_ id: WindowIdentity, frame: WindowRect, operation: UInt64? = nil,
+               completion: (@MainActor @Sendable (TileOutcome?) -> Void)? = nil) {
+        guard hasAccessibility, validLifetime(id), recordIndex[id] != nil, let target = targets[id] else { completion?(nil); return }
+        let displays = Self.displayAreas()
+        guard !displays.isEmpty else { completion?(nil); return }
+        run(.restore(frame, displays: displays), for: id, target: target, operation: operation, completion: completion)
+    }
+
+    private func run(_ request: PlacementRequest, for id: WindowIdentity, target: AXWindowTarget, operation: UInt64?,
+                     completion: (@MainActor @Sendable (TileOutcome?) -> Void)?) {
+        let token = worker.beginPlacement(for: id)
+        placementsInFlight[id] = token
+        worker.place(target, request: request, token: token) { [weak self] report in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { completion?(nil); return }
+                    let superseded = !self.worker.isCurrentPlacement(token, for: id)
+                    if self.placementsInFlight[id] == token { self.placementsInFlight.removeValue(forKey: id) }
+                    if let before = report.before, let after = report.after {
+                        self.undoHistory.record([GeometryChange(id: id, before: before, after: after)], operation: operation)
+                    }
+                    if !superseded { self.onStatus?(report.message) }
+                    if report.after == nil, !superseded, !report.message.hasPrefix("Layout superseded") {
+                        RuntimeDiagnostics.mark("tile placement failed")
+                        self.onPlacementFailed?(id, report.message)
+                    }
+                    self.worker.markDirty(target)
+                    completion?(report.after.map {
+                        TileOutcome(display: report.display, frame: $0, before: report.before, requested: report.requested,
+                                    superseded: superseded)
+                    })
+                }
+            }
+        }
+    }
+
+    /// Undoes the preferred window's most recent operation (the switcher selection, else the focused window): every
+    /// window that operation moved goes back to its exact frame from before (clamped into the nearest display when
+    /// that position left every display). Returns the plan with the frames being restored, so pairs it ended can be
+    /// formed again at once; nil when there is nothing to undo.
+    @discardableResult
+    func undo(preferring preferred: WindowIdentity? = nil, fallback: Bool = false) -> (plan: GeometryUndoPlan, restored: [WindowIdentity: WindowRect])? {
         let alive = Set(targets.keys.filter { validLifetime($0) })
         let candidate = preferred ?? focusedID
         let plan: GeometryUndoPlan?
         if let candidate, undoHistory.hasHistory(for: candidate) { plan = undoHistory.undo(window: candidate, surviving: alive) }
-        else if preferred == nil { plan = undoHistory.undo(surviving: alive) }
+        else if preferred == nil || fallback { plan = undoHistory.undo(surviving: alive) }
         else { plan = nil }
-        guard let plan, let change = plan.changes.first, let target = targets[change.id] else {
-            onStatus?("Nothing to undo."); return
-        }
+        guard let plan, !plan.changes.isEmpty else { onStatus?("Nothing to undo."); return nil }
         let displays = Self.displayAreas()
-        guard !displays.isEmpty else { return }
-        let token = worker.beginPlacement(for: change.id)
-        worker.place(target, request: .restore(change.before, displays: displays), token: token) { [weak self] report in
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated { self?.onStatus?(report.message); self?.worker.markDirty(target) }
+        guard !displays.isEmpty else { return nil }
+        var restored: [WindowIdentity: WindowRect] = [:]
+        for change in plan.changes {
+            guard let target = targets[change.id] else { continue }
+            restored[change.id] = DisplayPlacement.restoredFrame(change.before, displays: displays)
+            let token = worker.beginPlacement(for: change.id)
+            placementsInFlight[change.id] = token
+            worker.place(target, request: .restore(change.before, displays: displays), token: token) { [weak self] report in
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        if self.placementsInFlight[change.id] == token { self.placementsInFlight.removeValue(forKey: change.id) }
+                        self.onStatus?(report.message); self.worker.markDirty(target)
+                    }
+                }
             }
         }
+        return (plan, restored)
     }
 
     /// Screens in AppKit order converted to Accessibility coordinates. Index 0 owns the global origin.
@@ -647,6 +807,7 @@ private final class WindowWorker: @unchecked Sendable {
     fileprivate static let focusLane: UInt8 = 0
     fileprivate static let placementLane: UInt8 = 1
     fileprivate static let raiseLane: UInt8 = 2
+    fileprivate static let resolveLane: UInt8 = 3
     /// Coordinator-only.
     private var onEvent: (@Sendable (WindowEvent) -> Void)?
 
@@ -658,7 +819,7 @@ private final class WindowWorker: @unchecked Sendable {
     func currentEpoch() -> UInt64 { intentLock.withLock { intents.currentFocus } }
     private func isCurrent(_ intent: UInt64) -> Bool { intentLock.withLock { intents.isCurrentFocus(intent) } }
     func beginPlacement(for id: WindowIdentity) -> UInt64 { intentLock.withLock { intents.beginPlacement(for: id) } }
-    private func isCurrentPlacement(_ token: UInt64, for id: WindowIdentity) -> Bool {
+    func isCurrentPlacement(_ token: UInt64, for id: WindowIdentity) -> Bool {
         intentLock.withLock { intents.isCurrentPlacement(token, for: id) }
     }
 
@@ -968,6 +1129,104 @@ private final class WindowWorker: @unchecked Sendable {
         }
     }
 
+    /// Reads the frontmost app's focused, main and first standard windows now, decides which one a ⌃⌥ arrangement acts
+    /// on (`FrontWindowResolution`), and maps it to its registry identity, adopting a window no scan has seen yet.
+    func resolveFront(_ descriptor: AppDescriptor, isFinder: Bool, completion: @escaping @Sendable (FrontResolution) -> Void) {
+        coordinator.async { [self] in
+            let state: ScanState
+            if let existing = states[descriptor.process] { state = existing } else {
+                state = ScanState(process: descriptor.process)
+                states[descriptor.process] = state
+            }
+            enqueue(pid: descriptor.process.pid, priority: .interactive, lane: Self.resolveLane,
+                    cancelled: { completion(FrontResolution(decision: .fail(.unresponsive), path: "cancelled")) }) { [self] in
+                completion(resolveFront(descriptor, state: state, isFinder: isFinder))
+            }
+        }
+    }
+
+    private func resolveFront(_ descriptor: AppDescriptor, state: ScanState, isFinder: Bool) -> FrontResolution {
+        typealias Candidate = FrontWindowResolution.Candidate
+        let app = state.app
+        let deadline = ProcessInfo.processInfo.systemUptime + 0.5
+        func settable(_ element: AXUIElement, _ name: String) -> Bool {
+            var value = DarwinBoolean(false)
+            return AXUIElementIsAttributeSettable(element, name as CFString, &value) == .success && value.boolValue
+        }
+        /// The candidate and the element to arrange (the parent window for a sheet or attached dialog).
+        func describe(_ element: AXUIElement, _ source: Candidate.Source) -> (Candidate, AXUIElement) {
+            AXUIElementSetMessagingTimeout(element, 0.12)
+            let role = Self.attribute(element, kAXRoleAttribute, deadline: deadline) as? String
+            let subrole = Self.attribute(element, kAXSubroleAttribute, deadline: deadline) as? String
+            var arranged = element
+            var parent: AXUIElement?
+            if role == "AXSheet" || subrole == kAXDialogSubrole as String || subrole == kAXSystemDialogSubrole as String {
+                var cursor = Self.element(Self.attribute(element, kAXParentAttribute, deadline: deadline))
+                for _ in 0..<4 {
+                    guard let current = cursor else { break }
+                    if Self.attribute(current, kAXRoleAttribute, deadline: deadline) as? String == kAXWindowRole as String { parent = current; break }
+                    cursor = Self.element(Self.attribute(current, kAXParentAttribute, deadline: deadline))
+                }
+                if let parent { arranged = parent }
+            }
+            let candidate = Candidate(source: source, role: role, subrole: subrole,
+                                      fullScreen: Self.attribute(arranged, "AXFullScreen", deadline: deadline) as? Bool ?? false,
+                                      minimized: Self.attribute(arranged, kAXMinimizedAttribute, deadline: deadline) as? Bool ?? false,
+                                      sizeSettable: settable(arranged, kAXSizeAttribute), positionSettable: settable(arranged, kAXPositionAttribute),
+                                      hasParentWindow: parent != nil)
+            return (candidate, arranged)
+        }
+        var described: [Candidate.Source: (Candidate, AXUIElement)] = [:]
+        var path: [String] = []
+        var focusedValue: CFTypeRef?
+        let focusedError = AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &focusedValue)
+        path.append("focused=\(focusedError.rawValue)")
+        if let focused = Self.element(focusedValue) { described[.focused] = describe(focused, .focused) }
+        if described[.focused] == nil, let main = Self.element(Self.attribute(app, kAXMainWindowAttribute, deadline: deadline)) {
+            described[.main] = describe(main, .main); path.append("main")
+        }
+        if described[.focused] == nil && described[.main] == nil, !isFinder,
+           let windows = Self.attribute(app, kAXWindowsAttribute, deadline: deadline) as? [AXUIElement] {
+            for window in windows.prefix(32) {
+                let (candidate, element) = describe(window, .firstStandard)
+                if candidate.subrole == kAXStandardWindowSubrole as String && !candidate.minimized {
+                    described[.firstStandard] = (candidate, element); path.append("firstStandard"); break
+                }
+            }
+        }
+        if described.isEmpty, focusedError == .cannotComplete {
+            return FrontResolution(decision: .fail(.unresponsive), path: path.joined(separator: ","))
+        }
+        let decision = FrontWindowResolution.decide(accessibilityTrusted: true, frontmostIsPaneflo: false, frontmostIsFinder: isFinder,
+                                                    candidates: described.values.map(\.0))
+        var result = FrontResolution(decision: decision, path: path.joined(separator: ","))
+        guard case .arrange(let source, _, _) = decision, let element = described[source]?.1 else { return result }
+        let key = ElementKey(element: element)
+        if let target = state.target(key), let record = state.lock.withLock({ state.records[target.id] }) {
+            result.target = target; result.record = record
+            return result
+        }
+        // Not seen by a scan yet (just opened, or its app was never scanned): adopt it now.
+        guard let frame = Self.frame(element, deadline: deadline) else {
+            result.decision = .fail(.unresponsive); return result
+        }
+        let number = numberLock.withLock { nextNumber &+= 1; return nextNumber }
+        let id = WindowIdentity(process: descriptor.process, number: number, incarnation: 1)
+        let target = AXWindowTarget(element: element, app: app, id: id, captureNumber: AXWindowNumber.number(for: element))
+        let title = Self.attribute(element, kAXTitleAttribute, deadline: deadline) as? String ?? "Untitled window"
+        let record = WindowRecord(id: id, appIdentifier: descriptor.identifier, appName: descriptor.name, title: title, frame: frame,
+                                  isMinimized: false)
+        let observer = ensureObserver(state: state, pid: descriptor.process.pid)
+        let registered = observer.map { register($0, element: element) } ?? false
+        state.lock.withLock {
+            state.targets[key] = target
+            state.records[id] = record
+            if registered { state.registered.insert(key) }
+        }
+        result.target = target; result.record = record; result.adopted = true
+        return result
+    }
+
     /// Refresh one window's record after Paneflo changed it (placement, minimize).
     fileprivate func markDirty(_ target: AXWindowTarget) {
         coordinator.async { [self] in
@@ -1049,12 +1308,30 @@ private final class WindowWorker: @unchecked Sendable {
         let id = target.id
         submit(pid: id.process.pid, priority: .interactive, lane: Self.placementLane,
                cancelled: { completion(PlacementReport(message: "Layout superseded before execution.")) }) { [self] in
-            guard isCurrentPlacement(token, for: id), Self.valid(target), let before = Self.frame(target.element) else {
+            guard isCurrentPlacement(token, for: id), Self.valid(target), let initial = Self.frame(target.element) else {
                 completion(PlacementReport(message: "The window is no longer available.")); return
             }
             let requested: WindowRect
             let bounds: WindowRect?
             var display: Int?
+            var before = initial
+            if case .tile = request {
+                // A native full-screen window lives in its own Space and refuses geometry writes.
+                if Self.attribute(target.element, "AXFullScreen") as? Bool == true {
+                    completion(PlacementReport(before: before, message: "Exit full screen to tile this window.")); return
+                }
+                // A minimized window is restored first, so the tile (and any pair it completes) is visible.
+                if Self.attribute(target.element, kAXMinimizedAttribute) as? Bool == true {
+                    AXUIElementSetAttributeValue(target.element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+                    let deadline = ProcessInfo.processInfo.systemUptime + 0.6
+                    while Self.attribute(target.element, kAXMinimizedAttribute) as? Bool == true,
+                          ProcessInfo.processInfo.systemUptime < deadline { Thread.sleep(forTimeInterval: 0.01) }
+                    guard Self.attribute(target.element, kAXMinimizedAttribute) as? Bool != true else {
+                        completion(PlacementReport(before: before, message: "This window is minimized and could not be restored.")); return
+                    }
+                    if let restored = Self.frame(target.element) { before = restored }
+                }
+            }
             switch request {
             case let .tile(zone, displays, explicitDisplay, gap):
                 // The display comes from the window's frame as read now, not from the last scan.
@@ -1087,7 +1364,8 @@ private final class WindowWorker: @unchecked Sendable {
             write(kAXSizeAttribute, requested, position: false)
             guard var actual = Self.frame(target.element) else {
                 completion(PlacementReport(before: before, after: requested,
-                                           message: "Layout sent. The application did not report its new geometry.", display: display)); return
+                                           message: "Layout sent. The application did not report its new geometry.", display: display,
+                                           requested: requested)); return
             }
             RuntimeDiagnostics.mark("AX placement requested=\(Self.geometryText(requested)) before=\(Self.geometryText(before)) actual=\(Self.geometryText(actual))")
             var note = "Layout applied. Undo is available."
@@ -1119,7 +1397,7 @@ private final class WindowWorker: @unchecked Sendable {
             }
             completion(PlacementReport(before: before, after: actual,
                                        message: failures.isEmpty ? note : "The application accepted part of the layout. Undo is available.",
-                                       display: display))
+                                       display: display, requested: requested))
         }
     }
 
