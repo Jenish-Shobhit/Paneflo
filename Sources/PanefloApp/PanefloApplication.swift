@@ -125,7 +125,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let model = reconcile(permissions)
         // Never Settings at launch. Setup only while something required is missing, and once per launch.
         let showsSetup = model.showsAtLaunch(alreadyShownThisLaunch: false)
-        if showsSetup { showSetup() }
+        if showsSetup {
+            let step = SetupFlow.openingStep(for: model, welcomeSeen: setupPreferences.welcomeSeen)
+            setupPreferences.welcomeSeen = true
+            showSetup(step: step)
+        }
         // Pay both panels' first-display cost now, so the first ⌘Tab and Overview are warm.
         DispatchQueue.main.async { [weak controller] in controller?.prewarm() }
         // Warm ScreenCaptureKit (first request ~1 s) after startup, off the launch and input paths.
@@ -180,14 +184,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func publishSetup(_ permissions: PermissionState? = nil) -> SetupModel {
         let model = setupModel(permissions ?? lastPermissions ?? readPermissions())
         setup.update(model)
-        desktop?.settingsController.setPermissionRows(model.rows)
-        statusMenu.setupNeeded = !model.isComplete
+        desktop?.settingsController.setSetupModel(model)
+        let wanted = setupPreferences.shortcutsEnabled
+        let status = PanefloStatus(setupComplete: model.isComplete, shortcutsWanted: wanted, shortcutsActive: shortcuts.state == .active)
+        statusMenu.update(status: status, shortcutsWanted: wanted)
+        desktop?.settingsController.setShortcutState(wanted: wanted, status: status)
         return model
     }
 
-    private func showSetup() {
+    /// Without a step, a setup window already on screen keeps its step and a hidden one opens on Permissions.
+    private func showSetup(step: SetupStep? = nil) {
         reconcile()
-        setup.show()
+        setup.show(step: step)
     }
 
     private func configureSetup() {
@@ -195,6 +203,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setup.onGrant = { [weak self] in self?.grant($0) }
         setup.onRestart = { [weak self] in self?.restartForPermissions() }
         setup.onReset = { [weak self] in self?.resetPermissions() }
+        setup.onToggleGesture = { [weak self] in self?.setGestures($0) }
+        setup.onOpenSettings = { [weak self] in self?.showSettings(pane: $0) }
     }
 
     /// Grant…: the system request, plus the exact System Settings pane, for one permission.
@@ -286,7 +296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let model = reconcile()
         let next = model.missingRequired.first ?? .accessibility
         grant(next)
-        if !setup.isVisible { setup.show() }
+        if !setup.isVisible { setup.show(step: .permissions) }
     }
 
     private func showAlert(_ title: String, _ text: String) {
@@ -339,17 +349,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func configureSettings(_ settings: SettingsWindowController) {
-        settings.onOpenSetup = { [weak self] in self?.showSetup() }
-        settings.onGrantScreenRecording = { [weak self] in self?.grant(.screenRecording) }
-        settings.automaticUpdatesButton.state = UpdateController.shared.checksAutomatically ? .on : .off
+        settings.onOpenSetup = { [weak self] in self?.showSetup(step: .permissions) }
+        settings.onGrant = { [weak self] in self?.grant($0) }
+        settings.onRestart = { [weak self] in self?.restartForPermissions() }
+        settings.onReset = { [weak self] in self?.resetPermissions() }
+        settings.setAutomaticUpdates(UpdateController.shared.checksAutomatically)
         settings.onToggleAutomaticUpdates = { UpdateController.shared.checksAutomatically = $0 }
         settings.onCheckForUpdates = { UpdateController.shared.checkForUpdates() }
-        settings.menuBarIconButton.state = statusMenu.isIconVisible ? .on : .off
-        settings.onToggleMenuBarIcon = { [weak self] visible in
-            guard let self else { return }
-            if visible { self.statusMenu.setIconVisible(true) } else { self.statusMenu.requestHide() }
-        }
+        settings.lastUpdateCheck = { UpdateSettings().lastCheck }
+        settings.setMenuBarIconVisible(statusMenu.isIconVisible)
+        // Settings asks before hiding (a sheet); showing never asks.
+        settings.onToggleMenuBarIcon = { [weak self] visible in self?.statusMenu.setIconVisible(visible) }
         settings.onToggleLaunchAtLogin = { [weak self] in self?.setLaunchAtLogin($0) }
+        settings.onOpenLoginItems = { SMAppService.openSystemSettingsLoginItems() }
         showLaunchAtLoginState()
     }
 
@@ -369,19 +381,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showLaunchAtLoginState(error: String? = nil) {
         guard let settings = desktop?.settingsController else { return }
         let status = SMAppService.mainApp.status
-        settings.launchAtLoginButton.state = status == .enabled || status == .requiresApproval ? .on : .off
-        if let error { settings.setLaunchAtLoginNote(error) }
-        else if status == .requiresApproval { settings.setLaunchAtLoginNote("Allow Paneflo in System Settings › General › Login Items.") }
-        else { settings.setLaunchAtLoginNote(nil) }
+        settings.setLaunchAtLogin(enabled: status == .enabled || status == .requiresApproval, note: error,
+                                  needsApproval: error == nil && status == .requiresApproval)
     }
 
     private func installApplicationMenu() {
         let main = NSMenu()
         let appItem = NSMenuItem()
         let app = NSMenu(title: "Paneflo")
-        let about = NSMenuItem(title: "About Paneflo", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
-        about.target = NSApp; app.addItem(about); app.addItem(.separator())
-        let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
+        // About has one home: Settings › About.
+        let about = NSMenuItem(title: "About Paneflo", action: #selector(showAbout), keyEquivalent: "")
+        about.target = self; app.addItem(about); app.addItem(.separator())
+        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self; app.addItem(settings); app.addItem(.separator())
         let hide = NSMenuItem(title: "Hide Paneflo", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         hide.target = NSApp; app.addItem(hide)
@@ -401,16 +412,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func installStatusMenu() {
         let menu = statusMenu
         menu.showsDeveloperFixtures = RuntimeDiagnostics.isEnabled
-        menu.addUpdateItems = { UpdateMenu.shared.addItems(to: $0) } // updates hook
+        menu.onCheckForUpdates = { UpdateController.shared.checkForUpdates() } // updates hook
         menu.onOpen = { [weak self] in self?.desktop?.present(mode: $0) }
-        menu.onSettings = { [weak self] in self?.showSettings() }
-        menu.onFinishSetup = { [weak self] in self?.showSetup() }
+        menu.onSettings = { [weak self] in self?.showSettings(pane: nil) }
+        menu.onAbout = { [weak self] in self?.showSettings(pane: .about) }
+        menu.onFinishSetup = { [weak self] in self?.showSetup(step: .permissions) }
         menu.onToggleShortcuts = { [weak self] in self?.setShortcuts($0) }
         menu.onRefreshWindows = { [weak self] in self?.windows.refresh() }
         menu.onDeveloperFixtures = { [weak self] in self?.showSample() }
         menu.onQuit = { [weak self] in self?.quit() }
         menu.onIconVisibilityChanged = { [weak self] visible in
-            self?.desktop?.settingsController.menuBarIconButton.state = visible ? .on : .off
+            self?.desktop?.settingsController.setMenuBarIconVisible(visible)
         }
         menu.install()
     }
@@ -462,7 +474,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .active:
             // Also after an automatic retry of a transient failure, which had cleared the saved intent.
             setupPreferences.gestureEnabled = true
-            message = "Ready · swipe up for Overview, down to dismiss it."; diagnostic = "active"
+            message = "Ready · swipe up for Overview, down to close it."; diagnostic = "active"
         case .stopping: message = "Stopping…"; diagnostic = "stopping"
         case .paused: message = "Paused while the display or session is inactive."; diagnostic = "paused"
         case .unavailable(let reason):
@@ -487,6 +499,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !automatic {
             setupPreferences.shortcutsEnabled = true
             shortcutAutoStartBlocked = false
+            publishSetup()
         }
         guard windows.hasAccessibility, CGPreflightListenEventAccess() else {
             desktop?.setShortcutsEnabled(false)
@@ -510,7 +523,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func shortcutStateChanged(_ state: GlobalShortcutService.State) {
         desktop?.setShortcutsEnabled(state == .active)
-        statusMenu.shortcutsActive = state == .active
         RuntimeDiagnostics.mark("shortcuts state=\(state == .active ? "active" : state == .disabled ? "disabled" : "other")")
         switch state {
         case .active:
@@ -532,7 +544,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .interrupted(let message):
             // An interrupted tap keeps the saved intent; the service retries on its own.
             desktop?.setStatus(message)
-        case .disabled, .arming, .releasing:
+            publishSetup()
+        case .disabled:
+            publishSetup()
+        case .arming, .releasing:
             break
         }
     }
@@ -566,14 +581,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidResignActive(_ notification: Notification) { desktop?.updateKeyboardOwnership() }
 
     /// Opening Paneflo again (Finder, Spotlight, Launchpad, the Dock) shows setup while something required is missing,
-    /// otherwise Settings. This is the way back to a hidden menu-bar icon.
+    /// otherwise Settings — on General while the menu bar icon is hidden, where "Show menu bar icon" brings it back.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         let model = reconcile()
-        if model.isComplete { showSettings() } else { setup.show() }
+        if model.isComplete { showSettings(pane: statusMenu.isIconVisible ? nil : .general) }
+        else { setup.show(step: .permissions) }
         return false
     }
 
-    @objc private func showSettings() { reconcile(); desktop?.showPreferences() }
+    @objc private func openSettings() { showSettings(pane: nil) }
+    @objc private func showAbout() { showSettings(pane: .about) }
+    private func showSettings(pane: SettingsPane?) { reconcile(); desktop?.showPreferences(pane: pane) }
     private func showSample() { if sample == nil { sample = PreviewController() }; sample?.present(mode: 0) }
     @objc private func quit() { gestures.stop(); shortcuts.stop(); capture.stop(); desktop?.dismiss(); NSApp.terminate(nil) }
     func applicationWillTerminate(_ notification: Notification) {
