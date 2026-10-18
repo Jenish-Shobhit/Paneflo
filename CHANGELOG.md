@@ -39,8 +39,13 @@ First release. Paneflo is a menu-bar app for macOS 26 or later on Apple silicon,
 
 ### Settings & permissions
 
-- Shortcuts, previews and the gesture are opt-in and remembered. Settings explains what each needs: Accessibility, Input Monitoring, and Screen Recording only for previews. Previews start without a relaunch where macOS allows it.
-- Disable global shortcuts is always in the menu-bar menu.
+- **Set up Paneflo** opens by itself only while a required permission is missing, at most once per launch, and never loops back to Settings. It lists Accessibility and Input Monitoring (required) and Screen Recording (optional), with live status checked every second while it is open. **Grant…** asks macOS and opens the exact Privacy & Security pane; a row turns green on its own.
+- **Restart Paneflo** appears when Input Monitoring or Screen Recording needs a relaunch to apply (or the shortcut tap still fails with access on). Paneflo reopens itself and starts everything you had chosen without another click.
+- **Permissions stuck? Reset and grant again** clears only Paneflo's own permission entries (`tccutil reset … dev.paneflo.Paneflo`), for when macOS keeps an entry from an older build, then starts granting again. Setup suggests it when a permission is still off after the restart.
+- Shortcuts are on once setup is done; the gesture stays opt-in; previews run whenever Screen Recording is granted, unless you turn them off. Choices are remembered, and a failed start no longer switches shortcuts off.
+- Launch never opens Settings. While setup is incomplete the menu-bar icon has a badge and the menu offers **Finish setup…**.
+- The menu has Settings…, Check for Updates…, Enable/Disable shortcuts, **Hide menu bar icon** and Quit Paneflo. With the icon hidden Paneflo keeps running; opening it again from Finder, Spotlight or Launchpad shows Settings, where **Show menu bar icon** brings it back.
+- Settings is grouped into Permissions, Shortcuts, Trackpad gesture, Previews, Desktop, Updates and Menu bar, and adds **Launch at login** (off by default). The window-arranging and refresh buttons that duplicated the shortcuts and menu are gone.
 - If macOS turns the keyboard hook off, Paneflo re-enables it a few times, then releases it and asks you to turn shortcuts on again.
 
 ### Updates & install

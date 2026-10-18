@@ -37,7 +37,7 @@ Milestone numbers follow the order the work landed.
 - Show Desktop hides apps; Finder windows are not hidden. Apps that decline to hide stay visible.
 - The gesture uses an unsupported macOS interface, so a system update can break it. The system three-finger Mission Control / App Exposé swipes must be turned off separately. It is a built-in-trackpad feature only.
 - Not notarized: first launch needs Open Anyway. Locally built copies signed ad hoc cannot verify updates and lose permissions on rebuild.
-- Shortcut precedence over other tools that also hook ⌘Tab is not guaranteed; Disable global shortcuts is the recovery path.
+- Shortcut precedence over other tools that also hook ⌘Tab is not guaranteed; Disable shortcuts in the menu-bar menu is the recovery path.
 - While a Paneflo surface is visible and another app has keyboard focus, an Escape meant to end input-method composition in that app is taken by Paneflo.
 - Window matching does not yet survive app relaunches. Pointer-edge snapping and multi-window layouts are out of scope.
 - Results apply to the hosts tested; the supported matrix is macOS 26+ on Apple silicon.

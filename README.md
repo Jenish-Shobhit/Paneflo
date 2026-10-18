@@ -23,11 +23,15 @@ Shortcuts, previews and the gesture are off until you enable them in Settings.
 
 1. Download `Paneflo-<version>.zip` from [GitHub Releases](https://github.com/Jenish-Shobhit/Paneflo/releases/latest) or the [download page](https://jenish-shobhit.github.io/Paneflo/), unzip it, and move **Paneflo.app** to `/Applications`.
 2. Paneflo is not notarized yet. On first open, go to **System Settings › Privacy & Security** and choose **Open Anyway**.
-3. Open Settings (it opens on first launch) and grant:
-   - **Accessibility**: find, focus, move and resize other apps' windows.
-   - **Input Monitoring**: catch ⌘Tab, the tiling shortcuts and the gesture.
-   - **Screen Recording**: only for previews.
-4. For the gesture, turn off the three-finger **Mission Control** and **App Exposé** swipes in **System Settings › Trackpad › More Gestures** (or move them to four fingers). Paneflo does not change them.
+3. **Set up Paneflo** opens by itself while something it needs is missing. For each row, click **Grant…**, switch Paneflo on in the System Settings pane that opens, and come back; the row turns green on its own.
+   - **Accessibility** (required): find, focus, move and resize other apps' windows.
+   - **Input Monitoring** (required for ⌘Tab, the tiling shortcuts and the gesture).
+   - **Screen Recording** (optional): window pictures in the switcher and Overview.
+4. If a row says **Restart Paneflo to apply**, click **Restart Paneflo**. macOS often applies Input Monitoring and Screen Recording only after a relaunch. ⌘Tab starts working as soon as the required permissions are on; there is nothing else to turn on.
+5. Still off after a restart, or System Settings shows Paneflo switched on but nothing changes? macOS can keep an entry for an older build of Paneflo. Click **Permissions stuck? Reset and grant again**: it clears Paneflo's own entries (no other app's) and walks you through granting them again.
+6. For the gesture, turn off the three-finger **Mission Control** and **App Exposé** swipes in **System Settings › Trackpad › More Gestures** (or move them to four fingers). Paneflo does not change them. Then turn on the gesture in Settings.
+
+Settings (menu bar › **Settings…**) shows permission status and groups Shortcuts, Gesture, Previews, Desktop, Updates and Menu bar. **Hide menu bar icon** removes the icon while Paneflo keeps running; open Paneflo again from Finder, Spotlight or Launchpad to get Settings back, where **Show menu bar icon** restores it. **Launch at login** is off by default.
 
 ## Updates
 

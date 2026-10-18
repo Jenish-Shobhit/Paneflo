@@ -85,7 +85,7 @@ Editable logical groups, saved workspace/layout recall, conservative relaunch ma
 
 ## Shared experience and platform boundaries
 
-- Menu-bar controls, independent module toggles, shared shortcut conflict handling, optional launch at login, and separate on-demand Settings. Save explicit enable choices; restore only with ready permissions and supported capabilities. First launch or missing permissions may open Settings; ordinary configured startup stays quiet and does not prompt automatically.
+- Menu-bar controls, independent module toggles, shared shortcut conflict handling, optional launch at login, and separate on-demand Settings. Save explicit enable choices; restore only with ready permissions and supported capabilities. Missing required permissions open a setup window (once per launch, with live status, Grant, Restart and a stale-entry reset); ordinary configured startup stays quiet, never opens Settings and does not prompt automatically. The menu-bar icon can be hidden; reopening the app shows Settings.
 - Accessibility permission for window control; Screen Recording permission for previews. Confirm any additional input permission through the selected hotkey implementation.
 - No account or cloud requirement. Preview images stay in memory by default, with app exclusion controls and purge on permission revocation, lock, or privacy-sensitive transitions as established by the platform investigation.
 - VoiceOver, full keyboard navigation, Reduce Motion, high contrast, and light/dark appearance are release criteria.
