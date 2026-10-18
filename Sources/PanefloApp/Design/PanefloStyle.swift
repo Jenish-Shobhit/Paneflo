@@ -9,6 +9,11 @@ import AppKit
 ///
 /// Settings, Setup and menu-bar-only tokens live in `PanefloStyle+Windows.swift`.
 enum PanefloStyle {
+    /// Settings, Setup and menu-bar tokens (SwiftUI colors, window sizes, step motion), defined by that workstream in
+    /// `PanefloStyle+Windows.swift`. Reachable from the canonical namespace; the brand and status colors there match
+    /// `PanefloStyle.Color`.
+    typealias Windows = PanefloWindowStyle
+
     // MARK: Radii
 
     enum Radius {

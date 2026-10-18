@@ -149,7 +149,7 @@ public struct SetupModel: Equatable, Sendable {
         rows.filter { $0.required && !$0.isGranted }.map(\.permission)
     }
 
-    /// Everything Paneflo needs for the user's choices works. The menu badge and "Finish setup…" follow this.
+    /// Everything Paneflo needs for the user's choices works. The menu badge and "Finish Setup…" follow this.
     public var isComplete: Bool { missingRequired.isEmpty }
 
     /// The setup window shows by itself at most once per launch, and only while something required is missing.
@@ -187,6 +187,199 @@ public struct SetupModel: Equatable, Sendable {
     public var runsPreviews: Bool { intent.previews && permissions.screenRecording }
 }
 
+/// How a permission row reads, shared by the setup window and Settings › Permissions.
+public enum SetupTone: Equatable, Sendable {
+    /// Granted: green check.
+    case granted
+    /// Required and off, or waiting for a restart: orange, with a symbol (never color alone).
+    case attention
+    /// Optional and off.
+    case neutral
+}
+
+extension SetupRow {
+    /// "On", "Off", or the restart hint.
+    public var statusText: String {
+        switch status {
+        case .granted: "On"
+        case .missing: "Off"
+        case .needsRestart: "Switched on? Restart Paneflo to apply"
+        }
+    }
+
+    public var tag: String { required ? "Required" : "Optional" }
+
+    public var tone: SetupTone {
+        switch status {
+        case .granted: .granted
+        case .needsRestart: .attention
+        case .missing: required ? .attention : .neutral
+        }
+    }
+
+    /// The leading SF Symbol.
+    public var symbolName: String {
+        switch status {
+        case .granted: "checkmark.circle.fill"
+        case .needsRestart: "arrow.clockwise.circle.fill"
+        case .missing: required ? "exclamationmark.circle.fill" : "circle.dashed"
+        }
+    }
+
+    /// Grant… stays available until the permission works, so System Settings can be reopened.
+    public var showsGrant: Bool { !isGranted }
+}
+
+extension SetupModel {
+    /// The one Grant… button drawn prominent: the first required permission that is plainly off.
+    public var prominentGrant: SetupPermission? {
+        rows.first { $0.required && $0.status == .missing }?.permission
+    }
+
+    /// The text before "Reset and Grant Again…" while a permission looks stuck.
+    public var staleHintText: String? {
+        guard showsStaleHint else { return nil }
+        let names = SetupPermission.allCases.filter(likelyStale.contains).map(\.title)
+        return "\(ListFormatter.localizedString(byJoining: names)) still reads off. \(PermissionReset.explanation)"
+    }
+
+    /// The summary on the last setup step.
+    public var checklist: [SetupChecklistItem] {
+        [SetupChecklistItem(title: startsShortcuts ? "⌘Tab switcher on" : "⌘Tab switcher off", isOn: startsShortcuts),
+         SetupChecklistItem(title: startsShortcuts ? "Tiling shortcuts on" : "Tiling shortcuts off", isOn: startsShortcuts),
+         SetupChecklistItem(title: startsGesture ? "Gesture on" : "Gesture off", isOn: startsGesture)]
+    }
+}
+
+public struct SetupChecklistItem: Equatable, Sendable {
+    public let title: String
+    public let isOn: Bool
+}
+
+/// The steps of the setup window.
+public enum SetupStep: Int, CaseIterable, Sendable {
+    case welcome, permissions, gesture, done
+
+    /// 1-based, for "Step 2 of 4".
+    public var number: Int { rawValue + 1 }
+}
+
+/// What the setup window's footer buttons do.
+public enum SetupAction: Equatable, Sendable {
+    case getStarted, continueSetup, restart, later, skip, finish, openSettings
+
+    public var title: String {
+        switch self {
+        case .getStarted: "Get Started"
+        case .continueSetup: "Continue"
+        case .restart: "Restart Paneflo"
+        case .later: "Later"
+        case .skip: "Skip"
+        case .finish: "Done"
+        case .openSettings: "Open Settings"
+        }
+    }
+}
+
+/// What the app does after a footer action.
+public enum SetupEffect: Equatable, Sendable {
+    case none, close, restart, openSettings
+}
+
+/// The setup window's step machine. Permissions decide nothing here except whether Continue may leave the permissions
+/// step; `SetupModel` stays the single source for rows, restart and stale-entry offers.
+public struct SetupFlow: Equatable, Sendable {
+    public private(set) var step: SetupStep
+
+    public init(step: SetupStep = .welcome) { self.step = step }
+
+    /// Where the window opens by itself: Welcome only on a first run where nothing has been asked for yet; the
+    /// permissions step whenever setup opens because something is missing, after a restart included.
+    public static func openingStep(for model: SetupModel, welcomeSeen: Bool) -> SetupStep {
+        let fresh = model.requested.isEmpty && model.missingBeforeRelaunch.isEmpty && model.serviceNeedsRestart.isEmpty
+        return !welcomeSeen && fresh ? .welcome : .permissions
+    }
+
+    public var showsBack: Bool { step != .welcome }
+
+    /// The footer's primary (Return) button.
+    public func primary(_ model: SetupModel) -> SetupAction {
+        switch step {
+        case .welcome: .getStarted
+        case .permissions: model.offersRestart ? .restart : .continueSetup
+        case .gesture: .continueSetup
+        case .done: .finish
+        }
+    }
+
+    /// Continue leaves the permissions step only once the required permissions work.
+    public func isPrimaryEnabled(_ model: SetupModel) -> Bool {
+        step != .permissions || model.offersRestart || model.isComplete
+    }
+
+    /// The button left of the primary one, if any.
+    public func secondary(_ model: SetupModel) -> SetupAction? {
+        switch step {
+        case .welcome: nil
+        case .permissions:
+            if model.offersRestart { model.isComplete ? .continueSetup : .later }
+            else { model.isComplete ? nil : .later }
+        case .gesture: .skip
+        case .done: .openSettings
+        }
+    }
+
+    /// Applies a footer action. Continue on the permissions step is ignored until setup is complete.
+    @discardableResult
+    public mutating func perform(_ action: SetupAction, model: SetupModel) -> SetupEffect {
+        switch action {
+        case .getStarted:
+            step = .permissions
+        case .continueSetup:
+            switch step {
+            case .welcome: step = .permissions
+            case .permissions: if model.isComplete { step = .gesture }
+            case .gesture: step = .done
+            case .done: return .close
+            }
+        case .skip:
+            if step == .gesture { step = .done }
+        case .restart: return .restart
+        case .later, .finish: return .close
+        case .openSettings: return .openSettings
+        }
+        return .none
+    }
+
+    public mutating func back() {
+        if let previous = SetupStep(rawValue: step.rawValue - 1) { step = previous }
+    }
+
+    public mutating func go(to step: SetupStep) { self.step = step }
+}
+
+/// One line for the menu header, the menu bar icon and the Settings sidebar.
+public enum PanefloStatus: Equatable, Sendable {
+    case ready, starting, setupNeeded, paused
+
+    /// Setup needed wins (Finish Setup… must show); then running; then the user's own pause.
+    public init(setupComplete: Bool, shortcutsWanted: Bool, shortcutsActive: Bool) {
+        if !setupComplete { self = .setupNeeded }
+        else if shortcutsActive { self = .ready }
+        else if !shortcutsWanted { self = .paused }
+        else { self = .starting }
+    }
+
+    public var title: String {
+        switch self {
+        case .ready: "⌘Tab is ready"
+        case .starting: "Starting ⌘Tab…"
+        case .setupNeeded: "Setup needed"
+        case .paused: "Shortcuts paused"
+        }
+    }
+}
+
 /// Paneflo's saved setup choices in `UserDefaults`. Pass a throwaway suite in tests.
 ///
 /// Shortcuts are on by default: until the choice is settled (the first completed setup, or the user switching them on
@@ -199,6 +392,7 @@ public struct SetupPreferences {
     public static let previewsKey = "previews.enabled.v1"
     public static let missingBeforeRelaunchKey = "setup.missingBeforeRelaunch.v1"
     public static let menuBarIconHiddenKey = "menuBar.iconHidden.v1"
+    public static let welcomeSeenKey = "setup.welcomeSeen.v1"
 
     private let defaults: UserDefaults
 
@@ -229,6 +423,13 @@ public struct SetupPreferences {
     public var menuBarIconHidden: Bool {
         get { defaults.bool(forKey: Self.menuBarIconHiddenKey) }
         nonmutating set { defaults.set(newValue, forKey: Self.menuBarIconHiddenKey) }
+    }
+
+    /// The setup window's Welcome step was shown. Someone who settled the shortcuts choice in an earlier version has
+    /// been through setup already and never sees it.
+    public var welcomeSeen: Bool {
+        get { defaults.bool(forKey: Self.welcomeSeenKey) || shortcutsChoiceSettled }
+        nonmutating set { defaults.set(newValue, forKey: Self.welcomeSeenKey) }
     }
 
     public var intent: SetupIntent {

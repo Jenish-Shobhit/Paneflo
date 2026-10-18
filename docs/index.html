@@ -253,7 +253,7 @@
       </div>
       <div class="card">
         <h3>The menu bar entry</h3>
-        <p>Every view is also in Paneflo's menu bar menu (Switch windows, Arrange windows, Organized overview), so you can try it before turning any shortcut on. Shortcuts turn on once setup is done; the gesture is opt-in in Settings.</p>
+        <p>Every view is also in Paneflo's menu bar menu (Switch Windows…, Arrange Windows…, Overview), with a status line that says whether ⌘Tab is ready. Shortcuts turn on once setup is done and can be paused from the menu; the gesture is opt-in in Settings.</p>
       </div>
     </div>
     <p class="note"><strong>Paneflo's own overview.</strong> It is a panel Paneflo draws; it does not change Apple's Mission Control or Spaces. The trackpad gesture is experimental: it uses an unsupported macOS interface, needs Apple silicon, and checks at runtime that the trackpad data looks as expected, so Settings tells you when it is unavailable. The system three-finger Mission Control and App Exposé swipes must be turned off first.</p>
@@ -272,10 +272,10 @@
           <li>Next to "Paneflo" was blocked, click <strong>Open Anyway</strong>, then confirm with your password or Touch ID.</li>
         </ol>
       </li>
-      <li><strong>Set up Paneflo</strong> opens. For each row click <strong>Grant…</strong>, switch Paneflo on in the System Settings pane that opens, then come back: the row turns green by itself. Accessibility and Input Monitoring are required; Screen Recording is optional (window pictures).</li>
-      <li>If a row says <strong>Restart Paneflo to apply</strong>, click <strong>Restart Paneflo</strong>. ⌘Tab works as soon as the required permissions are on; there is nothing else to switch on.</li>
+      <li><strong>Set up Paneflo</strong> opens. Click <strong>Get Started</strong>, then on <strong>Give Paneflo access</strong> click <strong>Grant…</strong> on each row, switch Paneflo on in the System Settings pane that opens, then come back: the row turns green by itself. Accessibility and Input Monitoring are required; Screen Recording is optional (window pictures).</li>
+      <li>If a row says <strong>Restart Paneflo to apply</strong>, click <strong>Restart Paneflo</strong>. Otherwise click <strong>Continue</strong>, skip or set up the gesture, and finish with <strong>Done</strong>. ⌘Tab works as soon as the required permissions are on; there is nothing else to switch on.</li>
       <li>Still off after the restart? macOS can keep a permission entry for an older build. Click <strong>Permissions stuck? Reset and grant again</strong>: it clears Paneflo's own entries only and walks you through granting them again.</li>
-      <li>For the optional gesture: in <span class="path"><strong>System Settings › Trackpad › More Gestures</strong></span>, turn off the three-finger <strong>Mission Control</strong> and <strong>App Exposé</strong> swipes (or move them to four fingers). Paneflo doesn't change them for you. Then turn on the gesture in Paneflo's Settings.</li>
+      <li>For the optional gesture: in <span class="path"><strong>System Settings › Trackpad › More Gestures</strong></span>, turn off the three-finger <strong>Mission Control</strong> and <strong>App Exposé</strong> swipes (or move them to four fingers). Paneflo doesn't change them for you. Then turn on the gesture in the setup window's gesture step, or in Settings › Overview &amp; Gesture.</li>
     </ol>
   </section>
 
@@ -304,7 +304,7 @@
     <div class="two">
       <ul class="plain">
         <li>Choose <strong>Check for Updates…</strong> in Paneflo's menu bar menu. If a newer version exists you see its release notes and can <strong>Install and Relaunch</strong>, choose <strong>Later</strong>, or <strong>Skip This Version</strong>.</li>
-        <li>Paneflo also checks once a day, quietly, and never while the switcher or Overview is open. Turn that off with <strong>Check for Updates Automatically</strong> in the same menu; with it off, nothing is requested until you ask. No analytics or other network traffic.</li>
+        <li>Paneflo also checks once a day, quietly, and never while the switcher or Overview is open. Turn that off with <strong>Check for updates automatically</strong> in Settings › Updates; with it off, nothing is requested until you ask. No analytics or other network traffic.</li>
       </ul>
       <ul class="plain">
         <li><strong>Verified before it's installed.</strong> Paneflo checks the download's size and SHA-256, its bundle ID and version, and that its code signature is valid and made with the same certificate as the copy you're running. Anything else is refused.</li>

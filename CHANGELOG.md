@@ -16,10 +16,20 @@ All notable changes to Paneflo are listed here. Versions follow [Semantic Versio
 ### Tile pairs
 
 - Two windows filling complementary halves of one display (left and right, or top and bottom) form a pair, whether Paneflo arranged them or they were already there. A pair ends when a window closes, minimizes, moves to another display or leaves its half, or when you choose Unpair. Pairs last until Paneflo quits.
-- Opening a paired window from ⌘Tab or the Overview brings its partner forward first, then focuses the window you chose, so both are visible. Turn this off in Settings.
+- Opening a paired window from ⌘Tab or the Overview brings its partner forward first, then focuses the window you chose, so both are visible. Turn this off with Settings › Tiling › Raise tile pairs together.
 - ⌘⌥Return (or keypad Enter) in the picker or a keyboard-focused Overview opens the selection with its partner regardless of that setting. The Overview's right-click menu offers Open Pair, Open Alone and Unpair for paired windows.
 - Snap assist in the picker: after ⌘⌥← tiles the selection to the left half, the selected card shows a faint outline of the right half; ⌘⌥→ on another window places it on the same display and pairs the two (and the other way round). Escape or releasing ⌘ ends it.
 - Bringing a partner forward activates its app for a moment before the chosen window's app takes focus: an Accessibility raise alone leaves a background window behind the frontmost app.
+
+### Settings, setup and menu bar
+
+- Settings is a new window with a sidebar: General, Shortcuts & Help, Tiling, Overview & Gesture, Previews, Desktop, Permissions, Updates and About. Each pane says what it is for, and toggles explain any effect that isn't obvious.
+- Shortcuts & Help lists every key and gesture as keycaps with a one-line description, grouped (switcher, window actions, tiling, tile pairs, Overview, Desktop) and searchable.
+- Settings › Permissions shows live Accessibility, Input Monitoring and Screen Recording rows (refreshed every second while Settings is open), Restart Paneflo when macOS needs it, the reset for stuck permissions, and Open Setup Guide…. The sidebar always says whether ⌘Tab is ready.
+- Hiding the menu bar icon is now in Settings › General and asks in a sheet. Opening Paneflo again from Finder or Spotlight brings Settings back on General.
+- The setup window has four steps: Welcome (first run only), Give Paneflo access, an optional gesture step with the system-swipe check, and You’re set. It still opens only while something required is missing, starts on the permissions step after a restart, and keeps Restart Paneflo and the stuck-permission reset.
+- A new menu bar icon (three panes) with an orange dot when setup is needed and a dimmed look when shortcuts are paused. The menu starts with a status line and uses Pause/Resume Shortcuts; Check for Updates… stays in the menu, the automatic-check switch moved to Settings › Updates, and About opens Settings › About.
+- VoiceOver labels on every control, keyboard navigation (Return and Escape in setup), and Increase Contrast, Reduce Transparency and Reduce Motion are respected.
 
 ## 1.0.0 — Unreleased
 

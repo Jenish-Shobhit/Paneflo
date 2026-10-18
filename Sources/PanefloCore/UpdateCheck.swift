@@ -211,6 +211,22 @@ public enum ReleaseNotes {
 
     /// The blocks of `markdown`, without what `scripts/release.sh` adds for people downloading by hand: the `### Install`
     /// section and everything after it, and the "Generated with" line.
+    /// Splits on \n, \r\n and lone \r by unicode scalar (Swift treats \r\n as one Character, so Character splitting misses "\r\r\n").
+    private static func lines(of markdown: String) -> [String] {
+        var result: [String] = [], current = String.UnicodeScalarView()
+        var previousWasCR = false
+        for scalar in markdown.unicodeScalars {
+            if scalar == "\n" {
+                if !previousWasCR { result.append(String(current)); current = .init() }
+                previousWasCR = false
+            } else if scalar == "\r" {
+                result.append(String(current)); current = .init(); previousWasCR = true
+            } else { current.append(scalar); previousWasCR = false }
+        }
+        result.append(String(current))
+        return result
+    }
+
     public static func blocks(_ markdown: String) -> [Block] {
         var blocks: [Block] = []
         var open: (bullet: Bool, text: String)?
@@ -218,7 +234,7 @@ public enum ReleaseNotes {
             if let open { blocks.append(open.bullet ? .bullet(open.text) : .paragraph(open.text)) }
             open = nil
         }
-        for raw in markdown.replacingOccurrences(of: "\r\n", with: "\n").split(separator: "\n", omittingEmptySubsequences: false) {
+        for raw in lines(of: markdown) {
             let line = raw.trimmingCharacters(in: .whitespaces)
             if line.isEmpty {
                 close()

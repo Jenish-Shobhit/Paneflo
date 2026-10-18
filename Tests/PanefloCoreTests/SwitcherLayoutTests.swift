@@ -95,7 +95,7 @@ struct SwitcherLayoutTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         #expect(SurfacePreferences(defaults: defaults) == SurfacePreferences())
-        defaults.set(false, forKey: SurfacePreferences.Key.legacyRaiseTogether)
+        defaults.set(false, forKey: "tilePairs.raiseTogether")
         #expect(!SurfacePreferences(defaults: defaults).raiseTogether)
         defaults.set(true, forKey: SurfacePreferences.Key.raiseTogether)
         defaults.set("small", forKey: SurfacePreferences.Key.cardSize)

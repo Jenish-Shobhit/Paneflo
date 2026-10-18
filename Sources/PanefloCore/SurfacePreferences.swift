@@ -1,17 +1,15 @@
 import Foundation
 
 /// The switcher, Overview and tile-pair preferences the surfaces read. Settings writes the same `UserDefaults` keys;
-/// the surfaces re-read them only when told the preferences changed, never on input.
+/// the coordinator re-reads them when the defaults change, never on input.
 public struct SurfacePreferences: Equatable, Sendable {
     public enum Key {
         public static let cardSize = "switcher.cardSize"
         public static let showsFreeSlots = "overview.showsFreeSlots"
-        public static let raiseTogether = "pairs.raiseTogether"
+        /// The key Settings › Tiling already writes (shipped with tile pairs).
+        public static let raiseTogether = "tilePairs.raiseTogether"
         public static let snapAssist = "pairs.snapAssist"
         public static let sideBySide = "pairs.sideBySide"
-        /// The tile-pairs branch stored raise-together here before the shared contract; still honoured when the
-        /// contract key is unset.
-        public static let legacyRaiseTogether = "tilePairs.raiseTogether"
     }
 
     public var cardSize: CardSizePreference = .automatic
@@ -25,8 +23,7 @@ public struct SurfacePreferences: Equatable, Sendable {
     public init(defaults: UserDefaults) {
         cardSize = defaults.string(forKey: Key.cardSize).flatMap(CardSizePreference.init(rawValue:)) ?? .automatic
         showsFreeSlots = defaults.object(forKey: Key.showsFreeSlots) as? Bool ?? true
-        raiseTogether = defaults.object(forKey: Key.raiseTogether) as? Bool
-            ?? defaults.object(forKey: Key.legacyRaiseTogether) as? Bool ?? true
+        raiseTogether = defaults.object(forKey: Key.raiseTogether) as? Bool ?? true
         snapAssist = defaults.object(forKey: Key.snapAssist) as? Bool ?? true
         sideBySide = defaults.object(forKey: Key.sideBySide) as? Bool ?? true
     }
