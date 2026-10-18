@@ -2,6 +2,17 @@
 
 All notable changes to Paneflo are listed here. Versions follow [Semantic Versioning](https://semver.org); releases before 1.0.0 are 0.x milestones.
 
+## 1.1.0 — Unreleased
+
+### Tile pairs
+
+- Two windows filling complementary halves of one display (left and right, or top and bottom) form a pair, whether Paneflo arranged them or they were already there. A pair ends when a window closes, minimizes, moves to another display or leaves its half, or when you choose Ungroup. Pairs last until Paneflo quits.
+- Opening a paired window from ⌘Tab or the Overview brings its partner forward first, then focuses the window you chose, so both are visible. Turn this off with Settings › Tile pairs › Open tile pairs together.
+- ⌘⌥Return (or keypad Enter) in the picker or a keyboard-focused Overview opens the selection with its partner regardless of that setting. The Overview's right-click menu offers Open pair and Ungroup for paired windows.
+- Snap assist in the picker: after ⌘⌥← tiles the selection to the left half, the hint strip asks for a window for the right half; ⌘⌥→ on another window places it on the same display and pairs the two (and the other way round). Escape or releasing ⌘ ends it.
+- Paired cards show a ▮▮ Paired marker.
+- Bringing a partner forward activates its app for a moment before the chosen window's app takes focus: an Accessibility raise alone leaves a background window behind the frontmost app.
+
 ## 1.0.0 — Unreleased
 
 First release. Paneflo is a menu-bar app for macOS 26 or later on Apple silicon, signed with a self-signed certificate (not notarized yet).
