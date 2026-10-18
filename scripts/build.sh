@@ -80,6 +80,8 @@ install -m 644 "$PLIST_SRC" "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 if [[ -f "$ICON_SRC" ]]; then
   cp "$ICON_SRC" "$APP/Contents/Resources/AppIcon.icns"
+else
+  warn "No Resources/AppIcon.icns (run swift scripts/make-icon.swift). The app will have a generic icon."
 fi
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
 
