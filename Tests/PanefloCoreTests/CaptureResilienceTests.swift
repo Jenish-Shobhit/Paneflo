@@ -9,37 +9,35 @@ private final class LateBox: @unchecked Sendable {
     var all: [Int] { lock.lock(); defer { lock.unlock() }; return values }
 }
 
-@MainActor private func waitFor(_ timeout: Double = 2, _ condition: () -> Bool) async -> Bool {
-    let start = Date()
-    while Date().timeIntervalSince(start) < timeout {
-        if condition() { return true }
-        try? await Task.sleep(for: .milliseconds(5))
-    }
-    return condition()
-}
-
 @MainActor struct DeadlineTests {
     @Test func fastOperationReturnsValueAndNeverCallsLate() async {
         let late = LateBox()
         let result = await Deadline.run(seconds: 1, operation: { 7 }, late: { if case .success(let v) = $0 { late.append(v) } })
         guard case .value(7) = result else { Issue.record("expected value"); return }
-        try? await Task.sleep(for: .milliseconds(50))
+        await drainTasks()
         #expect(late.all.isEmpty)
     }
 
     @Test func hangTimesOutAndLateResultIsDeliveredExactlyOnce() async {
+        let clock = ManualClock()
+        let release = TestGate()
         let late = LateBox()
-        let started = Date()
-        let result = await Deadline.run(seconds: 0.05, operation: {
-            try await Task.sleep(for: .milliseconds(300))
+        async let outcome = Deadline.run(seconds: 0.05, sleep: clock.sleep, operation: {
+            await release.wait()
             return 9
         }, late: { if case .success(let v) = $0 { late.append(v) } })
+        let armed = await eventually { clock.pendingWakeTimes == [0.05] }
+        #expect(armed, "the deadline timer is waiting")
+        clock.advance(by: 0.05)
+        let result = await outcome
         guard case .timedOut = result else { Issue.record("expected timeout"); return }
-        #expect(Date().timeIntervalSince(started) < 0.25, "the caller resumes at the deadline, not at completion")
-        let waited1 = await waitFor { late.all == [9] }
-        #expect(waited1)
-        try? await Task.sleep(for: .milliseconds(50))
-        #expect(late.all == [9])
+        // The operation is still blocked, so the caller resumed at the deadline, not at completion.
+        #expect(late.all.isEmpty)
+        release.open()
+        let delivered = await eventually { late.all == [9] }
+        #expect(delivered)
+        await drainTasks()
+        #expect(late.all == [9], "exactly once")
     }
 
     @Test func errorsPassThrough() async {
@@ -77,10 +75,10 @@ struct SnapshotTimeoutSchedulingTests {
         scheduler.beginSession()
         scheduler.plan((0..<6).map(request), selectedIndex: 0)
         let first = scheduler.nextTickets()
-        #expect(scheduler.timeout(first[0]) == .timedOut)
+        #expect(scheduler.timeout(first[0], now: 0) == .timedOut)
         #expect(scheduler.outstandingCount == 1 && scheduler.abandonedCount == 1)
         #expect(scheduler.nextTickets().count == 1, "the slot is free again")
-        #expect(scheduler.timeout(first[0]) == .unknownTicket, "no double timeout")
+        #expect(scheduler.timeout(first[0], now: 0) == .unknownTicket, "no double timeout")
         #expect(scheduler.complete(first[0]) == .lateAfterTimeout)
         #expect(scheduler.complete(first[0]) == .unknownTicket, "no double completion")
         #expect(scheduler.abandonedCount == 0)
@@ -90,7 +88,7 @@ struct SnapshotTimeoutSchedulingTests {
         var scheduler = SnapshotScheduler(concurrencyLimit: 2, abandonedLimit: 2)
         scheduler.beginSession()
         scheduler.plan((0..<10).map(request), selectedIndex: 0)
-        for ticket in scheduler.nextTickets() { _ = scheduler.timeout(ticket) }
+        for ticket in scheduler.nextTickets() { _ = scheduler.timeout(ticket, now: 0) }
         #expect(scheduler.abandonedCount == 2)
         #expect(scheduler.nextTickets().isEmpty, "hung OS requests cannot accumulate")
         _ = scheduler.complete(scheduler.outstandingTickets.first ?? SnapshotTicket(request: request(99), serial: 0, epoch: 0))
@@ -100,9 +98,54 @@ struct SnapshotTimeoutSchedulingTests {
     }
 }
 
-/// A fake capture backend: per-window behaviour, counted calls.
+struct AbandonedCapacityTests {
+    private func request(_ n: UInt32) -> SnapshotRequest {
+        SnapshotRequest(id: .init(process: .init(pid: 41, launchToken: 1), number: n, incarnation: 1), windowNumber: n)
+    }
+
+    @Test func lostCallbacksReleaseCapacityAfterGraceAndLateResultsAreStillDropped() {
+        var scheduler = SnapshotScheduler(concurrencyLimit: 2, abandonedLimit: 2, abandonedGrace: 30)
+        scheduler.beginSession()
+        scheduler.plan((0..<6).map(request), selectedIndex: 0)
+        let lost = scheduler.nextTickets()
+        for ticket in lost { #expect(scheduler.timeout(ticket, now: 1) == .timedOut) }
+        #expect(scheduler.nextTickets().isEmpty, "abandoned requests hold capacity during the grace period")
+        #expect(scheduler.releaseExpiredAbandoned(now: 30.9) == 0)
+        #expect(scheduler.nextTickets().isEmpty)
+        #expect(scheduler.releaseExpiredAbandoned(now: 31) == 2)
+        #expect(scheduler.abandonedCount == 0 && scheduler.lostCount == 2)
+        let next = scheduler.nextTickets()
+        #expect(next.count == 2, "snapshots continue after callbacks were lost")
+        #expect(scheduler.complete(lost[0]) == .lateAfterTimeout, "a very late callback is still recognized")
+        #expect(scheduler.complete(lost[0]) == .unknownTicket)
+        #expect(scheduler.lostCount == 1)
+        #expect(scheduler.complete(next[0]) == .store)
+    }
+
+    @Test func forgottenRequestsAreBounded() {
+        var scheduler = SnapshotScheduler(concurrencyLimit: 4, abandonedLimit: 4, abandonedGrace: 1)
+        var first: SnapshotTicket?
+        var now = 0.0
+        for round in 0..<100 {
+            scheduler.beginSession()
+            scheduler.plan((0..<4).map { request(UInt32(round * 4) + $0) }, selectedIndex: 0)
+            for ticket in scheduler.nextTickets() {
+                if first == nil { first = ticket }
+                _ = scheduler.timeout(ticket, now: now)
+            }
+            now += 1
+            scheduler.releaseExpiredAbandoned(now: now)
+            #expect(scheduler.lostCount <= SnapshotScheduler.forgottenLimit)
+            #expect(scheduler.outstandingCount == 0)
+        }
+        #expect(scheduler.lostCount == SnapshotScheduler.forgottenLimit)
+        if let first { #expect(scheduler.complete(first) == .unknownTicket, "forgotten, and still never stored") }
+    }
+}
+
+/// A fake capture backend: per-window behaviour, counted calls. A hang waits on a gate, never on wall-clock time.
 @MainActor private final class FakeBackend {
-    enum Behaviour { case succeed, fail, hang(Double) }
+    enum Behaviour { case succeed, fail, hang(TestGate) }
     var behaviour: [UInt32: Behaviour] = [:]
     var fallback: Behaviour = .succeed
     var calls = 0
@@ -111,8 +154,8 @@ struct SnapshotTimeoutSchedulingTests {
         switch behaviour[request.windowNumber] ?? fallback {
         case .succeed: return Int(request.windowNumber)
         case .fail: throw SnapshotFailure.failed
-        case .hang(let seconds):
-            try await Task.sleep(for: .seconds(seconds))
+        case .hang(let gate):
+            await gate.wait()
             return Int(request.windowNumber)
         }
     }
@@ -124,9 +167,12 @@ struct SnapshotTimeoutSchedulingTests {
     }
 
     @Test func hangTimesOutFreesSlotAndLateResultIsNotStored() async {
+        let clock = ManualClock()
         let fake = FakeBackend()
-        fake.behaviour[0] = .hang(0.4)
-        let runner = SnapshotRunner<Int>(scheduler: SnapshotScheduler(concurrencyLimit: 2), timeout: 0.05) { try await fake.capture($0) }
+        let hang = TestGate()
+        fake.behaviour[0] = .hang(hang)
+        let runner = SnapshotRunner<Int>(scheduler: SnapshotScheduler(concurrencyLimit: 2), timeout: 0.05,
+                                         clock: { clock.now }, sleep: clock.sleep) { try await fake.capture($0) }
         var stored: [Int] = [], timedOut: [UInt32] = [], late: [UInt32] = []
         runner.onOutcome = { ticket, completion, outcome in
             switch (completion, outcome) {
@@ -139,21 +185,27 @@ struct SnapshotTimeoutSchedulingTests {
         runner.scheduler.beginSession()
         runner.scheduler.plan((0..<4).map(request), selectedIndex: 0)
         runner.pump()
-        let waited2 = await waitFor { stored.count == 3 && timedOut == [0] }
-        #expect(waited2, "the hang does not block the other windows")
+        let othersDone = await eventually { stored.count == 3 && clock.pendingWakeTimes == [0.05] }
+        #expect(othersDone, "the hang does not block the other windows")
+        #expect(timedOut.isEmpty, "no timeout before the deadline")
+        clock.advance(by: 0.05)
+        let expired = await eventually { timedOut == [0] }
+        #expect(expired)
         #expect(runner.scheduler.abandonedCount == 1 && runner.scheduler.outstandingCount == 0)
-        let waited3 = await waitFor { late == [0] }
-        #expect(waited3)
+        hang.open()
+        let arrived = await eventually { late == [0] }
+        #expect(arrived)
         #expect(runner.scheduler.abandonedCount == 0)
         #expect(!stored.contains(0), "a late completion is dropped")
     }
 
     @Test func repeatedFailuresBackOffThenRecover() async {
+        let clock = ManualClock()
         let fake = FakeBackend()
         fake.fallback = .fail
         let breaker = CaptureCircuitBreaker(threshold: 3, baseDelay: 0.15, maximumDelay: 1)
         let runner = SnapshotRunner<Int>(scheduler: SnapshotScheduler(concurrencyLimit: 3), breaker: breaker,
-                                         timeout: 1) { try await fake.capture($0) }
+                                         timeout: 1, clock: { clock.now }, sleep: clock.sleep) { try await fake.capture($0) }
         var changes: [Bool] = [], stored: [Int] = [], failed = 0
         runner.onBreakerChange = { changes.append($0) }
         runner.onOutcome = { _, completion, outcome in
@@ -163,20 +215,67 @@ struct SnapshotTimeoutSchedulingTests {
         runner.scheduler.beginSession()
         runner.scheduler.plan((0..<8).map(request), selectedIndex: 0)
         runner.pump()
-        let waited4 = await waitFor { runner.isBackingOff }
-        #expect(waited4)
+        // Every issued request fails at once; the breaker opens (later in-flight failures may extend the backoff)
+        // and its retry waits on test time.
+        let opened = await eventually {
+            runner.isBackingOff && runner.scheduler.outstandingCount == 0
+                && runner.breaker.retryAt.map { clock.pendingWakeTimes == [$0] } == true
+        }
+        #expect(opened)
+        let retryAt = runner.breaker.retryAt ?? 0
         let callsWhenOpened = fake.calls
         #expect(callsWhenOpened >= 3 && changes == [true])
         runner.pump()
-        try? await Task.sleep(for: .milliseconds(60))
+        await drainTasks()
         #expect(fake.calls == callsWhenOpened, "no new requests while backing off")
         // The backend recovers; after the backoff one attempt succeeds and closes the breaker.
         fake.fallback = .succeed
-        let waited5 = await waitFor { changes.contains(false) }
-        #expect(waited5)
-        let waited6 = await waitFor { stored.count == 8 - failed }
-        #expect(waited6, "the remaining queued windows are captured")
+        clock.advance(by: retryAt)
+        let closed = await eventually { changes.contains(false) }
+        #expect(closed)
+        let remaining = await eventually { stored.count == 8 - failed }
+        #expect(remaining, "the remaining queued windows are captured")
         #expect(runner.breaker.consecutiveFailures == 0 && !runner.isBackingOff)
+    }
+
+    @Test func withheldCallbacksNeverStopSnapshotsForNewRequests() async {
+        let clock = ManualClock()
+        let fake = FakeBackend()
+        let never = TestGate()
+        for n in UInt32(0)..<3 { fake.behaviour[n] = .hang(never) }
+        let runner = SnapshotRunner<Int>(scheduler: SnapshotScheduler(concurrencyLimit: 3, abandonedGrace: 30),
+                                         breaker: CaptureCircuitBreaker(threshold: 100), timeout: 0.05,
+                                         clock: { clock.now }, sleep: clock.sleep) { try await fake.capture($0) }
+        var stored: [Int] = [], timedOut = 0, late: [UInt32] = []
+        runner.onOutcome = { _, completion, outcome in
+            if case (.store, .captured(let value)) = (completion, outcome) { stored.append(value) }
+            if completion == .timedOut { timedOut += 1 }
+        }
+        runner.onLate = { ticket, _ in late.append(ticket.request.windowNumber) }
+        runner.scheduler.beginSession()
+        runner.scheduler.plan((0..<3).map(request), selectedIndex: 0)
+        runner.pump()
+        let armed = await eventually { clock.pendingWakeTimes == [0.05, 0.05, 0.05] }
+        #expect(armed)
+        clock.advance(by: 0.05)
+        let expired = await eventually { timedOut == 3 }
+        #expect(expired)
+        // Three lost callbacks fill the abandoned capacity: a new request waits.
+        runner.scheduler.plan((3..<6).map(request), selectedIndex: 0)
+        runner.pump()
+        await drainTasks()
+        #expect(fake.calls == 3 && stored.isEmpty)
+        // After the grace period the lost requests stop holding capacity and new snapshots run.
+        clock.advance(by: 30)
+        runner.pump()
+        let resumed = await eventually { stored.sorted() == [3, 4, 5] }
+        #expect(resumed, "snapshots continue although the OS never answered")
+        #expect(runner.scheduler.abandonedCount == 0 && runner.scheduler.lostCount == 3)
+        // If the OS finally answers, the results are dropped, never stored.
+        never.open()
+        let dropped = await eventually { late.count == 3 }
+        #expect(dropped)
+        #expect(stored.sorted() == [3, 4, 5] && runner.scheduler.lostCount == 0)
     }
 
     @Test func notOnScreenDoesNotTripTheBreaker() async {
@@ -188,7 +287,7 @@ struct SnapshotTimeoutSchedulingTests {
         runner.scheduler.beginSession()
         runner.scheduler.plan((0..<6).map(request), selectedIndex: 0)
         runner.pump()
-        let waited7 = await waitFor { resolved == 6 }
+        let waited7 = await eventually { resolved == 6 }
         #expect(waited7)
         #expect(!runner.isBackingOff && runner.breaker.consecutiveFailures == 0)
     }

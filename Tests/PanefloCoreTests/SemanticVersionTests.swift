@@ -66,4 +66,13 @@ import Testing
             #expect(SemanticVersion(s) == nil, "\(s)")
         }
     }
+
+    @Test func numericPreReleasePartsWithLeadingZerosAreRejected() {
+        #expect(SemanticVersion("1.0.0-01") == nil)
+        #expect(SemanticVersion("1.0.0-beta.007") == nil)
+        #expect(SemanticVersion("1.0.0-0") != nil, "a lone zero is fine")
+        #expect(SemanticVersion("1.0.0-0a") != nil, "alphanumeric parts may start with 0")
+        let one = SemanticVersion("1.0.0-1"), zero = SemanticVersion("1.0.0-0")
+        #expect(zero! < one!)
+    }
 }

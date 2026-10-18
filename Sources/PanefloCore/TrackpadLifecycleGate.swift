@@ -58,3 +58,34 @@ public struct TrackpadLifecycleGate: Sendable {
         return .start
     }
 }
+
+/// Bounds automatic retries of a transient failure (for example no built-in trackpad at first enable, or a closed
+/// lid): attempts are spaced by `minimumSpacing` and at most `maximumAttempts` run until `reset()` (success or an
+/// explicit user action), so a missing device never causes a retry loop.
+public struct BoundedRetryGate: Sendable {
+    public let minimumSpacing: Double
+    public let maximumAttempts: Int
+    public private(set) var attempts = 0
+    private var lastAttempt: Double?
+
+    public init(minimumSpacing: Double = 10, maximumAttempts: Int = 5) {
+        self.minimumSpacing = max(0, minimumSpacing)
+        self.maximumAttempts = max(0, maximumAttempts)
+    }
+
+    public var isExhausted: Bool { attempts >= maximumAttempts }
+
+    /// Records and allows an attempt at `now`, or refuses it.
+    public mutating func permit(now: Double) -> Bool {
+        guard !isExhausted else { return false }
+        if let lastAttempt, now >= lastAttempt, now - lastAttempt < minimumSpacing { return false }
+        attempts += 1
+        lastAttempt = now
+        return true
+    }
+
+    public mutating func reset() {
+        attempts = 0
+        lastAttempt = nil
+    }
+}

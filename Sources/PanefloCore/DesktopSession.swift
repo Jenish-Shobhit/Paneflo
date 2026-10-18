@@ -9,13 +9,74 @@ public struct DesktopApp: Equatable, Sendable {
     public let isRegular: Bool
     public let isHidden: Bool
     public let isTerminated: Bool
+    /// `launchDate` as seconds since the reference date; with the PID it identifies one process lifetime.
+    public let launchDate: Double?
 
-    public init(pid: Int32, bundleIdentifier: String?, isRegular: Bool, isHidden: Bool = false, isTerminated: Bool = false) {
+    public init(pid: Int32, bundleIdentifier: String?, isRegular: Bool, isHidden: Bool = false, isTerminated: Bool = false,
+                launchDate: Double? = nil) {
         self.pid = pid
         self.bundleIdentifier = bundleIdentifier
         self.isRegular = isRegular
         self.isHidden = isHidden
         self.isTerminated = isTerminated
+        self.launchDate = launchDate
+    }
+}
+
+/// The persisted record of the apps a Show Desktop hid, written whenever that set changes. If Paneflo quits or
+/// crashes while apps are hidden, the next launch (or the terminate handler) unhides them. Only the same process
+/// lifetime is restored: a reused PID or a relaunched app is left alone, as is an app the user unhid since.
+public struct DesktopRestoreJournal: Codable, Equatable, Sendable {
+    public struct Entry: Codable, Equatable, Sendable {
+        public let pid: Int32
+        public let bundleIdentifier: String?
+        public let launchDate: Double?
+        public init(pid: Int32, bundleIdentifier: String?, launchDate: Double?) {
+            self.pid = pid; self.bundleIdentifier = bundleIdentifier; self.launchDate = launchDate
+        }
+    }
+
+    public static let currentSchema = 1
+    public let schemaVersion: Int
+    public let generation: UInt64
+    public let entries: [Entry]
+
+    public init(generation: UInt64, entries: [Entry]) {
+        self.schemaVersion = Self.currentSchema
+        self.generation = generation
+        self.entries = entries.sorted { $0.pid < $1.pid }
+    }
+
+    public func encoded() throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try encoder.encode(self)
+    }
+
+    /// Nil for a corrupt journal or one from an unknown schema; such a journal cannot be acted on safely.
+    public static func decode(_ data: Data) -> DesktopRestoreJournal? {
+        guard let journal = try? JSONDecoder().decode(DesktopRestoreJournal.self, from: data),
+              journal.schemaVersion == currentSchema else { return nil }
+        return journal
+    }
+
+    /// PIDs to unhide now: the same process (PID, bundle identifier and launch date match), still running and still
+    /// hidden. Sorted for determinism.
+    public func appsToUnhide(running: [DesktopApp]) -> [Int32] {
+        let byPID = Dictionary(running.map { ($0.pid, $0) }, uniquingKeysWith: { first, _ in first })
+        return entries.compactMap { entry -> Int32? in
+            guard let app = byPID[entry.pid], !app.isTerminated, app.isHidden,
+                  app.bundleIdentifier == entry.bundleIdentifier, Self.sameLaunch(app.launchDate, entry.launchDate) else { return nil }
+            return entry.pid
+        }.sorted()
+    }
+
+    private static func sameLaunch(_ lhs: Double?, _ rhs: Double?) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil): return true
+        case let (l?, r?): return abs(l - r) < 0.001
+        default: return false
+        }
     }
 }
 

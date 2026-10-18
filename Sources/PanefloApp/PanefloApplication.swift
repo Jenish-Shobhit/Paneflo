@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         RuntimeDiagnostics.mark("delegate launched")
+        StartupRecovery.launch(defaults: preferences)
         let controller = DesktopController(service: windows)
         desktop = controller
         let entry = DesktopEntryController(service: desktopService, settings: DesktopSettings())
@@ -79,6 +80,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.onToggleGesture = { [weak self] in self?.setGestures($0) }
         controller.onToggleShortcuts = { [weak self] in self?.setShortcuts($0) }
         shortcuts.onAction = { [weak self] in self?.handle($0) }
+        shortcuts.onWindowCommand = { [weak self] command in
+            guard let self, let id = self.desktop?.switcherSelection else { return }
+            self.windows.perform(command, on: id)
+        }
         shortcuts.onStateChange = { [weak self, weak controller] state in
             controller?.setShortcutsEnabled(state == .active)
             if state == .active, let description = self?.shortcuts.installedTapDescription { controller?.setStatus("Shortcuts installed: \(description). ⌘Tab and ⌃⌥ controls are enabled.") }
@@ -87,6 +92,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.preferences.set(false, forKey: "shortcuts.enabled.v1")
                 controller?.setStatus(message)
             }
+            // An interrupted tap keeps the saved intent; the service retries on its own.
+            if case .interrupted(let message) = state { controller?.setStatus(message) }
         }
         gestures.onGestureEvent = { [weak self] event in
             guard let self else { return }
@@ -255,7 +262,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch state {
         case .disabled: message = "Off"; diagnostic = "disabled"
         case .starting: message = "Starting…"; diagnostic = "starting"
-        case .active: message = "Ready · swipe up for Overview, down to dismiss it."; diagnostic = "active"
+        case .active:
+            // Also after an automatic retry of a transient failure, which had cleared the saved intent.
+            preferences.set(true, forKey: "gesture.enabled.v1")
+            message = "Ready · swipe up for Overview, down to dismiss it."; diagnostic = "active"
         case .stopping: message = "Stopping…"; diagnostic = "stopping"
         case .paused: message = "Paused while the display or session is inactive."; diagnostic = "paused"
         case .unavailable(let reason):
@@ -331,7 +341,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func quit() { gestures.stop(); shortcuts.stop(); capture.stop(); desktop?.dismiss(); NSApp.terminate(nil) }
     func applicationWillTerminate(_ notification: Notification) {
         gestures.stop(); shortcuts.stop(); capture.stop()
-        // Never leave apps hidden by a Desktop session behind when Paneflo quits.
-        desktopService.restoreAll()
+        // Never leave apps hidden by a Desktop session behind when Paneflo quits. One restore path: the persisted
+        // journal, which the next launch also reads after a crash.
+        StartupRecovery.terminate(desktop: desktopService, defaults: preferences)
     }
 }

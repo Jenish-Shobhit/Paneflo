@@ -33,15 +33,17 @@ public final class SnapshotRunner<Payload: Sendable> {
 
     private let backend: Backend
     private let clock: @MainActor () -> Double
+    private let sleep: Deadline.Sleep
     private var retryTask: Task<Void, Never>?
 
     public init(scheduler: SnapshotScheduler = SnapshotScheduler(), breaker: CaptureCircuitBreaker = CaptureCircuitBreaker(),
                 timeout: Double = 1.5, clock: @escaping @MainActor () -> Double = { ProcessInfo.processInfo.systemUptime },
-                backend: @escaping Backend) {
+                sleep: @escaping Deadline.Sleep = Deadline.systemSleep, backend: @escaping Backend) {
         self.scheduler = scheduler
         self.breaker = breaker
         self.timeout = max(0, timeout)
         self.clock = clock
+        self.sleep = sleep
         self.backend = backend
     }
 
@@ -52,7 +54,10 @@ public final class SnapshotRunner<Payload: Sendable> {
     /// Issues tickets up to the scheduler's limits unless the breaker is backing off. After a
     /// backoff expires (half-open) only one probe request runs until it succeeds.
     public func pump() {
-        guard breaker.allows(now: clock()) else { return }
+        let now = clock()
+        // Timed-out requests whose OS callbacks never arrived stop holding capacity after a grace period.
+        scheduler.releaseExpiredAbandoned(now: now)
+        guard breaker.allows(now: now) else { return }
         let halfOpen = breaker.retryAt != nil
         if halfOpen, scheduler.outstandingCount > 0 { return }
         for ticket in scheduler.nextTickets(maximum: halfOpen ? 1 : Int.max) {
@@ -74,7 +79,7 @@ public final class SnapshotRunner<Payload: Sendable> {
     private func run(_ ticket: SnapshotTicket) async {
         let backend = self.backend
         let request = ticket.request
-        let result = await Deadline.run(seconds: timeout, operation: { try await backend(request) }, late: { [weak self] late in
+        let result = await Deadline.run(seconds: timeout, sleep: sleep, operation: { try await backend(request) }, late: { [weak self] late in
             Task { @MainActor in
                 guard let self else { return }
                 _ = self.scheduler.complete(ticket)
@@ -93,7 +98,7 @@ public final class SnapshotRunner<Payload: Sendable> {
             if failure == .failed { noteFailure() }
             onOutcome?(ticket, completion, .failed(failure))
         case .timedOut:
-            let completion = scheduler.timeout(ticket)
+            let completion = scheduler.timeout(ticket, now: clock())
             noteFailure()
             onOutcome?(ticket, completion, .timedOut)
         }
@@ -104,10 +109,11 @@ public final class SnapshotRunner<Payload: Sendable> {
         if retryTask == nil { onBreakerChange?(true) }
         guard let retryAt = breaker.retryAt else { return }
         retryTask?.cancel()
+        let sleep = self.sleep
         retryTask = Task { @MainActor [weak self] in
+            guard let delay = self.map({ retryAt - $0.clock() }) else { return }
+            if delay > 0 { await sleep(delay) }
             guard let self else { return }
-            let delay = retryAt - self.clock()
-            if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
             guard !Task.isCancelled else { return }
             self.retryTask = nil
             self.onBreakerChange?(false)

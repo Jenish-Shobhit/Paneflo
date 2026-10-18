@@ -428,6 +428,35 @@ final class WindowService {
         }
     }
 
+    /// A held-switcher window command (Command-W/M/H/Q) for `id`. Quit and hide go through
+    /// NSRunningApplication (no AX); close presses the window's AX close button on the worker. The
+    /// registry update that follows (destroyed window, terminated or hidden app, minimized flag)
+    /// refreshes the open switcher, which keeps its order and moves the selection to a neighbour.
+    func perform(_ command: SwitcherWindowCommand, on id: WindowIdentity) {
+        guard let app = currentApplication(for: id) else { onStatus?("That window is no longer available."); return }
+        guard command.isPermitted(bundleIdentifier: app.bundleIdentifier,
+                                  isPaneflo: app.processIdentifier == ProcessInfo.processInfo.processIdentifier) else { return }
+        RuntimeDiagnostics.mark("switcher windowCommand=\(command)")
+        switch command {
+        case .quitApplication:
+            if !app.terminate() { onStatus?("The application did not accept the request to quit.") }
+        case .hideApplication:
+            if !app.hide() { onStatus?("The application could not be hidden.") }
+        case .minimize:
+            minimize(id)
+        case .close:
+            guard hasAccessibility, let target = targets[id] else { return }
+            worker.close(target) { [weak self] closed in
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        if !closed { self?.onStatus?("That window has no close button Paneflo can press.") }
+                        self?.worker.markDirty(target)
+                    }
+                }
+            }
+        }
+    }
+
     func minimize(_ id: WindowIdentity) {
         guard hasAccessibility, validLifetime(id), let target = targets[id] else { return }
         worker.setMinimized(target, value: true) { [weak self] in Task { @MainActor in self?.worker.markDirty(target) } }
@@ -1022,6 +1051,16 @@ private final class WindowWorker: @unchecked Sendable {
             }
             completion(PlacementReport(before: before, after: actual,
                                        message: failures.isEmpty ? note : "The application accepted part of the layout. Undo is available."))
+        }
+    }
+
+    /// Presses the window's close button, as a click would; the app may still ask to save first.
+    func close(_ target: AXWindowTarget, completion: @escaping @Sendable (Bool) -> Void) {
+        submit(pid: target.id.process.pid, priority: .interactive, cancelled: { completion(false) }) {
+            guard Self.valid(target), let button = Self.element(Self.attribute(target.element, kAXCloseButtonAttribute)) else {
+                completion(false); return
+            }
+            completion(AXUIElementPerformAction(button, kAXPressAction as CFString) == .success)
         }
     }
 

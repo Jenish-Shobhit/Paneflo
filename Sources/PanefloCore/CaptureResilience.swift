@@ -10,8 +10,14 @@ public enum DeadlineResult<Value: Sendable>: Sendable {
 /// first. The request itself cannot be cancelled: if it finishes after the deadline, its result goes
 /// to `late` (exactly once) so the owner can release whatever it carries.
 public enum Deadline {
+    /// Suspends for the given number of seconds. Injected so tests can drive time by hand; a cancelled
+    /// sleep may return early.
+    public typealias Sleep = @Sendable (Double) async -> Void
+    public static let systemSleep: Sleep = { seconds in try? await Task.sleep(for: .seconds(max(0, seconds))) }
+
     public static func run<Value: Sendable>(
         seconds: Double,
+        sleep: @escaping Sleep = Deadline.systemSleep,
         operation: @escaping @Sendable () async throws -> Value,
         late: @escaping @Sendable (Result<Value, any Error>) -> Void = { _ in }
     ) async -> DeadlineResult<Value> {
@@ -19,7 +25,7 @@ public enum Deadline {
         return await withCheckedContinuation { continuation in
             gate.install(continuation)
             let timer = Task {
-                try? await Task.sleep(for: .seconds(max(0, seconds)))
+                await sleep(max(0, seconds))
                 if !Task.isCancelled { _ = gate.finish(.timedOut) }
             }
             gate.timer = timer

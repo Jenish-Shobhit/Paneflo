@@ -19,6 +19,9 @@ import PanefloCore
 ///   set stays restorable. The session ends when nothing is hidden by it and the desktop is not current.
 /// - Stage Manager: hiding works, but apps leave their stage groups and the restored layout is the system's choice.
 ///   `isStageManagerEnabled` lets the UI warn; behaviour is not changed.
+/// - Every change to the hidden set is journaled to UserDefaults (`DesktopRestoreJournal`). Quitting Paneflo
+///   restores them (`restoreForTermination`, called by the app delegate); after a crash or kill the next launch
+///   does (`restoreJournaledApps`). Both read the journal, so there is one restore path.
 @MainActor
 final class DesktopService {
     enum ShowOutcome: Equatable {
@@ -32,19 +35,71 @@ final class DesktopService {
     /// Called after the session starts, changes or ends. The UI uses it to rebuild the Desktop entry / tile state.
     var onChange: (() -> Void)?
 
-    private(set) var session: DesktopSession?
+    private(set) var session: DesktopSession? { didSet { if session != oldValue { persist() } } }
     private var generation: UInt64 = 0
     private let settings: DesktopSettings
     private let workspace: NSWorkspace
+    private let defaults: UserDefaults
     private var observers: [NSObjectProtocol] = []
+    /// Set once the terminate-time restore ran: later session changes are not journaled again.
+    private var terminating = false
 
-    init(settings: DesktopSettings = DesktopSettings(), workspace: NSWorkspace = .shared) {
+    static let journalKey = "desktop.session.v1"
+
+    init(settings: DesktopSettings = DesktopSettings(), workspace: NSWorkspace = .shared, defaults: UserDefaults = .standard) {
         self.settings = settings
         self.workspace = workspace
+        self.defaults = defaults
     }
 
     isolated deinit {
         for observer in observers { workspace.notificationCenter.removeObserver(observer) }
+    }
+
+    // MARK: Journal
+
+    /// Writes the hidden set (with launch dates, so a reused PID is never touched) or clears the journal.
+    private func persist() {
+        guard !terminating else { return }
+        guard let session, !session.hiddenPIDs.isEmpty else {
+            defaults.removeObject(forKey: Self.journalKey); return
+        }
+        let entries = session.hiddenPIDs.map { pid -> DesktopRestoreJournal.Entry in
+            let app = NSRunningApplication(processIdentifier: pid)
+            return .init(pid: pid, bundleIdentifier: app?.bundleIdentifier, launchDate: app?.launchDate?.timeIntervalSinceReferenceDate)
+        }
+        guard let data = try? DesktopRestoreJournal(generation: session.generation, entries: entries).encoded() else { return }
+        defaults.set(data, forKey: Self.journalKey)
+    }
+
+    /// Paneflo is quitting: the journal (which mirrors the hidden set) is the single restore path, used here and at
+    /// the next launch. The journal is cleared before unhiding, and nothing is journaled afterwards, so a second call
+    /// or a late workspace notification cannot restore twice.
+    @discardableResult
+    func restoreForTermination() -> Int {
+        terminating = true
+        session = nil
+        return Self.restoreJournaledApps(defaults: defaults, workspace: workspace)
+    }
+
+    /// Unhides the apps a previous Show Desktop hid and never restored (Paneflo quit, crashed or was killed), if they
+    /// are the same processes and still hidden, then clears the journal. Call at launch and at termination.
+    @discardableResult
+    static func restoreJournaledApps(defaults: UserDefaults = .standard, workspace: NSWorkspace = .shared) -> Int {
+        guard let data = defaults.data(forKey: journalKey) else {
+            defaults.removeObject(forKey: journalKey)
+            return 0
+        }
+        defaults.removeObject(forKey: journalKey)
+        guard let journal = DesktopRestoreJournal.decode(data) else { return 0 }
+        let running = workspace.runningApplications.map {
+            DesktopApp(pid: $0.processIdentifier, bundleIdentifier: $0.bundleIdentifier, isRegular: $0.activationPolicy == .regular,
+                       isHidden: $0.isHidden, isTerminated: $0.isTerminated,
+                       launchDate: $0.launchDate?.timeIntervalSinceReferenceDate)
+        }
+        let pids = journal.appsToUnhide(running: running)
+        for pid in pids { NSRunningApplication(processIdentifier: pid)?.unhide() }
+        return pids.count
     }
 
     // MARK: State

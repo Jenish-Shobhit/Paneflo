@@ -33,7 +33,7 @@ final class SwitcherPanelController: SurfacePanelController {
         shortcutSession = fromShortcut && mode == .switcher
         let headingText = mode == .tiling ? "Arrange a window" : "Switch windows"
         if heading.stringValue != headingText { heading.stringValue = headingText }
-        let hint = shortcutSession ? "⇥ or arrows select   ⌥← → tile   ⌥↑ fill   ⌥↓ undo   release ⌘ to open   esc cancel"
+        let hint = shortcutSession ? "⇥ or arrows select   ⌥← → tile   ⌥↑ fill   ⌥↓ undo   release ⌘ to open   esc cancel   W close · M minimize · H hide · Q quit"
             : "arrows select   ⌘⌥← → tile   ⌘⌥↑ fill   ⌘⌥↓ undo   return open   esc close"
         if keyboardHint.stringValue != hint { keyboardHint.stringValue = hint }
         if search.isHidden != shortcutSession { search.isHidden = shortcutSession }

@@ -118,6 +118,8 @@ final class CaptureController {
     static let contentMaxAge = 1.0
     static let discoveryTimeout = 2.0
     static let screenshotTimeout = 1.5
+    /// How long a timed-out OS request keeps holding capacity before its callback is presumed lost.
+    static let abandonedGrace = 30.0
     static let liveFirstFrameTimeout = 1.5
     /// How long a listed window's SCWindow may be reused for capture without waiting for discovery.
     static let contentReuseAge = 5.0
@@ -131,7 +133,11 @@ final class CaptureController {
         set { runner.scheduler = newValue }
     }
     private var failedThisSession: Set<WindowIdentity> = []
-    private var abandonedDiscoveries = 0
+    /// Uptimes of timed-out discoveries whose OS callbacks have not arrived. Each holds capacity for
+    /// `abandonedGrace`; after that the callback is presumed lost, so lost callbacks cannot stop
+    /// discovery for the rest of the process.
+    private var abandonedDiscoveries: [UInt64: Double] = [:]
+    private var discoverySerial: UInt64 = 0
     private var liveBreaker = CaptureCircuitBreaker()
     private var liveRetryTask: Task<Void, Never>?
     private var liveWatchdog: Task<Void, Never>?
@@ -241,7 +247,7 @@ final class CaptureController {
     }
 
     private func makeRunner() -> SnapshotRunner<CGImage> {
-        let runner = SnapshotRunner<CGImage>(scheduler: SnapshotScheduler(concurrencyLimit: 3),
+        let runner = SnapshotRunner<CGImage>(scheduler: SnapshotScheduler(concurrencyLimit: 3, abandonedGrace: Self.abandonedGrace),
                                              timeout: Self.screenshotTimeout) { [weak self] request in
             guard let self else { throw SnapshotFailure.failed }
             return try await self.screenshot(request)
@@ -530,11 +536,15 @@ final class CaptureController {
 
     private func refreshContent() async throws -> [CGWindowID: SCWindow] {
         if let discovery { return try await discovery.value }
-        guard abandonedDiscoveries < 2 else {
+        let now = ProcessInfo.processInfo.systemUptime
+        abandonedDiscoveries = abandonedDiscoveries.filter { now - $0.value < Self.abandonedGrace }
+        guard abandonedDiscoveries.count < 2 else {
             // Two timed-out discoveries are still physically outstanding: do not add a third.
             runner.noteFailure()
             throw DiscoveryTimeout()
         }
+        discoverySerial &+= 1
+        let serial = discoverySerial
         let task = Task { @MainActor [self] () throws -> [CGWindowID: SCWindow] in
             discoveryInFlight = true; transition("discovering")
             defer { discoveryInFlight = false }
@@ -544,7 +554,7 @@ final class CaptureController {
             }, late: { [weak self] late in
                 Task { @MainActor in
                     guard let self else { return }
-                    self.abandonedDiscoveries -= 1
+                    self.abandonedDiscoveries.removeValue(forKey: serial)
                     RuntimeDiagnostics.mark("capture discovery=lateAfterTimeout")
                     // A slow (typically first-in-process) discovery still yields valid content.
                     if case .success(let boxed) = late, self.discovery == nil {
@@ -572,7 +582,7 @@ final class CaptureController {
                 } else { runner.noteFailure() }
                 throw error
             case .timedOut:
-                abandonedDiscoveries += 1
+                abandonedDiscoveries[serial] = ProcessInfo.processInfo.systemUptime
                 transition("discoveryTimedOut")
                 runner.noteFailure()
                 throw DiscoveryTimeout()

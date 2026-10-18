@@ -47,8 +47,9 @@ struct ShortcutSessionTests {
         guard case .tileSelected(.maximize)? = fill.action else { Issue.record("Missing fill intent"); return }
         let undo = router.route(kind: .down, keyCode: 125, modifiers: [.command, .option])
         guard case .restore? = undo.action else { Issue.record("Missing undo intent"); return }
-        // Other modifier mixes are not Paneflo's.
-        #expect(!router.route(kind: .down, keyCode: 124, modifiers: [.command, .control]).suppress)
+        // Other modifier mixes are not actions, but nothing reaches the app behind the held picker.
+        let other = router.route(kind: .down, keyCode: 124, modifiers: [.command, .control])
+        #expect(other.suppress && other.action == nil && other.windowCommand == nil)
         let release = router.route(kind: .modifiersChanged, keyCode: 55, modifiers: [])
         guard case .commit? = release.action else { Issue.record("Missing deferred commit intent"); return }
     }
@@ -56,8 +57,9 @@ struct ShortcutSessionTests {
     @Test func arrangingFiresOncePerPhysicalPress() {
         var router = ShortcutSession(configuration: .init(switcherEnabled: true))
         _ = router.route(kind: .down, keyCode: 48, modifiers: .command)
+        // A repeat whose first press was not seen is swallowed while switching, and never arranges.
         let unownedRepeat = router.route(kind: .down, keyCode: 123, modifiers: [.command, .option], isRepeat: true)
-        #expect(!unownedRepeat.suppress && unownedRepeat.action == nil)
+        #expect(unownedRepeat.suppress && unownedRepeat.action == nil)
         let first = router.route(kind: .down, keyCode: 123, modifiers: [.command, .option])
         guard case .tileSelected(.leftHalf)? = first.action else { Issue.record("Missing first physical press"); return }
         let ownedRepeat = router.route(kind: .down, keyCode: 123, modifiers: [.command, .option], isRepeat: true)
@@ -123,6 +125,30 @@ struct ShortcutSessionTests {
         guard case .cancel? = plainEscape.action else { Issue.record("Escape still cancels a held session"); return }
     }
 
+    @Test func watchdogCommitsAMissedReleaseOnlyForTheSameSession() {
+        var router = ShortcutSession(configuration: .init(switcherEnabled: true))
+        #expect(router.commitIfCommandReleased(commandHeld: false, serial: router.sessionSerial) == nil, "idle: nothing to commit")
+        _ = router.route(kind: .down, keyCode: 48, modifiers: .command)
+        let first = router.sessionSerial
+        _ = router.route(kind: .down, keyCode: 48, modifiers: .command)
+        #expect(router.sessionSerial == first, "Tab within a session keeps its serial")
+        #expect(router.commitIfCommandReleased(commandHeld: true, serial: first) == nil, "Command still held")
+        // The Command release was never seen and no other key followed: the picker would stay up.
+        guard case .commit? = router.commitIfCommandReleased(commandHeld: false, serial: first) else {
+            Issue.record("A missed release must commit"); return
+        }
+        #expect(!router.switching)
+        #expect(router.commitIfCommandReleased(commandHeld: false, serial: first) == nil, "commits once")
+        // A stale observation from the previous session cannot end a new one.
+        _ = router.route(kind: .down, keyCode: 48, modifiers: .command)
+        #expect(router.sessionSerial == first + 1)
+        #expect(router.commitIfCommandReleased(commandHeld: false, serial: first) == nil)
+        #expect(router.switching)
+        // A normal release already committed: the watchdog's later poll is a no-op.
+        _ = router.route(kind: .modifiersChanged, keyCode: 55, modifiers: [])
+        #expect(router.commitIfCommandReleased(commandHeld: false, serial: first + 1) == nil)
+    }
+
     @Test func tapInterruptionRecoveryCommitsOnlyWhenCommandWasReleased() {
         var router = ShortcutSession(configuration: .init(switcherEnabled: true))
         _ = router.route(kind: .down, keyCode: 48, modifiers: .command)
@@ -143,10 +169,66 @@ struct ShortcutSessionTests {
         for modifiers: ShortcutModifiers in [[], [.command, .option], [.command, .control], [.command, .function]] {
             #expect(!router.route(kind: .down, keyCode: 48, modifiers: modifiers).suppress)
         }
-        _ = router.route(kind: .down, keyCode: 48, modifiers: .command)
-        for code: UInt16 in [0, 36, 49, 102, 104] {
-            #expect(!router.route(kind: .down, keyCode: code, modifiers: .command).suppress)
+        for code: UInt16 in [0, 36, 49, 102, 104, 12, 13] {
+            #expect(!router.route(kind: .down, keyCode: code, modifiers: .command).suppress, "idle: Command chords belong to the app")
+            _ = router.route(kind: .up, keyCode: code, modifiers: .command)
         }
+    }
+
+    @Test func heldSwitcherSwallowsEveryOtherKeyAndItsRelease() {
+        var router = ShortcutSession(configuration: .init(switcherEnabled: true))
+        _ = router.route(kind: .down, keyCode: 48, modifiers: .command)
+        for (code, modifiers) in [(UInt16(0), ShortcutModifiers.command), (36, .command), (49, .command), (102, .command),
+                                  (104, .command), (50, .command), (45, .command), (12, [.command, .shift]),
+                                  (13, [.command, .option]), (1, [.command, .control])] {
+            let route = router.route(kind: .down, keyCode: code, modifiers: modifiers)
+            #expect(route.suppress && route.action == nil && route.windowCommand == nil, "key \(code) must not reach the frontmost app")
+            #expect(router.route(kind: .down, keyCode: code, modifiers: modifiers, isRepeat: true).suppress)
+            #expect(router.route(kind: .up, keyCode: code, modifiers: modifiers).suppress, "its key-up is paired")
+        }
+        #expect(router.switching, "swallowed keys never end the session")
+        let release = router.route(kind: .modifiersChanged, keyCode: 55, modifiers: [])
+        guard case .commit? = release.action else { Issue.record("Release must still commit"); return }
+        #expect(!router.route(kind: .down, keyCode: 0, modifiers: .command).suppress, "after the session keys pass again")
+    }
+
+    @Test func commandChordsBecomeWindowCommandsWhileSwitching() {
+        var router = ShortcutSession(configuration: .init(switcherEnabled: true))
+        _ = router.route(kind: .down, keyCode: 48, modifiers: .command)
+        let expected: [(UInt16, SwitcherWindowCommand)] = [(12, .quitApplication), (13, .close), (46, .minimize), (4, .hideApplication)]
+        for (code, command) in expected {
+            let route = router.route(kind: .down, keyCode: code, modifiers: .command)
+            #expect(route.suppress && route.windowCommand == command && route.action == nil)
+            let repeated = router.route(kind: .down, keyCode: code, modifiers: .command, isRepeat: true)
+            #expect(repeated.suppress && repeated.windowCommand == nil, "once per physical press")
+            #expect(router.route(kind: .up, keyCode: code, modifiers: .command).suppress)
+            #expect(router.switching, "the switcher stays open after a window command")
+        }
+        // Tab keeps cycling after a command; a Shift chord is not a window command.
+        guard case .switchForward? = router.route(kind: .down, keyCode: 48, modifiers: .command).action else {
+            Issue.record("Tab must keep cycling"); return
+        }
+        #expect(router.route(kind: .down, keyCode: 13, modifiers: [.command, .shift]).windowCommand == nil)
+        // Without a held switcher the same chords belong to the frontmost app.
+        _ = router.route(kind: .modifiersChanged, keyCode: 55, modifiers: [])
+        let idle = router.route(kind: .down, keyCode: 12, modifiers: .command)
+        #expect(!idle.suppress && idle.windowCommand == nil)
+        // The Overview is not a held switcher: Command-Q there is the app's.
+        router.surfaceVisible = true
+        router.selectionContextActive = true
+        #expect(router.route(kind: .down, keyCode: 13, modifiers: .command).windowCommand == nil)
+    }
+
+    @Test func windowCommandsNeverTargetPanefloOrQuitFinder() {
+        for command in [SwitcherWindowCommand.close, .minimize, .hideApplication, .quitApplication] {
+            #expect(!command.isPermitted(bundleIdentifier: "dev.paneflo.Paneflo", isPaneflo: true))
+            #expect(command.isPermitted(bundleIdentifier: "com.example.editor", isPaneflo: false))
+            #expect(command.isPermitted(bundleIdentifier: nil, isPaneflo: false))
+        }
+        #expect(!SwitcherWindowCommand.quitApplication.isPermitted(bundleIdentifier: "com.apple.finder", isPaneflo: false))
+        #expect(SwitcherWindowCommand.close.isPermitted(bundleIdentifier: "com.apple.finder", isPaneflo: false))
+        #expect(SwitcherWindowCommand.hideApplication.isPermitted(bundleIdentifier: "com.apple.finder", isPaneflo: false))
+        #expect(SwitcherWindowCommand(keyCode: 0) == nil)
     }
 
     @Test func cancellationOwnsOnlyPairedKeys() {
