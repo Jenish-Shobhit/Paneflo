@@ -188,7 +188,9 @@ final class CardGrid: NSView {
         if frame.size != NSSize(width: width, height: height) { super.setFrameSize(NSSize(width: width, height: height)) }
         for (index, card) in cards.enumerated() {
             let target = frameForCard(at: index, width: width)
-            if card.frame != target { card.frame = target }
+            if card.frame.size == target.size {
+                if card.frame.origin != target.origin { card.setFrameOrigin(target.origin) }
+            } else { card.frame = target }
         }
         if !emptyLabel.isHidden {
             // Below the cards when some remain (the Desktop entry alone), else at the top.

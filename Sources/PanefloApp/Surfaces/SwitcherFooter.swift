@@ -42,6 +42,7 @@ final class FocusLineView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        colors = nil
         if let current { render(current) }
     }
 
@@ -53,16 +54,23 @@ final class FocusLineView: NSView {
         render(next)
     }
 
+    /// Resolved once per appearance: a selection step never resolves colors.
+    private var colors: (primary: CGColor, secondary: CGColor)?
+
     private func render(_ value: (title: String, app: String, partner: String?)) {
-        let appearance = effectiveAppearance
+        let colors = self.colors ?? {
+            let resolved = (PanefloStyle.cgColor(.labelColor, for: effectiveAppearance), PanefloStyle.cgColor(.secondaryLabelColor, for: effectiveAppearance))
+            self.colors = resolved
+            return resolved
+        }()
         let fg = NSAttributedString.Key(kCTForegroundColorAttributeName as String)
         let line = NSMutableAttributedString(string: value.title, attributes: [
-            .font: PanefloStyle.Font.focusTitle, fg: PanefloStyle.cgColor(.labelColor, for: appearance)])
+            .font: PanefloStyle.Font.focusTitle, fg: colors.primary])
         var detail = value.title.isEmpty || value.app.isEmpty || value.app == value.title ? "" : "  " + value.app
         if value.title.isEmpty { detail = value.app }
         if let partner = value.partner { detail += "  ·  with \(partner)" }
         line.append(NSAttributedString(string: detail, attributes: [
-            .font: PanefloStyle.Font.focusApp, fg: PanefloStyle.cgColor(.secondaryLabelColor, for: appearance)]))
+            .font: PanefloStyle.Font.focusApp, fg: colors.secondary]))
         PanefloStyle.withoutAnimation { text.string = line }
     }
 

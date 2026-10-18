@@ -580,7 +580,7 @@ class SurfacePanelController: NSObject, NSSearchFieldDelegate, NSWindowDelegate 
     func applyScrollFade(_ overflows: Bool, fade: CGFloat) {
         scroll.wantsLayer = true
         guard overflows else { if scroll.layer?.mask != nil { scroll.layer?.mask = nil }; return }
-        let mask = fadeMask ?? CAGradientLayer()
+        let mask = fadeMask ?? { let layer = CAGradientLayer(); layer.actions = GlyphLayer.noActions; return layer }()
         fadeMask = mask
         let share = fade / max(1, scroll.bounds.height)
         PanefloStyle.withoutAnimation {

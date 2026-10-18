@@ -47,6 +47,8 @@ final class CardView: NSButton {
 
     let chrome = CardChrome()
     private var palette: CardPalette?
+    private static let homeTitleColor = NSColor.white.cgColor
+    private static let homeSubtitleColor = NSColor.white.withAlphaComponent(0.8).cgColor
     private var appliedScale: CGFloat = 0
 
     var style = CardStyle.switcher(.medium) {
@@ -179,6 +181,9 @@ final class CardView: NSButton {
         super.init(frame: frame)
         isBordered = false; title = ""; setButtonType(.momentaryChange)
         translatesAutoresizingMaskIntoConstraints = true
+        // Cards move on every MRU change; nobody observes their geometry.
+        postsFrameChangedNotifications = false
+        postsBoundsChangedNotifications = false
         setAccessibilityValue("Not selected")
         wantsLayer = true
         // The selection ring and the pair seam sit just outside the card, inside the cell gutter.
@@ -231,6 +236,7 @@ final class CardView: NSButton {
 
     /// Back to the app icon with no preview state (previews off, card reused, surface hidden).
     func clearPreview() {
+        guard pixels.hasContent || hasPreviewState || presentation != nil || previewLabel != nil else { return }
         withoutAnimation {
             setPixels(.none)
             hasPreviewState = false
@@ -415,11 +421,12 @@ final class CardView: NSButton {
         let vacant = record == nil && !isDesktopEntry
         if (chrome.title.string as? String) != title { chrome.title.string = title }
         if (chrome.subtitle.string as? String) != subtitle { chrome.subtitle.string = subtitle }
-        chrome.title.isHidden = vacant || title.isEmpty
-        chrome.subtitle.isHidden = vacant || subtitle.isEmpty || (!style.showsSubtitle && !homeTile)
-        let white = NSColor.white.cgColor
-        chrome.title.foregroundColor = homeTile ? white : palette.label
-        chrome.subtitle.foregroundColor = homeTile ? NSColor.white.withAlphaComponent(0.8).cgColor : palette.secondaryLabel
+        hide(chrome.title, vacant || title.isEmpty)
+        hide(chrome.subtitle, vacant || subtitle.isEmpty || (!style.showsSubtitle && !homeTile))
+        let titleColor = homeTile ? CardView.homeTitleColor : palette.label
+        let subtitleColor = homeTile ? CardView.homeSubtitleColor : palette.secondaryLabel
+        if chrome.title.foregroundColor !== titleColor { chrome.title.foregroundColor = titleColor }
+        if chrome.subtitle.foregroundColor !== subtitleColor { chrome.subtitle.foregroundColor = subtitleColor }
     }
 
     private func applyPixels() {
@@ -443,16 +450,26 @@ final class CardView: NSButton {
     private func applyContent() {
         let hasPixels = pixels.hasContent
         let vacant = record == nil && !isDesktopEntry
-        chrome.well.isHidden = vacant
-        chrome.preview.isHidden = !hasPixels
-        chrome.preview.contentsGravity = isDesktopEntry ? .resizeAspectFill : .resizeAspect
-        chrome.placeholder.isHidden = !isDesktopEntry || hasPixels
-        chrome.placeholderGlyph.isHidden = !isDesktopEntry || hasPixels
+        hide(chrome.well, vacant)
+        hide(chrome.preview, !hasPixels)
+        let gravity: CALayerContentsGravity = isDesktopEntry ? .resizeAspectFill : .resizeAspect
+        if chrome.preview.contentsGravity != gravity { chrome.preview.contentsGravity = gravity }
+        hide(chrome.placeholder, !isDesktopEntry || hasPixels)
+        hide(chrome.placeholderGlyph, !isDesktopEntry || hasPixels)
         if !chrome.placeholderGlyph.isHidden {
             chrome.placeholderGlyph.setSymbol("menubar.dock.rectangle", pointSize: 28, weight: .light, scale: scale)
         }
-        chrome.homeScrim.isHidden = !(isDesktopEntry && style.isOverview)
+        hide(chrome.homeScrim, !(isDesktopEntry && style.isOverview))
         applyIcon()
+    }
+
+    /// Layer property sets are not free even with actions off; set only what changed.
+    private func hide(_ layer: CALayer, _ hidden: Bool) { if layer.isHidden != hidden { layer.isHidden = hidden } }
+    private func setOpacity(_ layer: CALayer, _ value: Float) { if layer.opacity != value { layer.opacity = value } }
+
+    private func applyContentOpacity(_ opacity: Float) {
+        setOpacity(chrome.preview, isDesktopEntry ? 1 : opacity)
+        setOpacity(chrome.icon, opacity)
     }
 
     private func applyIcon() {
@@ -466,11 +483,9 @@ final class CardView: NSButton {
                 target.contents = prepared.contents
             }
         }
-        if chrome.icon.isHidden == showsBig { chrome.icon.isHidden = !showsBig }
-        if chrome.badge.isHidden == showsBadge { chrome.badge.isHidden = !showsBadge }
-        let opacity = Float(PreviewIndicator.resolve(presentation, isMinimized: record?.isMinimized ?? false).contentOpacity)
-        chrome.preview.opacity = isDesktopEntry ? 1 : opacity
-        chrome.icon.opacity = opacity
+        hide(chrome.icon, !showsBig)
+        hide(chrome.badge, !showsBadge)
+        applyContentOpacity(Float(PreviewIndicator.resolve(presentation, isMinimized: record?.isMinimized ?? false).contentOpacity))
     }
 
     private func applyStatus() {
@@ -486,9 +501,7 @@ final class CardView: NSButton {
         }
         let palette = currentPalette
         chrome.status.show(symbol, fill: palette.chipFill, tint: palette.chipGlyph, scale: scale)
-        let opacity = Float(resolved.1)
-        chrome.preview.opacity = isDesktopEntry ? 1 : opacity
-        chrome.icon.opacity = opacity
+        applyContentOpacity(Float(resolved.1))
     }
 
     private func applyCorner() {
@@ -650,12 +663,14 @@ final class CardView: NSButton {
     /// Drop feedback eases in over `duration` unless Reduce Motion is on.
     private func animatedIfAllowed(_ duration: CFTimeInterval, _ body: () -> Void) {
         let value = PanefloStyle.Motion.duration(duration)
-        guard value > 0 else { withoutAnimation(body); return }
-        CATransaction.begin()
-        CATransaction.setAnimationDuration(value)
-        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
-        body()
-        CATransaction.commit()
+        withoutAnimation(body)
+        guard value > 0, let layer else { return }
+        // Card layers never animate implicitly; drop feedback crossfades explicitly (drag time only).
+        let fade = CATransition()
+        fade.type = .fade
+        fade.duration = value
+        fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        layer.add(fade, forKey: "dropTarget")
     }
 
     #if PANEFLO_NATIVE_CHECK

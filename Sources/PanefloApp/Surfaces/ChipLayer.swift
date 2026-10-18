@@ -30,19 +30,21 @@ enum GlyphImages {
 /// presentation never rasterizes an icon it has shown before.
 @MainActor
 enum IconContents {
-    private static var cache: [ObjectIdentifier: (icon: NSImage, scale: CGFloat, contents: Any)] = [:]
+    private struct Key: Hashable { let icon: ObjectIdentifier; let scale: CGFloat }
+    private static var cache: [Key: (icon: NSImage, scale: CGFloat, contents: Any)] = [:]
     #if PANEFLO_NATIVE_CHECK
     static var misses = 0
     #endif
 
-    static func contents(for icon: NSImage, scale: CGFloat) -> (contents: Any, scale: CGFloat) {
-        let scale = icon.recommendedLayerContentsScale(scale)
-        let key = ObjectIdentifier(icon)
-        if let entry = cache[key], entry.icon === icon, entry.scale == scale { return (entry.contents, scale) }
+    /// Keyed by the icon and the requested scale, so a hit costs one dictionary lookup (no image inspection).
+    static func contents(for icon: NSImage, scale requested: CGFloat) -> (contents: Any, scale: CGFloat) {
+        let key = Key(icon: ObjectIdentifier(icon), scale: requested)
+        if let entry = cache[key], entry.icon === icon { return (entry.contents, entry.scale) }
         #if PANEFLO_NATIVE_CHECK
         misses += 1
         #endif
         if cache.count > 96 { cache.removeAll(keepingCapacity: true) }
+        let scale = icon.recommendedLayerContentsScale(requested)
         let contents = icon.layerContents(forContentsScale: scale)
         cache[key] = (icon, scale, contents)
         return (contents, scale)
@@ -69,7 +71,9 @@ final class GlyphLayer: CALayer {
         "hidden": NSNull(), "opacity": NSNull(), "backgroundColor": NSNull(), "frame": NSNull(), "path": NSNull(),
         "strokeColor": NSNull(), "fillColor": NSNull(), "lineWidth": NSNull(), "borderColor": NSNull(),
         "borderWidth": NSNull(), "string": NSNull(), "foregroundColor": NSNull(), "sublayers": NSNull(),
-        "cornerRadius": NSNull(), "shadowOpacity": NSNull(), "lineDashPattern": NSNull()]
+        "cornerRadius": NSNull(), "shadowOpacity": NSNull(), "lineDashPattern": NSNull(), "contentsScale": NSNull(),
+        "colors": NSNull(), "locations": NSNull(), "transform": NSNull(), "font": NSNull(), "fontSize": NSNull(),
+        "mask": NSNull(), "onOrderIn": NSNull(), "onOrderOut": NSNull(), "contentsRect": NSNull(), "anchorPoint": NSNull()]
 
     /// Sets the symbol; renders its mask only the first time this symbol/size/scale is used anywhere.
     @MainActor func setSymbol(_ name: String?, pointSize: CGFloat, weight: NSFont.Weight = .semibold, scale: CGFloat) {

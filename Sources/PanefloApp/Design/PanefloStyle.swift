@@ -244,10 +244,13 @@ enum PanefloStyle {
     }
 
     /// Runs layer changes with implicit animations off: every surface selection, appear and dismiss is instant.
+    ///
+    /// Surface layers carry action dictionaries that disable implicit animations; this also disables actions on the
+    /// run loop's implicit transaction. It deliberately opens no explicit transaction: an outermost explicit commit
+    /// flushes the layer tree to the render server synchronously, which costs a millisecond on the input path. The
+    /// changes are committed with the frame at the end of the run-loop turn instead.
     @MainActor static func withoutAnimation(_ body: () -> Void) {
-        CATransaction.begin()
         CATransaction.setDisableActions(true)
         body()
-        CATransaction.commit()
     }
 }
