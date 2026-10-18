@@ -14,6 +14,7 @@ struct NativeUICheck {
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         app.finishLaunching()
+        enableAccessibilityHierarchy(app)
         Task { @MainActor in
             do {
                 try await run()
@@ -25,6 +26,21 @@ struct NativeUICheck {
             }
         }
         app.run()
+    }
+
+    /// SwiftUI only builds its accessibility nodes once an assistive client has engaged with the process, so the
+    /// hierarchy read below was empty unless something external (VoiceOver, an inspector) happened to be attached.
+    /// Engage it explicitly for this process, the same switch an assistive client flips with AXEnhancedUserInterface / AXManualAccessibility.
+    @MainActor static func enableAccessibilityHierarchy(_ app: NSApplication) {
+        let object = app as NSObject
+        let enhanced = NSSelectorFromString("accessibilitySetEnhancedUserInterfaceAttribute:")
+        if object.responds(to: enhanced) { _ = object.perform(enhanced, with: NSNumber(value: true)) }
+        for attribute in ["AXManualAccessibility", "AXEnhancedUserInterface"] {
+            let selector = NSSelectorFromString("accessibilitySetOverrideValue:forAttribute:")
+            if object.responds(to: selector) {
+                _ = object.perform(selector, with: NSNumber(value: true), with: attribute)
+            }
+        }
     }
 
     enum Failure: Error { case check(String) }
