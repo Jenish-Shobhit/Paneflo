@@ -154,7 +154,7 @@ final class OverviewPanelController: SurfacePanelController {
         }
         orderFront(searchFocused: true)
         fadeInScrim()
-        if let target = selectedTarget, let card = card(for: target) { revealCard(card) }
+        if let target = selectedTarget, let card = self.card(for: target) { revealCard(card) }
         showDesktopWallpaper()
     }
 
@@ -586,7 +586,7 @@ final class OverviewPanelController: SurfacePanelController {
     }
 
     private func selectMenuSlot(_ sender: NSMenuItem?) {
-        guard let slot = slot(from: sender) else { return }
+        guard let slot = self.slot(from: sender) else { return }
         selectedSlot = slot.id
         if let binding = slot.binding { select(binding, notify: false) }
     }
@@ -598,7 +598,7 @@ final class OverviewPanelController: SurfacePanelController {
     @objc private func moveLeft(_ sender: NSMenuItem?) { selectMenuSlot(sender); moveSlot(by: -1) }
     @objc private func moveRight(_ sender: NSMenuItem?) { selectMenuSlot(sender); moveSlot(by: 1) }
     @objc private func togglePin(_ sender: NSMenuItem?) {
-        guard let slot = slot(from: sender) else { return }
+        guard let slot = self.slot(from: sender) else { return }
         if slot.binding != nil { selectMenuSlot(sender) }
         if slot.isPinned { slots.unpin(slotID: slot.id) }
         else {
@@ -608,7 +608,7 @@ final class OverviewPanelController: SurfacePanelController {
         reapply(selecting: nil)
     }
     @objc private func removeSlot(_ sender: NSMenuItem?) {
-        guard let slot = slot(from: sender) else { return }
+        guard let slot = self.slot(from: sender) else { return }
         slots.remove(slotID: slot.id)
         reapply(selecting: nil)
     }

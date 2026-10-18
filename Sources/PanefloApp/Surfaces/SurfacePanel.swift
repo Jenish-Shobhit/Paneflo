@@ -332,11 +332,11 @@ class SurfacePanelController: NSObject, NSSearchFieldDelegate, NSWindowDelegate 
         let previous = selectedTarget
         selectedTarget = target
         // Preview content follows engine updates; the outgoing card keeps its last frame.
-        if let previous, previous != target, let card = card(for: previous) { card.selected = false }
-        let card = target.flatMap { card(for: $0) }
-        if let card {
-            card.selected = true
-            if isShown { revealCard(card) }
+        if let previous, previous != target, let oldCard = self.card(for: previous) { oldCard.selected = false }
+        let newCard = target.flatMap { self.card(for: $0) }
+        if let newCard {
+            newCard.selected = true
+            if isShown { revealCard(newCard) }
         }
         updatePartnerHighlight(for: target)
         updateSnapGhost()

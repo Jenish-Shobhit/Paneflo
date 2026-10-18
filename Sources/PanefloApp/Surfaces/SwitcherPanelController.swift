@@ -79,7 +79,7 @@ final class SwitcherPanelController: SurfacePanelController {
         // The held picker receives every key through the event tap, so it never takes key focus
         // from the frontmost app. Manual Switch/Arrange sessions need the search field.
         if shortcutSession { orderFrontWithoutKey() } else { orderFront(searchFocused: true) }
-        if let target = selectedTarget, let card = card(for: target) { revealCard(card) }
+        if let target = selectedTarget, let card = self.card(for: target) { revealCard(card) }
         selectionDidChange()
         showDesktopWallpaper()
     }
@@ -264,7 +264,7 @@ final class SwitcherPanelController: SurfacePanelController {
 
     override func selectionDidChange() {
         guard showsTitleLine else { return }
-        guard let target = selectedTarget, let card = card(for: target) else { focusLine.show(title: "", app: ""); return }
+        guard let target = selectedTarget, let card = self.card(for: target) else { focusLine.show(title: "", app: ""); return }
         if card.isDesktopEntry {
             focusLine.show(title: SwitcherSession.desktopTitle, app: card.desktopIsCurrent ? "Bring your windows back" : "Show the desktop")
         } else if let record = card.record {

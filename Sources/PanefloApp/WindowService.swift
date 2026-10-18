@@ -859,7 +859,7 @@ private final class WindowWorker: @unchecked Sendable {
         let pid = owner
         let key = ElementKey(element: element)
         coordinator.async { [self] in
-            guard let state = state(pid: pid, observer: observer) else { return }
+            guard let state = self.state(pid: pid, observer: observer) else { return }
             switch notification {
             case kAXFocusedWindowChangedNotification, kAXMainWindowChangedNotification:
                 if let target = state.target(key) { emit(.focused(target.id, epoch: epoch)) }

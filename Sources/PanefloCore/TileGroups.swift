@@ -180,7 +180,7 @@ public struct TileGroupRegistry: Sendable {
     /// Dissolves the pair containing `id` at the user's request. Returns false when `id` had no pair.
     @discardableResult
     public mutating func ungroup(_ id: WindowIdentity) -> Bool {
-        guard let group = group(containing: id) else { return false }
+        guard let group = self.group(containing: id) else { return false }
         groups.removeAll { $0.id == group.id }
         suppressed.insert(PairKey(group.first, group.second))
         return true
