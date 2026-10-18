@@ -90,3 +90,24 @@ struct TrackpadLifecycleGateTests {
         #expect(gate.send(.wake(.displaySleep)) == nil)
     }
 }
+
+struct BoundedRetryGateTests {
+    private func allowed(_ gate: inout BoundedRetryGate, _ now: Double) -> Bool { gate.permit(now: now) }
+
+    @Test func spacesAndCapsAutomaticAttempts() {
+        var gate = BoundedRetryGate(minimumSpacing: 10, maximumAttempts: 3)
+        #expect(allowed(&gate, 0))
+        #expect(!allowed(&gate, 5), "too soon: a wake storm cannot spin")
+        #expect(allowed(&gate, 10))
+        #expect(allowed(&gate, 25))
+        #expect(gate.isExhausted && !allowed(&gate, 1_000), "bounded until reset")
+        gate.reset()
+        #expect(allowed(&gate, 1_001), "a success or the user's toggle starts over")
+    }
+
+    @Test func clockReversalDoesNotBlockForever() {
+        var gate = BoundedRetryGate(minimumSpacing: 10, maximumAttempts: 5)
+        #expect(allowed(&gate, 100))
+        #expect(allowed(&gate, 50), "if the clock ever ran backwards, do not wait out the gap")
+    }
+}

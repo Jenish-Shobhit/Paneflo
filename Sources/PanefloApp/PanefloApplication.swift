@@ -245,7 +245,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch state {
         case .disabled: message = "Off"; diagnostic = "disabled"
         case .starting: message = "Starting…"; diagnostic = "starting"
-        case .active: message = "Ready · swipe up for Overview, down to dismiss it."; diagnostic = "active"
+        case .active:
+            // Also after an automatic retry of a transient failure, which had cleared the saved intent.
+            preferences.set(true, forKey: "gesture.enabled.v1")
+            message = "Ready · swipe up for Overview, down to dismiss it."; diagnostic = "active"
         case .stopping: message = "Stopping…"; diagnostic = "stopping"
         case .paused: message = "Paused while the display or session is inactive."; diagnostic = "paused"
         case .unavailable(let reason):

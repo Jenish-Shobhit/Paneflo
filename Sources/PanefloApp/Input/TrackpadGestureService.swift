@@ -52,6 +52,13 @@ final class TrackpadGestureService {
     private var inputMonitoringGranted = false
     /// User intent remains enabled while physical observation is paused for sleep/session changes.
     var isEnabled: Bool { lifecycle.isEnabled }
+    /// A transient start failure (no built-in trackpad yet, closed lid) is retried on wake or when Paneflo
+    /// becomes active, spaced and bounded; the user's toggle always retries and resets the bound.
+    private var transientRetry = BoundedRetryGate(minimumSpacing: 10, maximumAttempts: 5)
+    private var retryPending = false
+    private var retryObservers: [(NotificationCenter, NSObjectProtocol)] = []
+    /// The next backend start comes from the user's toggle, which may re-probe the device at once.
+    private var nextStartIsManual = false
 
     /// Read-only CFPreferences lookup of the conflicting system swipes. Not for the gesture path:
     /// call it when Settings opens or Paneflo activates.
@@ -59,6 +66,7 @@ final class TrackpadGestureService {
 
     isolated deinit {
         for observer in observers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
+        for (center, observer) in retryObservers { center.removeObserver(observer) }
         TrackpadBackend.shared.cancel()
         TrackpadBackend.shared.stop { _ in }
     }
@@ -67,6 +75,13 @@ final class TrackpadGestureService {
     @discardableResult
     func start() -> Bool {
         if isEnabled { return true }
+        cancelTransientRetry()
+        transientRetry.reset()
+        nextStartIsManual = true
+        return enable()
+    }
+
+    private func enable() -> Bool {
         guard validateEnvironment() else { return false }
         permissionRevoked = false
         lastFailure = nil
@@ -77,6 +92,7 @@ final class TrackpadGestureService {
 
     /// User disable clears intent and prevents any pending automatic resume.
     func stop() {
+        cancelTransientRetry()
         permissionRevoked = false
         removeLifecycleObservers()
         apply(lifecycle.send(.disable))
@@ -116,7 +132,9 @@ final class TrackpadGestureService {
         }
         generation &+= 1
         let token = generation
-        TrackpadBackend.shared.start(onGesture: { [weak self] event in
+        let manual = nextStartIsManual
+        nextStartIsManual = false
+        TrackpadBackend.shared.start(manual: manual, onGesture: { [weak self] event in
             DispatchQueue.main.async { [weak self] in
                 // No age limit: a late gesture is still delivered. Its handlers check the
                 // Overview's current state, so a stale up or down cannot misfire.
@@ -132,11 +150,16 @@ final class TrackpadGestureService {
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.generation == token else { return }
                 switch result {
-                case .active: self.apply(self.lifecycle.send(.started))
-                case .failed(let reason):
-                    self.lastFailure = reason
+                case .active:
+                    self.transientRetry.reset()
+                    self.apply(self.lifecycle.send(.started))
+                case .failed(let reason, let transient):
+                    let retries = transient && !self.transientRetry.isExhausted
+                    self.lastFailure = retries ? reason + " Paneflo will try again when the Mac wakes or when you return to Paneflo." : reason
                     _ = self.lifecycle.send(.startFailed)
-                    self.removeLifecycleObservers(); self.publishState()
+                    self.removeLifecycleObservers()
+                    if retries { self.scheduleTransientRetry() }
+                    self.publishState()
                 }
             }
         })
@@ -212,6 +235,37 @@ final class TrackpadGestureService {
             MainActor.assumeIsolated { self?.refreshInputMonitoring() }
         })
     }
+    // MARK: Transient failure retry
+
+    private func scheduleTransientRetry() {
+        cancelTransientRetry()
+        retryPending = true
+        let workspace = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
+            retryObservers.append((workspace, workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.retryAfterTransientFailure(trigger: "wake") }
+            }))
+        }
+        retryObservers.append((NotificationCenter.default, NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.retryAfterTransientFailure(trigger: "activation") }
+        }))
+    }
+
+    private func cancelTransientRetry() {
+        retryPending = false
+        for (center, observer) in retryObservers { center.removeObserver(observer) }
+        retryObservers.removeAll()
+    }
+
+    private func retryAfterTransientFailure(trigger: String) {
+        guard retryPending, !isEnabled, lifecycle.phase == .failed,
+              transientRetry.permit(now: ProcessInfo.processInfo.systemUptime) else { return }
+        cancelTransientRetry()
+        RuntimeDiagnostics.mark("gesture transientRetry trigger=\(trigger) attempt=\(transientRetry.attempts)")
+        _ = enable()
+    }
+
     private func removeLifecycleObservers() {
         for observer in observers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         observers.removeAll()
@@ -219,7 +273,11 @@ final class TrackpadGestureService {
 
 }
 
-private enum TrackpadStartResult: Sendable { case active, failed(String) }
+private enum TrackpadStartResult: Sendable {
+    case active
+    /// `transient`: the device may appear later (none yet, lid closed, start refused); a retry may succeed.
+    case failed(String, transient: Bool)
+}
 private struct TrackpadStopResult: Sendable {
     var diagnostics: TrackpadGestureDiagnostics
     var failure: String?
@@ -248,11 +306,25 @@ private final class TrackpadBackend: @unchecked Sendable {
     private var failureHandler: (@Sendable (TrackpadStartResult) -> Void)?
     private var lastTimestamp: Double?
     // Queue-confined state. The resource is never released or dlclosed during the process.
-    private var attemptedPreparation = false
+    private var symbols: Symbols?
+    private var permanentFailure: String?
     private var resources: Resources?
     private var failureReason: String?
+    /// Device probes after the framework loaded: spaced and bounded, so a missing device never spins.
+    private var deviceProbes = BoundedRetryGate(minimumSpacing: 5, maximumAttempts: 6)
     private var registered = false
     private var poisoned = false
+
+    private struct Symbols {
+        let library: UnsafeMutableRawPointer
+        let create: @convention(c) () -> UnsafeMutableRawPointer?
+        let builtIn: @convention(c) (UnsafeMutableRawPointer) -> Bool
+        let register: @convention(c) (UnsafeMutableRawPointer, ContactCallback) -> Bool
+        let unregister: @convention(c) (UnsafeMutableRawPointer, ContactCallback) -> Bool
+        let start: @convention(c) (UnsafeMutableRawPointer, Int32) -> Int32
+        let stop: @convention(c) (UnsafeMutableRawPointer) -> Int32
+        let running: @convention(c) (UnsafeMutableRawPointer) -> Bool
+    }
 
     private struct Resources {
         let library: UnsafeMutableRawPointer
@@ -264,19 +336,19 @@ private final class TrackpadBackend: @unchecked Sendable {
         let running: @convention(c) (UnsafeMutableRawPointer) -> Bool
     }
 
-    func start(onGesture: @escaping @Sendable (TrackpadGestureEvent) -> Void,
+    func start(manual: Bool, onGesture: @escaping @Sendable (TrackpadGestureEvent) -> Void,
                completion: @escaping @Sendable (TrackpadStartResult) -> Void) {
         lock.lock(); let requestEpoch = activationEpoch; lock.unlock()
         queue.async { [self] in
             guard !registered, !poisoned else {
-                completion(.failed("Trackpad shutdown has not completed safely. Restart Paneflo before trying again.")); return
+                completion(.failed("Trackpad shutdown has not completed safely. Restart Paneflo before trying again.", transient: false)); return
             }
-            guard let resource = prepare() else {
-                completion(.failed(failureReason ?? "The default built-in trackpad is unavailable.")); return
+            guard let resource = prepare(manual: manual) else {
+                completion(.failed(failureReason ?? "The default built-in trackpad is unavailable.", transient: permanentFailure == nil)); return
             }
             lock.lock()
             guard activationEpoch == requestEpoch else {
-                lock.unlock(); completion(.failed("Trackpad start was canceled.")); return
+                lock.unlock(); completion(.failed("Trackpad start was canceled.", transient: false)); return
             }
             diagnostics = .init(); recognizer = ThreeFingerSwipe(); freshContacts.reset(); lastTimestamp = nil
             layoutCheck = TrackpadFrameSanity()
@@ -284,19 +356,21 @@ private final class TrackpadBackend: @unchecked Sendable {
             observing = true
             lock.unlock()
             guard resource.register(resource.device, trackpadContactCallback) else {
-                cancel(); completion(.failed("macOS declined the trackpad contact callback.")); return
+                cancel(); completion(.failed("macOS declined the trackpad contact callback.", transient: true)); return
             }
             registered = true
             let result = resource.start(resource.device, 0)
             guard result == 0 else {
                 cancel()
                 let stopped = stopPhysical()
-                completion(.failed(stopped.failure ?? "Could not start the built-in trackpad (status \(result))."))
+                completion(.failed(stopped.failure ?? "Could not start the built-in trackpad (status \(result)).",
+                                   transient: stopped.failure == nil))
                 return
             }
             guard resource.running(resource.device) else {
-                cancel(); _ = stopPhysical()
-                completion(.failed("The built-in trackpad did not begin observation.")); return
+                cancel()
+                let stopped = stopPhysical()
+                completion(.failed(stopped.failure ?? "The built-in trackpad did not begin observation.", transient: stopped.failure == nil)); return
             }
             completion(.active)
         }
@@ -328,39 +402,57 @@ private final class TrackpadBackend: @unchecked Sendable {
         return .init(diagnostics: counts, failure: failure)
     }
 
-    /// Load exactly once. No polling or external-device enumeration. Any framework revision that
-    /// exports the required functions is accepted here; `receive` then refuses contact data that
-    /// fails the hard range checks or the runtime layout check over the first frames.
-    private func prepare() -> Resources? {
-        if attemptedPreparation { return resources }
-        attemptedPreparation = true
-        guard let library = dlopen("/System/Library/PrivateFrameworks/MultitouchSupport.framework/MultitouchSupport", RTLD_NOW | RTLD_LOCAL) else {
-            failureReason = "Native trackpad support is unavailable on this system."; return nil
+    /// Loads the framework and its functions once; a missing library or function is permanent. The default
+    /// built-in device is probed again on later starts if it was missing (no device at first enable, lid closed):
+    /// a manual start probes at once, automatic ones are spaced and bounded by `deviceProbes`. No polling or
+    /// external-device enumeration. Any framework revision that exports the required functions is accepted here;
+    /// `receive` then refuses contact data that fails the hard range checks or the runtime layout check.
+    private func prepare(manual: Bool) -> Resources? {
+        if let resources { return resources }
+        if let permanentFailure { failureReason = permanentFailure; return nil }
+        if symbols == nil {
+            guard let library = dlopen("/System/Library/PrivateFrameworks/MultitouchSupport.framework/MultitouchSupport", RTLD_NOW | RTLD_LOCAL) else {
+                permanentFailure = "Native trackpad support is unavailable on this system."
+                failureReason = permanentFailure; return nil
+            }
+            // Failure paths retain only this one library handle; no callback is registered.
+            func symbol<T>(_ name: String, _: T.Type) -> T? {
+                guard let address = dlsym(library, name) else { return nil }
+                return unsafeBitCast(address, to: T.self)
+            }
+            typealias Create = @convention(c) () -> UnsafeMutableRawPointer?
+            typealias BuiltIn = @convention(c) (UnsafeMutableRawPointer) -> Bool
+            typealias Register = @convention(c) (UnsafeMutableRawPointer, ContactCallback) -> Bool
+            typealias Start = @convention(c) (UnsafeMutableRawPointer, Int32) -> Int32
+            typealias Stop = @convention(c) (UnsafeMutableRawPointer) -> Int32
+            guard let create = symbol("MTDeviceCreateDefault", Create.self),
+                  let builtIn = symbol("MTDeviceIsBuiltIn", BuiltIn.self),
+                  let register = symbol("MTRegisterContactFrameCallback", Register.self),
+                  let unregister = symbol("MTUnregisterContactFrameCallback", Register.self),
+                  let start = symbol("MTDeviceStart", Start.self),
+                  let stop = symbol("MTDeviceStop", Stop.self),
+                  let running = symbol("MTDeviceIsRunning", BuiltIn.self) else {
+                permanentFailure = "Required native trackpad functions are unavailable."
+                failureReason = permanentFailure; return nil
+            }
+            symbols = Symbols(library: library, create: create, builtIn: builtIn, register: register,
+                              unregister: unregister, start: start, stop: stop, running: running)
         }
-        // Failure paths retain only this one library handle; no callback is registered.
-        func symbol<T>(_ name: String, _: T.Type) -> T? {
-            guard let address = dlsym(library, name) else { return nil }
-            return unsafeBitCast(address, to: T.self)
+        guard let symbols else { return nil }
+        if manual { deviceProbes.reset() }
+        guard deviceProbes.permit(now: ProcessInfo.processInfo.systemUptime) else {
+            failureReason = "The built-in trackpad is still unavailable. Turn the gesture on again to retry."
+            return nil
         }
-        typealias Create = @convention(c) () -> UnsafeMutableRawPointer?
-        typealias BuiltIn = @convention(c) (UnsafeMutableRawPointer) -> Bool
-        typealias Register = @convention(c) (UnsafeMutableRawPointer, ContactCallback) -> Bool
-        typealias Start = @convention(c) (UnsafeMutableRawPointer, Int32) -> Int32
-        typealias Stop = @convention(c) (UnsafeMutableRawPointer) -> Int32
-        guard let create = symbol("MTDeviceCreateDefault", Create.self),
-              let builtIn = symbol("MTDeviceIsBuiltIn", BuiltIn.self),
-              let register = symbol("MTRegisterContactFrameCallback", Register.self),
-              let unregister = symbol("MTUnregisterContactFrameCallback", Register.self),
-              let start = symbol("MTDeviceStart", Start.self),
-              let stop = symbol("MTDeviceStop", Stop.self),
-              let running = symbol("MTDeviceIsRunning", BuiltIn.self) else {
-            failureReason = "Required native trackpad functions are unavailable."; return nil
+        // A device that is not the built-in trackpad is not released (its ownership is undocumented); the probe
+        // bound keeps that to a few objects.
+        guard let device = symbols.create(), symbols.builtIn(device) else {
+            failureReason = "The built-in trackpad is not available right now (for example, the lid is closed). Only the default built-in trackpad is supported by this experimental adapter."
+            return nil
         }
-        guard let device = create(), builtIn(device) else {
-            failureReason = "Only the default built-in trackpad is supported by this experimental adapter."; return nil
-        }
-        let resource = Resources(library: library, device: device, register: register, unregister: unregister,
-                                 start: start, stop: stop, running: running)
+        deviceProbes.reset()
+        let resource = Resources(library: symbols.library, device: device, register: symbols.register, unregister: symbols.unregister,
+                                 start: symbols.start, stop: symbols.stop, running: symbols.running)
         resources = resource
         return resource
     }
@@ -448,7 +540,7 @@ private final class TrackpadBackend: @unchecked Sendable {
         queue.async { [self] in
             _ = stopPhysical()
             poisoned = true
-            handler?(.failed(reason))
+            handler?(.failed(reason, transient: false))
         }
     }
 }
