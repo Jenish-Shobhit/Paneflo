@@ -342,16 +342,39 @@ final class WindowService {
         }
     }
 
-    /// Brings `id` forward without focusing it (Accessibility raise only, no app activation), for opening a tile
-    /// pair. `completion` runs on the main actor once the raise was attempted, at once when it cannot be. A raise
-    /// still queued after a newer focus request than the one that follows it is dropped.
-    func raiseWithoutFocus(_ id: WindowIdentity, completion: @escaping @MainActor () -> Void) {
+    /// Brings a tile partner in front of other apps' windows, just before its pair's target is focused.
+    ///
+    /// An Accessibility raise alone only reorders a window among its own app's windows: with fixture windows on
+    /// macOS 26 a raised background window stayed behind the frontmost app's window. So the partner becomes its
+    /// app's focused, main and raised window and its app is activated; `completion` waits (on the worker, never the
+    /// main thread) until that app reports itself frontmost, because macOS drops an activation that a newer one
+    /// overtakes. The target's focus and activation follow and end on top. Nothing is activated once any focus
+    /// request started after this call (including the target's, after the caller's deadline), so a late partner
+    /// can never end up in front of the target. `completion` runs on the main actor, at once when the window is
+    /// unavailable.
+    func bringForward(_ id: WindowIdentity, completion: @escaping @MainActor () -> Void) {
         guard hasAccessibility, let target = targets[id], recordIndex[id]?.isMinimized == false,
               let app = currentApplication(for: id) else { completion(); return }
         if app.isHidden { app.unhide() }
-        worker.raise(target, allowedEpoch: worker.currentEpoch() &+ 1) { _ in
-            DispatchQueue.main.async { MainActor.assumeIsolated { completion() } }
-        }
+        let epoch = worker.currentEpoch()
+        let pid = app.processIdentifier
+        worker.raise(target, allowedEpoch: epoch, activate: { [weak self] in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self, self.worker.currentEpoch() == epoch,
+                          let running = NSRunningApplication(processIdentifier: pid), !running.isTerminated else { return }
+                    RuntimeDiagnostics.mark("tilePairs partner activate")
+                    running.activate(options: [])
+                }
+            }
+        }, completion: { frontmost in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    RuntimeDiagnostics.mark("tilePairs partner frontmost=\(frontmost ? 1 : 0)")
+                    completion()
+                }
+            }
+        })
     }
 
     private func activate(_ intent: UInt64, reason: String) {
@@ -994,14 +1017,25 @@ private final class WindowWorker: @unchecked Sendable {
         }
     }
 
-    /// A tile partner's raise: AXRaise only, so the window comes forward without focus or activation. Dropped once
-    /// a focus request newer than `allowedEpoch` exists (the user moved on).
-    func raise(_ target: AXWindowTarget, allowedEpoch: UInt64, completion: @escaping @Sendable (Bool) -> Void) {
+    /// A tile partner's raise: its app's focused window, main and raise, then `activate` (the caller activates the
+    /// app on the main thread) and a wait of at most `PairActivation.raiseDeadline` until the app reports itself
+    /// frontmost. `completion(true)` once it does. Stops as soon as a focus request newer than `allowedEpoch` exists.
+    func raise(_ target: AXWindowTarget, allowedEpoch: UInt64, activate: @escaping @Sendable () -> Void,
+               completion: @escaping @Sendable (Bool) -> Void) {
         submit(pid: target.id.process.pid, priority: .interactive, lane: Self.raiseLane, cancelled: { completion(false) }) { [self] in
             guard currentEpoch() <= allowedEpoch, Self.valid(target) else { completion(false); return }
+            let deadline = ProcessInfo.processInfo.systemUptime + PairActivation.raiseDeadline
+            AXUIElementSetAttributeValue(target.app, kAXFocusedWindowAttribute as CFString, target.element)
+            AXUIElementSetAttributeValue(target.element, kAXMainAttribute as CFString, kCFBooleanTrue)
+            guard currentEpoch() <= allowedEpoch else { completion(false); return }
             let result = AXUIElementPerformAction(target.element, kAXRaiseAction as CFString)
             RuntimeDiagnostics.mark("AX pair stage=raise result=\(result.rawValue)")
-            completion(result == .success)
+            activate()
+            while currentEpoch() <= allowedEpoch, ProcessInfo.processInfo.systemUptime < deadline {
+                if Self.attribute(target.app, kAXFrontmostAttribute) as? Bool == true { completion(true); return }
+                Thread.sleep(forTimeInterval: 0.004)
+            }
+            completion(false)
         }
     }
 

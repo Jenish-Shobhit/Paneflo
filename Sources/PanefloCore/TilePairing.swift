@@ -117,17 +117,18 @@ public struct SnapAssistSession: Equatable, Sendable {
 
 /// One step of opening a window that has a tile partner.
 public enum PairActivationStep: Equatable, Sendable {
-    /// Bring the partner forward without focusing it.
+    /// Bring the partner in front of other apps' windows (it does not keep focus).
     case raise(WindowIdentity)
     /// Focus the chosen window (activation included).
     case focus(WindowIdentity)
 }
 
-/// Orders opening a pair: the partner is raised first, then the target is focused, so the target ends up frontmost
-/// with its partner visible next to it. Focus waits for the raise at most `raiseDeadline`: an unresponsive partner
+/// Orders opening a pair: the partner is brought forward first, then the target is focused, so the target ends up
+/// frontmost with its partner visible next to it. Focus waits for the raise at most `raiseDeadline`: an unresponsive partner
 /// app never delays the window the user chose. Each step is issued once.
 public struct PairActivation: Equatable, Sendable {
-    public static let raiseDeadline = 0.08
+    /// Matches the focus path's own activation deadline: a hung partner app delays the target by at most this.
+    public static let raiseDeadline = 0.25
 
     public let target: WindowIdentity
     public let partner: WindowIdentity?
@@ -164,8 +165,9 @@ public struct PairActivation: Equatable, Sendable {
 /// Carries out pair activation steps.
 @MainActor
 public protocol PairActivationExecutor: AnyObject {
-    /// Raises `id` without focusing it; `completion` runs on the main actor once the raise was attempted.
-    func raiseWithoutFocus(_ id: WindowIdentity, completion: @escaping @MainActor () -> Void)
+    /// Brings `id` in front of other apps' windows ahead of the target's focus; `completion` runs on the main actor
+    /// once that was attempted. It must never act after the target's focus has started.
+    func bringForward(_ id: WindowIdentity, completion: @escaping @MainActor () -> Void)
     func focus(_ id: WindowIdentity)
 }
 
@@ -184,7 +186,7 @@ public enum PairActivator {
             for step in steps {
                 switch step {
                 case .raise(let id):
-                    executor.raiseWithoutFocus(id) { run(box.activation.raiseFinished()) }
+                    executor.bringForward(id) { run(box.activation.raiseFinished()) }
                 case .focus(let id):
                     executor.focus(id)
                 }

@@ -148,7 +148,7 @@ private final class RecordingExecutor: PairActivationExecutor {
     var log: [String] = []
     var heldRaise: (@MainActor () -> Void)?
     var completesRaiseImmediately = true
-    func raiseWithoutFocus(_ id: WindowIdentity, completion: @escaping @MainActor () -> Void) {
+    func bringForward(_ id: WindowIdentity, completion: @escaping @MainActor () -> Void) {
         log.append("raise \(id.number)")
         if completesRaiseImmediately { completion() } else { heldRaise = completion }
     }
