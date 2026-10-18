@@ -35,6 +35,49 @@ public enum SlotPersistenceError: Error, Equatable {
     case duplicateSlotID
 }
 
+/// What to do with the stored slot metadata before the Overview loads it.
+public enum SlotMetadataAssessment: Equatable, Sendable {
+    case usable
+    /// Unreadable here (corrupt, wrong type, or a schema this version does not know, such as newer data after a
+    /// downgrade). Copy it to a backup key and start fresh, so the first save cannot destroy it.
+    case quarantine(tag: String)
+
+    public static func assess(_ stored: Any) -> SlotMetadataAssessment {
+        guard let data = stored as? Data else { return .quarantine(tag: "invalid") }
+        do {
+            _ = try OverviewSlotStore(metadata: data)
+            return .usable
+        } catch SlotPersistenceError.unsupportedSchema(let version) {
+            return .quarantine(tag: "schema\(version)")
+        } catch {
+            return .quarantine(tag: "corrupt")
+        }
+    }
+
+    /// `<key>.backup-<tag>`, or a numbered variant when that backup already holds different data. Never overwrites.
+    public static func backupKey(for key: String, tag: String, isTaken: (String) -> Bool) -> String {
+        let base = "\(key).backup-\(tag)"
+        guard isTaken(base) else { return base }
+        var index = 2
+        while isTaken("\(base)-\(index)") { index += 1 }
+        return "\(base)-\(index)"
+    }
+
+    /// Moves unreadable metadata at `key` to a backup key and removes it, so the Overview starts fresh and its first
+    /// save cannot overwrite it. Returns the backup key, or nil when the stored value is usable or absent.
+    @discardableResult
+    public static func quarantineIfUnreadable(in defaults: UserDefaults, key: String) -> String? {
+        guard let stored = defaults.object(forKey: key), case .quarantine(let tag) = assess(stored) else { return nil }
+        let backup = backupKey(for: key, tag: tag) { candidate in
+            guard let existing = defaults.object(forKey: candidate) else { return false }
+            return !(existing as AnyObject).isEqual(stored)
+        }
+        defaults.set(stored, forKey: backup)
+        defaults.removeObject(forKey: key)
+        return backup
+    }
+}
+
 public struct OverviewSlotStore: Sendable {
     public private(set) var slots: [OverviewSlot] = []
 

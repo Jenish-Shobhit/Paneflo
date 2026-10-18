@@ -34,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         RuntimeDiagnostics.mark("delegate launched")
+        StartupRecovery.launch(defaults: preferences)
         let controller = DesktopController(service: windows)
         desktop = controller
         windows.onChange = { [weak self, weak controller] in
@@ -318,5 +319,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func refreshWindows() { windows.refresh() }
     @objc private func showSample() { if sample == nil { sample = PreviewController() }; sample?.present(mode: 0) }
     @objc private func quit() { gestures.stop(); shortcuts.stop(); capture.stop(); desktop?.dismiss(); NSApp.terminate(nil) }
-    func applicationWillTerminate(_ notification: Notification) { gestures.stop(); shortcuts.stop(); capture.stop() }
+    func applicationWillTerminate(_ notification: Notification) { gestures.stop(); shortcuts.stop(); capture.stop(); StartupRecovery.terminate(defaults: preferences) }
 }

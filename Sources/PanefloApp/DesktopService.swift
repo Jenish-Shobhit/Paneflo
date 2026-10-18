@@ -19,6 +19,8 @@ import PanefloCore
 ///   set stays restorable. The session ends when nothing is hidden by it and the desktop is not current.
 /// - Stage Manager: hiding works, but apps leave their stage groups and the restored layout is the system's choice.
 ///   `isStageManagerEnabled` lets the UI warn; behaviour is not changed.
+/// - Every change to the hidden set is journaled to UserDefaults (`DesktopRestoreJournal`). Quitting Paneflo
+///   restores all; after a crash or kill the next launch does (`restoreJournaledApps`).
 @MainActor
 final class DesktopService {
     enum ShowOutcome: Equatable {
@@ -32,19 +34,60 @@ final class DesktopService {
     /// Called after the session starts, changes or ends. The UI uses it to rebuild the Desktop entry / tile state.
     var onChange: (() -> Void)?
 
-    private(set) var session: DesktopSession?
+    private(set) var session: DesktopSession? { didSet { if session != oldValue { persist() } } }
     private var generation: UInt64 = 0
     private let settings: DesktopSettings
     private let workspace: NSWorkspace
+    private let defaults: UserDefaults
     private var observers: [NSObjectProtocol] = []
+    private var terminationObserver: NSObjectProtocol?
 
-    init(settings: DesktopSettings = DesktopSettings(), workspace: NSWorkspace = .shared) {
+    static let journalKey = "desktop.session.v1"
+
+    init(settings: DesktopSettings = DesktopSettings(), workspace: NSWorkspace = .shared, defaults: UserDefaults = .standard) {
         self.settings = settings
         self.workspace = workspace
+        self.defaults = defaults
     }
 
     isolated deinit {
         for observer in observers { workspace.notificationCenter.removeObserver(observer) }
+        if let terminationObserver { NotificationCenter.default.removeObserver(terminationObserver) }
+    }
+
+    // MARK: Journal
+
+    /// Writes the hidden set (with launch dates, so a reused PID is never touched) or clears the journal.
+    private func persist() {
+        guard let session, !session.hiddenPIDs.isEmpty else {
+            defaults.removeObject(forKey: Self.journalKey); return
+        }
+        let entries = session.hiddenPIDs.map { pid -> DesktopRestoreJournal.Entry in
+            let app = NSRunningApplication(processIdentifier: pid)
+            return .init(pid: pid, bundleIdentifier: app?.bundleIdentifier, launchDate: app?.launchDate?.timeIntervalSinceReferenceDate)
+        }
+        guard let data = try? DesktopRestoreJournal(generation: session.generation, entries: entries).encoded() else { return }
+        defaults.set(data, forKey: Self.journalKey)
+    }
+
+    /// Unhides the apps a previous Show Desktop hid and never restored (Paneflo quit, crashed or was killed), if they
+    /// are the same processes and still hidden, then clears the journal. Call at launch and at termination.
+    @discardableResult
+    static func restoreJournaledApps(defaults: UserDefaults = .standard, workspace: NSWorkspace = .shared) -> Int {
+        guard let data = defaults.data(forKey: journalKey) else {
+            defaults.removeObject(forKey: journalKey)
+            return 0
+        }
+        defaults.removeObject(forKey: journalKey)
+        guard let journal = DesktopRestoreJournal.decode(data) else { return 0 }
+        let running = workspace.runningApplications.map {
+            DesktopApp(pid: $0.processIdentifier, bundleIdentifier: $0.bundleIdentifier, isRegular: $0.activationPolicy == .regular,
+                       isHidden: $0.isHidden, isTerminated: $0.isTerminated,
+                       launchDate: $0.launchDate?.timeIntervalSinceReferenceDate)
+        }
+        let pids = journal.appsToUnhide(running: running)
+        for pid in pids { NSRunningApplication(processIdentifier: pid)?.unhide() }
+        return pids.count
     }
 
     // MARK: State
@@ -66,6 +109,10 @@ final class DesktopService {
     /// Starts watching the user's own app activity. Idempotent.
     func start() {
         guard observers.isEmpty else { return }
+        terminationObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification,
+                                                                     object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.restoreAll() }
+        }
         let center = workspace.notificationCenter
         func observe(_ name: Notification.Name, _ signal: @escaping @Sendable (Int32) -> DesktopSignal) {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
