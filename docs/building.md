@@ -1,0 +1,59 @@
+# Building and benchmarking
+
+`scripts/build.sh` and `scripts/test.sh` are described in the README. This page covers `scripts/bench.sh`.
+
+## Benchmarks
+
+`scripts/bench.sh` is one entry point for Paneflo's own benches in `Tools/` (`SurfaceBench`, `TileBench`, `CaptureBench`, `MeasureProcess`, `PanefloFixture`).
+
+Read the numbers with these limits:
+
+- **Host-specific.** Results depend on the machine, macOS build, thermal state, and memory pressure. Every results file records the model, chip, memory, macOS build, load average, free-memory percentage, and memory pressure level at start and end. A run that started or ended above "normal" pressure is flagged as noisy in the report.
+- **Synthetic.** The benches drive Paneflo's own panels with generated window records, or Paneflo's own fixture windows. They do not measure your apps, a real session, or another product. A bench footprint is the bench process, not the menu-bar app and not total system memory.
+- **No comparative claims.** Paneflo is not claimed to be faster or lighter than any other product. Only same-host, same-window-set, interleaved measurements of both products could support such a statement.
+
+### Commands
+
+```sh
+scripts/bench.sh build [<ref>] [--app]    # build the bench tools (and Paneflo.app with --app) for this tree or a git ref
+scripts/bench.sh run [--runs N] [--cards 20,60] [--only surface|tile|capture]
+scripts/bench.sh ab <refA> <refB> [--runs N] [--cards 20,60] [--only ...]
+scripts/bench.sh launch [--runs N]
+scripts/bench.sh report <file.jsonl>...
+```
+
+A `<ref>` is built in a temporary worktree under `.build/bench-worktrees`, which is removed afterwards. Bench harness sources always come from the current tree, so both sides of an A/B measure the same way; only `Sources/` differs. Built tools live in `.build/bench-tools/<sha>`. Results are written to `.build/bench-results/<timestamp>-<command>.jsonl` (ignored by git). The default is 5 runs.
+
+`run` reports median, p90, min, and max for each metric. `n` counts samples, so a metric sampled several times per run (steps, warm presentations) has more than N. Per-invocation tile medians are treated as one sample per run.
+
+### Metrics
+
+Surface (`--only surface`; each run launches the bench once per card count through LaunchServices; the bench shows its own panels briefly and installs no event tap):
+
+- `*.call`: milliseconds from the call that presents or changes a surface until it returns.
+- `*.turn`: milliseconds until the main queue drains after the call, so the first frame's layout, drawing, and commit are included.
+- `hidden.*.busy*`: main-thread busy milliseconds in the stated window while no surface is visible. Idle should be near zero.
+- `footprint.beforeSurfaces.MiB`, `footprint.afterSurfaces.MiB`: physical footprint of the bench process before the first presentation and after the whole presentation scenario. It is the bench process, so it only shows growth caused by presenting surfaces.
+
+Tile (`--only tile`): `tileToFinalFrame`, `tileCompletion`, and `releaseToFocus` medians and p90s per invocation of `tile-bench` (10 iterations each), plus end-state failure counts, which must be zero. It moves Paneflo fixture windows through Accessibility and needs Accessibility for the terminal; without it the bench is recorded as skipped.
+
+Capture (`--only capture`): snapshot and live-frame latencies, teardown time, cache size, and footprint start and end against fixture windows, from `CaptureBench`. It needs Screen Recording for the terminal; without it the bench is recorded as skipped. Values ending in `Ms` are milliseconds, `MiB` are mebibytes, and the rest are counts.
+
+Launch (`launch`): launches a bench copy of the app, never `/Applications/Paneflo.app`. The copy has the bundle identifier `dev.paneflo.Paneflo.bench`, so its settings and permissions stay apart from the installed app's, and it runs with `--diagnostics --bench-no-input`. `--bench-no-input` is a benchmark-only launch flag: no event tap, no trackpad listener, no setup window, no update check. Metrics:
+
+- `launch.processEntryMark`: milliseconds from spawning the process to the `entry` startup mark.
+- `launch.menuReady`: milliseconds from spawning to the `menuReady=true` startup mark.
+- `idle5s.physicalFootprint`: physical footprint (MiB) of the app 5 s after it was ready, with no permissions granted to the bench copy and no windows scanned.
+- `idle5s.cpuTimeOver1s`: CPU milliseconds used during the 1 s sampling window at that point.
+
+Footprint after surface presentations is measured by the surface bench (the footprint metrics above), not by the launched app, because presenting surfaces needs the native-check hooks that exist only in the bench build.
+
+### Running an A/B
+
+```sh
+scripts/bench.sh ab HEAD~3 HEAD --runs 10 --only surface
+```
+
+Both refs are built, then run in interleaved blocks (A,B then B,A then A,B, ...) so drift in thermal state or background load hits both sides. The report prints both builds side by side with the delta `(B - A) / A`. Before trusting a delta, check the host line: memory pressure at "normal" at both ends, a low load average, no other heavy apps. Repeat the run; treat differences smaller than the spread between the min and max of one side as noise.
+
+Quit other heavy apps before measuring, run on power, and avoid running builds or tests at the same time.

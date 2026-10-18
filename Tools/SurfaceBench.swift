@@ -137,6 +137,7 @@ struct SurfaceBench {
         recorder.add("launch.prewarm.call", now() - start)
         await settle(300)
         #endif
+        recorder.add("footprint.beforeSurfaces.MiB", footprintMiB())
         let launchProbe = BusyProbe(); launchProbe.start()
         start = now()
         service.nativeCheckInstall(syntheticRecords(count))
@@ -220,6 +221,16 @@ struct SurfaceBench {
         let final = BusyProbe(); final.start()
         await settle(1000)
         recorder.add("hidden.idle.busy1s", final.stop())
+        recorder.add("footprint.afterSurfaces.MiB", footprintMiB())
+    }
+
+    /// Physical footprint of this bench process (MiB; reported in the "ms" column). It is the bench process, not the app.
+    static func footprintMiB() -> Double {
+        var info = rusage_info_v2()
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(getpid(), Int32(RUSAGE_INFO_V2), $0) }
+        }
+        return result == 0 ? Double(info.ri_phys_footprint) / 1_048_576 : 0
     }
 
     #if SURFACE_BENCH_DESKTOP
