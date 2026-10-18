@@ -119,6 +119,12 @@ final class SetupWindowController: NSObject, NSWindowDelegate {
     }
     var nativeCheckRestartVisible: Bool { view.showsRestartCallout && view.primary == .restart }
     var nativeCheckStaleHintVisible: Bool { view.staleHint != nil }
+    /// How far the permissions step's natural height exceeds the space above the footer at the default size.
+    var nativeCheckPermissionsOverflow: CGFloat {
+        let host = NSHostingController(rootView: PermissionsStepContent(model: view))
+        let height = host.sizeThatFits(in: CGSize(width: PanefloWindowStyle.setupSize.width, height: 10_000)).height
+        return height - (PanefloWindowStyle.setupSize.height - 52)
+    }
     var nativeCheckHeadline: String { view.title }
     var nativeCheckPrimaryTitle: String { view.primary.title }
     var nativeCheckPrimaryEnabled: Bool { view.primaryEnabled }

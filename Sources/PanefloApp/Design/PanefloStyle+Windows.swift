@@ -38,7 +38,7 @@ enum PanefloWindowStyle {
 
     static let settingsSize = NSSize(width: 720, height: 540)
     static let settingsMinSize = NSSize(width: 680, height: 460)
-    static let setupSize = NSSize(width: 600, height: 520)
+    static let setupSize = NSSize(width: 600, height: 580)
 
     // MARK: Motion
 

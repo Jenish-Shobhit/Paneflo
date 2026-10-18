@@ -283,6 +283,19 @@ struct NativeUICheck {
         setup.update(model)
         try require(setup.nativeCheckStaleHintVisible && !setup.nativeCheckRestartVisible,
                     "Still off after a restart must show the stale-entry hint instead of another restart")
+        let overflow = setup.nativeCheckPermissionsOverflow
+        print("setup stuck overflow=\(overflow)")
+        try require(overflow <= 0, "The stuck-permissions step must fit the default window without scrolling (over by \(overflow) pt)")
+        // The longest note: two permissions still read off.
+        setup.update(SetupModel(permissions: state(true, false, false), intent: intent,
+                                missingBeforeRelaunch: [.inputMonitoring, .screenRecording]))
+        await settle()
+        try await snapshot(setup.nativeCheckWindow, "native-setup-stuck-long.png")
+        try require(!setup.nativeCheckRestartVisible, "The long stuck state shows no restart callout")
+        let longOverflow = setup.nativeCheckPermissionsOverflow
+        print("setup stuck long overflow=\(longOverflow) staleVisible=\(setup.nativeCheckStaleHintVisible)")
+        try require(longOverflow <= 0, "The longest stuck-permissions note must fit without scrolling (over by \(longOverflow) pt)")
+        setup.update(model)
         await settle()
         try await snapshot(setup.nativeCheckWindow, "native-setup-stuck.png")
         setup.nativeCheckPressReset()

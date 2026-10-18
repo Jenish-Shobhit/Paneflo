@@ -230,9 +230,20 @@ struct PermissionsStep: View {
     let model: SetupViewModel
 
     var body: some View {
-        let setup = model.current
-        // Scrolls only if the stuck-permission note makes the step taller than the window; the footer stays put.
+        // Fits the default window in every state, the stuck-permission note included. Scrolling remains only as a
+        // fallback for larger accessibility text sizes; the footer stays put.
         ScrollView {
+            PermissionsStepContent(model: model)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+    }
+}
+
+struct PermissionsStepContent: View {
+    let model: SetupViewModel
+
+    var body: some View {
+        let setup = model.current
         VStack(alignment: .leading, spacing: 8) {
             StepHeader(model: model).padding(.bottom, 4)
             ForEach(setup.rows, id: \.permission) { row in
@@ -248,11 +259,14 @@ struct PermissionsStep: View {
                 .padding(.top, 4)
             }
             if let hint = model.staleHint {
+                // The button sits under the note, so the note takes the full width and stays short.
                 Callout(tint: PanefloWindowStyle.attention) {
                     Image(systemName: "exclamationmark.circle.fill").foregroundStyle(PanefloWindowStyle.attention)
                         .accessibilityHidden(true)
-                    Text(hint).font(.system(size: 11)).fixedSize(horizontal: false, vertical: true)
-                    Button("Reset and Grant Again…") { model.perform(.reset) }.buttonStyle(.bordered)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(hint).font(.system(size: 11)).fixedSize(horizontal: false, vertical: true)
+                        Button("Reset and Grant Again…") { model.perform(.reset) }.buttonStyle(.bordered)
+                    }
                 }
                 .padding(.top, 4)
             } else if !model.showsRestartCallout {
@@ -263,10 +277,8 @@ struct PermissionsStep: View {
             }
         }
         .padding(.horizontal, 32)
-        .padding(.top, 60)
+        .padding(.top, 54)
         .padding(.bottom, 16)
-        }
-        .scrollBounceBehavior(.basedOnSize)
     }
 }
 
