@@ -6,23 +6,32 @@ import PanefloCore
 /// window-server call itself.
 @MainActor
 final class TilePairController {
+    /// Written by Settings › Tiling (`TilingPane.raiseTogetherKey`).
     static let raiseTogetherKey = "tilePairs.raiseTogether"
 
     private(set) var groups = TileGroupRegistry()
     private(set) var snap = SnapAssistSession()
     private let defaults: UserDefaults
-    /// Cached so activation never reads `UserDefaults`.
-    private var raiseTogetherValue: Bool
+    /// Cached so activation never reads `UserDefaults`; refreshed whenever the defaults change.
+    private(set) var raiseTogether: Bool
+    private var defaultsObserver: NSObjectProtocol?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        raiseTogetherValue = defaults.object(forKey: Self.raiseTogetherKey) as? Bool ?? true
+        raiseTogether = Self.read(defaults)
+        defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: defaults,
+                                                                  queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self.map { $0.raiseTogether = Self.read($0.defaults) } }
+        }
+    }
+
+    isolated deinit {
+        if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
     }
 
     /// Opening a paired window brings its partner forward too (default on).
-    var raiseTogether: Bool {
-        get { raiseTogetherValue }
-        set { raiseTogetherValue = newValue; defaults.set(newValue, forKey: Self.raiseTogetherKey) }
+    private static func read(_ defaults: UserDefaults) -> Bool {
+        defaults.object(forKey: raiseTogetherKey) as? Bool ?? true
     }
 
     var pairingHint: String? { snap.pairingHint }

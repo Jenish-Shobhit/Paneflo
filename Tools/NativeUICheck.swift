@@ -187,18 +187,56 @@ struct NativeUICheck {
         try await checkSetupAndMenuBar(desktop)
     }
 
-    /// The setup window with injected permission readings (never real TCC), the Settings permission lines, and the
-    /// hide/show menu-bar icon round trip on a throwaway defaults suite without a real status item.
+    /// Writes a window's content view to a PNG in light appearance (readable on the transparent background).
+    @MainActor static func snapshot(_ window: NSWindow?, _ name: String) async throws {
+        let output = CommandLine.arguments.dropFirst().first ?? NSTemporaryDirectory()
+        guard let window, let view = window.contentView else { return }
+        let appearance = window.appearance
+        window.appearance = NSAppearance(named: .aqua)
+        defer { window.appearance = appearance }
+        // Let row crossfades and step transitions finish first.
+        try? await Task.sleep(for: .milliseconds(300))
+        view.layoutSubtreeIfNeeded()
+        view.displayIfNeeded()
+        if let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output).appendingPathComponent(name))
+        }
+    }
+
+    /// Every label, title and value the view exposes to VoiceOver: proof that SwiftUI built the content, and that it
+    /// is labelled.
+    @MainActor static func accessibilityTexts(_ element: Any, depth: Int = 0) -> [String] {
+        // SwiftUI's accessibility nodes implement the informal NSAccessibility methods without the Swift protocol.
+        guard depth < 40, let object = element as? NSObject else { return [] }
+        func read(_ key: String) -> Any? {
+            object.responds(to: NSSelectorFromString(key)) ? object.value(forKey: key) : nil
+        }
+        var texts: [String] = []
+        for key in ["accessibilityLabel", "accessibilityTitle", "accessibilityValue"] {
+            if let text = read(key) as? String, !text.isEmpty { texts.append(text) }
+        }
+        for child in read("accessibilityChildren") as? [Any] ?? [] { texts += accessibilityTexts(child, depth: depth + 1) }
+        return texts
+    }
+
+    /// The setup window's four steps with injected permission readings (never real TCC), Settings panes and permission
+    /// rows, the menu per state, the icon images, and the hide/show menu-bar icon round trip on a throwaway defaults
+    /// suite without a real status item.
     @MainActor static func checkSetupAndMenuBar(_ desktop: DesktopController) async throws {
         print("START setup and menu bar")
         let setup = SetupWindowController()
         var polls = 0, restarts = 0, resets = 0
         var granted: [SetupPermission] = []
+        var gestureToggles: [Bool] = []
+        var openedSettings: [SettingsPane?] = []
         setup.pollInterval = 0.05
         setup.onPoll = { polls += 1 }
         setup.onGrant = { granted.append($0) }
         setup.onRestart = { restarts += 1 }
         setup.onReset = { resets += 1 }
+        setup.onToggleGesture = { gestureToggles.append($0) }
+        setup.onOpenSettings = { openedSettings.append($0) }
         let intent = SetupIntent(shortcuts: true, gesture: false, previews: true)
         func state(_ ax: Bool, _ im: Bool, _ sr: Bool) -> PermissionState {
             PermissionState(accessibility: ax, inputMonitoring: im, screenRecording: sr)
@@ -211,12 +249,21 @@ struct NativeUICheck {
         setup.show()
         await settle()
         try require(setup.isVisible && setup.isPolling && polls >= 2, "Setup must poll about once per interval while visible, polled \(polls)")
+        try require(setup.step == .permissions && setup.nativeCheckHeadline == "Give Paneflo access",
+                    "Setup opened because something is missing must start on the permissions step")
+        try require(setup.nativeCheckWindow?.frame.size.width == 600, "Setup is a fixed 600 pt wide window")
         var rows = setup.nativeCheckRows
         try require(rows.map(\.title) == ["Accessibility", "Input Monitoring", "Screen Recording"], "Setup must list the three permissions in order")
         try require(rows.map(\.tag) == ["Required", "Required", "Optional"], "Screen Recording must be the only optional row")
         try require(rows.allSatisfy { $0.status == "Off" && $0.grantVisible }, "Missing permissions must read Off with a Grant button")
-        try require(!setup.nativeCheckRestartVisible && !setup.nativeCheckStaleHintVisible && setup.nativeCheckDoneTitle == "Later",
-                    "A fresh setup offers no restart or reset hint")
+        try require(!setup.nativeCheckRestartVisible && !setup.nativeCheckStaleHintVisible, "A fresh setup offers no restart or reset hint")
+        try require(setup.nativeCheckPrimaryTitle == "Continue" && !setup.nativeCheckPrimaryEnabled && setup.nativeCheckSecondaryTitle == "Later",
+                    "Continue waits for the required permissions, with Later beside it")
+        setup.nativeCheckPressPrimary()
+        try require(setup.step == .permissions, "A disabled Continue must not leave the permissions step")
+        let axTexts = accessibilityTexts(setup.nativeCheckWindow?.contentView as Any)
+        try require(axTexts.contains { $0.contains("Accessibility") } && axTexts.contains("Step 2 of 4"),
+                    "Setup rows and the step indicator must be labelled for VoiceOver, saw \(axTexts.prefix(12))")
         setup.nativeCheckPressGrant(.inputMonitoring)
         try require(granted == [.inputMonitoring], "Grant must report its permission")
 
@@ -225,8 +272,10 @@ struct NativeUICheck {
         setup.update(model)
         rows = setup.nativeCheckRows
         try require(rows[0].status == "On" && !rows[0].grantVisible, "A granted row turns On and hides Grant")
-        try require(rows[1].status.contains("Restart") && setup.nativeCheckRestartVisible,
-                    "Input Monitoring asked for but still off must offer Restart Paneflo")
+        try require(rows[1].status.contains("Restart") && setup.nativeCheckRestartVisible && setup.nativeCheckPrimaryTitle == "Restart Paneflo",
+                    "Input Monitoring asked for but still off must offer Restart Paneflo as the primary button")
+        await settle()
+        try await snapshot(setup.nativeCheckWindow, "native-setup.png")
         setup.nativeCheckPressRestart()
         try require(restarts == 1, "Restart Paneflo must reach the app")
 
@@ -234,80 +283,199 @@ struct NativeUICheck {
         setup.update(model)
         try require(setup.nativeCheckStaleHintVisible && !setup.nativeCheckRestartVisible,
                     "Still off after a restart must show the stale-entry hint instead of another restart")
+        await settle()
+        try await snapshot(setup.nativeCheckWindow, "native-setup-stuck.png")
         setup.nativeCheckPressReset()
         try require(resets == 1, "Reset and grant again must reach the app")
 
         model = SetupModel(permissions: state(true, true, false), intent: intent)
         setup.update(model)
         rows = setup.nativeCheckRows
-        try require(rows[1].status == "On" && rows[2].status == "Off" && setup.nativeCheckDoneTitle == "Done"
-                    && setup.nativeCheckHeadline.hasPrefix("You’re set"), "Required permissions on must read as complete")
+        try require(rows[1].status == "On" && rows[2].status == "Off" && setup.nativeCheckPrimaryEnabled
+                    && setup.nativeCheckPrimaryTitle == "Continue" && setup.nativeCheckSecondaryTitle == nil,
+                    "Required permissions on must enable Continue")
         try require(!setup.nativeCheckRestartVisible && !setup.nativeCheckStaleHintVisible, "A complete setup hides restart and reset hints")
-        let output = CommandLine.arguments.dropFirst().first ?? NSTemporaryDirectory()
-        func snapshot(_ window: NSWindow?, _ name: String) throws {
-            guard let window, let view = window.contentView else { return }
-            // Light appearance so the PNG's text is readable on its transparent background.
-            let appearance = window.appearance
-            window.appearance = NSAppearance(named: .aqua)
-            defer { window.appearance = appearance }
-            view.layoutSubtreeIfNeeded()
-            if let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
-                view.cacheDisplay(in: view.bounds, to: bitmap)
-                try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output).appendingPathComponent(name))
-            }
-        }
-        setup.update(SetupModel(permissions: state(true, false, false), intent: intent, requested: [.inputMonitoring],
-                                missingBeforeRelaunch: [.accessibility]))
+        // Permissions → Gesture → Done, with Back.
+        setup.nativeCheckPressPrimary()
         await settle()
-        try snapshot(setup.nativeCheckWindow, "native-setup.png")
-        setup.update(model)
+        try require(setup.step == .gesture && setup.nativeCheckHeadline == "Swipe up for Overview" && setup.nativeCheckSecondaryTitle == "Skip",
+                    "Continue must move to the optional gesture step")
+        try await snapshot(setup.nativeCheckWindow, "native-setup-gesture.png")
+        setup.nativeCheckToggleGesture(true)
+        try require(gestureToggles == [true], "The gesture toggle writes the same choice as Settings")
+        setup.nativeCheckPressSecondary()
+        await settle()
+        try require(setup.step == .done && setup.nativeCheckHeadline == "You’re set" && setup.nativeCheckPrimaryTitle == "Done"
+                    && setup.nativeCheckSecondaryTitle == "Open Settings", "Skip must reach the done step")
+        try require(setup.nativeCheckChecklist == ["⌘Tab switcher on", "Tiling shortcuts on", "Gesture off"],
+                    "The done step summarises what actually runs")
+        try await snapshot(setup.nativeCheckWindow, "native-setup-done.png")
+        setup.nativeCheckPressBack()
+        try require(setup.step == .gesture && setup.nativeCheckShowsBack, "Back returns one step")
+        setup.nativeCheckPressPrimary()
+        setup.nativeCheckPressSecondary()
+        await settle()
+        try require(openedSettings.count == 1 && openedSettings[0] == nil && !setup.isVisible,
+                    "Open Settings closes setup and opens Settings")
+        setup.show(step: .welcome)
+        await settle()
+        try require(setup.nativeCheckHeadline == "Welcome to Paneflo" && !setup.nativeCheckShowsBack && setup.nativeCheckPrimaryTitle == "Get Started",
+                    "A first run opens on Welcome")
+        try await snapshot(setup.nativeCheckWindow, "native-setup-welcome.png")
+        setup.nativeCheckPressPrimary()
+        try require(setup.step == .permissions, "Get Started moves to permissions")
+        setup.show()
+        try require(setup.step == .permissions, "Showing a visible setup window keeps its step")
         setup.close()
         await settle()
         let pollsAfterClose = polls
         try await Task.sleep(for: .milliseconds(250))
         try require(!setup.isVisible && !setup.isPolling && polls == pollsAfterClose, "Setup must stop polling once hidden")
+        setup.show()
+        try require(setup.step == .permissions, "Reopening setup while incomplete starts on permissions")
+        setup.close()
 
+        // Settings: permission rows, every pane, live polling while visible, the shortcuts toggle path.
         let settings = desktop.settingsController
-        settings.setPermissionRows(model.rows)
-        try require(settings.nativeCheckPermissionLine(.accessibility).hasSuffix("Accessibility: On")
-                    && settings.nativeCheckPermissionLine(.screenRecording).contains("optional"),
+        settings.setSetupModel(model)
+        try require(settings.nativeCheckPermissionStatus(.accessibility) == "On"
+                    && settings.nativeCheckPermissionStatus(.screenRecording) == "Off" && !settings.model.setupNeeded,
                     "Settings must show permission status inline")
+        settings.setSetupModel(SetupModel(permissions: state(false, false, false), intent: intent))
+        try require(settings.model.setupNeeded, "Missing required permissions must badge Settings › Permissions")
+        for pane in SettingsPane.allCases {
+            settings.show(pane: pane)
+            await settle()
+            try require(settings.model.pane == pane && settings.isVisible, "Settings must open on \(pane.title)")
+            let texts = accessibilityTexts(settings.nativeCheckWindow?.contentView as Any)
+            let marker = pane == .about ? "Every window. In its place." : pane.summary
+            try require(texts.contains { $0.contains(marker) }, "The \(pane.title) pane must build, saw \(texts.prefix(8))")
+            if pane == .help {
+                try require(texts.contains("Close the selected window") && texts.contains("Open or close Overview"),
+                            "Shortcuts & Help lists the switcher and Overview keys")
+            }
+            if pane == .tiling {
+                try require(texts.contains("Raise tile pairs together"), "The Tiling pane offers Raise tile pairs together")
+            }
+            try await snapshot(settings.nativeCheckWindow, "native-settings-\(pane.rawValue).png")
+        }
+        try require(HelpContent.filtered("quit").flatMap(\.entries).map(\.text) == ["Quit its app (never Finder)"]
+                    && HelpContent.filtered("control option z").first?.title == "Tiling" && HelpContent.filtered("zzz-none").isEmpty,
+                    "Shortcuts & Help search matches descriptions and spoken key names")
+        try require(settings.nativeCheckIsPolling, "Settings must refresh permissions while visible")
+        try require(UserDefaults.standard.string(forKey: SettingsWindowController.lastPaneKey) == SettingsPane.allCases.last?.rawValue,
+                    "Settings must remember the last pane")
+        settings.setSetupModel(model)
+        let previousToggle = settings.onToggleShortcuts
+        var toggled: [Bool] = []
+        settings.onToggleShortcuts = { toggled.append($0) }
+        settings.nativeCheckPerform(.toggleShortcuts(false))
+        try require(toggled == [false] && !settings.model.shortcutsWanted, "Use Paneflo shortcuts must reach the app")
+        settings.nativeCheckPerform(.toggleShortcuts(true))
+        settings.onToggleShortcuts = previousToggle
 
+        // Menu per state, with symbols and key equivalents.
         let suite = "org.paneflo.NativeUICheck.menu.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suite) else { throw Failure.check("No throwaway defaults suite") }
         defer { defaults.removePersistentDomain(forName: suite) }
         let preferences = SetupPreferences(defaults: defaults)
         let menu = StatusMenuController(preferences: preferences)
+        let common = ["Switch Windows…", "Arrange Windows…", "Overview", "Pause Shortcuts", "Refresh Window List",
+                      "Settings…", "Check for Updates…", "About Paneflo", "Quit Paneflo"]
+        menu.update(status: .setupNeeded, shortcutsWanted: true)
+        var titles = menu.nativeCheckMenuTitles()
+        try require(titles == ["Setup needed", "Finish Setup…"] + common, "Setup-needed menu, saw \(titles)")
+        try require(menu.iconState == .setupNeeded, "Setup needed badges the icon")
+        menu.update(status: .ready, shortcutsWanted: true)
+        titles = menu.nativeCheckMenuTitles()
+        try require(titles == ["⌘Tab is ready"] + common, "Ready menu, saw \(titles)")
+        try require(menu.iconState == .normal, "Ready shows the plain icon")
+        menu.update(status: .paused, shortcutsWanted: false)
+        titles = menu.nativeCheckMenuTitles()
+        try require(titles.first == "Shortcuts paused" && titles.contains("Resume Shortcuts") && !titles.contains("Pause Shortcuts"),
+                    "Paused menu offers Resume Shortcuts, saw \(titles)")
+        try require(menu.iconState == .paused, "Paused dims the icon")
+        let keys = menu.nativeCheckMenuKeys()
+        try require(keys["Settings…"].map { $0.0 == "," && $0.1 == .command } == true
+                    && keys["Quit Paneflo"].map { $0.0 == "q" && $0.1 == .command } == true
+                    && keys["Switch Windows…"].map { $0.0 == "\t" && $0.1 == .command } == true
+                    && keys["Overview"].map { $0.0 == " " && $0.1 == [.control, .option] } == true,
+                    "Menu key equivalents must match the spec")
+        try require(menu.nativeCheckItemsWithoutSymbol.isEmpty, "Every actionable menu item has a symbol: \(menu.nativeCheckItemsWithoutSymbol)")
+        try require(!titles.contains("Developer"), "Developer fixtures stay out of the normal menu")
+        menu.showsDeveloperFixtures = true
+        try require(menu.nativeCheckMenuTitles().contains("Developer") && menu.nativeCheckDeveloperTitles == ["Synthetic Developer Fixtures"],
+                    "Diagnostics builds add the Developer submenu")
+        menu.showsDeveloperFixtures = false
+
+        // Icon images: 18 pt, template except the badge, drawn at 1x and 2x.
+        for iconState in [MenuBarIcon.State.normal, .setupNeeded, .paused] {
+            let image = MenuBarIcon.image(iconState)
+            try require(image.size == NSSize(width: 18, height: 18) && image.isTemplate == (iconState != .setupNeeded),
+                        "Menu bar icon \(iconState) must be an 18 pt \(iconState == .setupNeeded ? "badged" : "template") image")
+            for scale in [1, 2] {
+                guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 18 * scale, pixelsHigh: 18 * scale,
+                                                    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                                    colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { continue }
+                bitmap.size = NSSize(width: 18, height: 18)
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+                image.draw(in: NSRect(x: 0, y: 0, width: 18, height: 18))
+                NSGraphicsContext.restoreGraphicsState()
+                var opaque = 0, orange = 0
+                for x in 0..<(18 * scale) { for y in 0..<(18 * scale) {
+                    guard let color = bitmap.colorAt(x: x, y: y) else { continue }
+                    if color.alphaComponent > 0.3 { opaque += 1 }
+                    if color.redComponent > 0.8, color.greenComponent > 0.4, color.greenComponent < 0.75, color.blueComponent < 0.3 { orange += 1 }
+                } }
+                try require(opaque > 20 * scale * scale, "Menu bar icon \(iconState) must draw at \(scale)x")
+                try require((orange > 0) == (iconState == .setupNeeded), "Only the setup-needed icon carries the orange dot (\(iconState) \(scale)x)")
+                if iconState == .setupNeeded, scale == 2 {
+                    try bitmap.representation(using: .png, properties: [:])?
+                        .write(to: URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? NSTemporaryDirectory())
+                            .appendingPathComponent("native-menubar-icon-setup@2x.png"))
+                }
+            }
+        }
+
+        // Hide/show round trip: Settings asks (a sheet), the menu persists it, Settings mirrors it.
         @MainActor final class HideAnswer { var confirm = false; var count = 0 }
         let answer = HideAnswer()
-        menu.confirmHide = { answer.count += 1; return answer.confirm }
-        menu.onIconVisibilityChanged = { settings.menuBarIconButton.state = $0 ? .on : .off }
-        settings.onToggleMenuBarIcon = { visible in if visible { menu.setIconVisible(true) } else { menu.requestHide() } }
-        menu.setupNeeded = true; menu.shortcutsActive = true
-        var titles = menu.nativeCheckMenuTitles()
-        for title in ["Finish setup…", "Settings…", "Disable shortcuts", "Hide menu bar icon", "Quit Paneflo"] {
-            try require(titles.contains(title), "The menu must offer \(title)")
-        }
-        try require(!titles.contains("Synthetic developer fixtures"), "Developer fixtures stay out of the normal menu")
-        menu.setupNeeded = false; menu.shortcutsActive = false
-        titles = menu.nativeCheckMenuTitles()
-        try require(!titles.contains("Finish setup…") && titles.contains("Enable shortcuts"),
-                    "Finish setup… shows only while needed, and the shortcuts item follows their state")
-
-        settings.menuBarIconButton.state = .on
-        settings.menuBarIconButton.performClick(nil)
-        try require(answer.count == 1 && menu.isIconVisible && !preferences.menuBarIconHidden && settings.menuBarIconButton.state == .on,
-                    "Cancelling the hide confirmation must keep the icon and the checkbox")
+        let sheetConfirm = settings.confirmHideIcon
+        settings.confirmHideIcon = { reply in answer.count += 1; reply(answer.confirm) }
+        menu.onIconVisibilityChanged = { settings.setMenuBarIconVisible($0) }
+        let previousIcon = settings.onToggleMenuBarIcon
+        settings.onToggleMenuBarIcon = { menu.setIconVisible($0) }
+        settings.setMenuBarIconVisible(true)
+        settings.nativeCheckPerform(.setMenuBarIcon(false))
+        try require(answer.count == 1 && menu.isIconVisible && !preferences.menuBarIconHidden && settings.model.menuBarIconVisible,
+                    "Cancelling the hide confirmation must keep the icon and the toggle")
         answer.confirm = true
-        settings.menuBarIconButton.performClick(nil)
-        try require(answer.count == 2 && !menu.isIconVisible && settings.menuBarIconButton.state == .off,
+        settings.nativeCheckPerform(.setMenuBarIcon(false))
+        try require(answer.count == 2 && !menu.isIconVisible && !settings.model.menuBarIconVisible,
                     "Confirming must hide the icon and clear Show menu bar icon")
         try require(SetupPreferences(defaults: defaults).menuBarIconHidden && !StatusMenuController(preferences: SetupPreferences(defaults: defaults)).isIconVisible,
                     "The hidden icon must persist across launches")
-        settings.menuBarIconButton.performClick(nil)
+        settings.nativeCheckPerform(.setMenuBarIcon(true))
         try require(answer.count == 2 && menu.isIconVisible && !SetupPreferences(defaults: defaults).menuBarIconHidden
-                    && settings.menuBarIconButton.state == .on, "Show menu bar icon must bring it back without asking")
-        try snapshot(settings.nativeCheckWindow, "native-settings.png")
+                    && settings.model.menuBarIconVisible, "Show menu bar icon must bring it back without asking")
+        // The real confirmation is a sheet on Settings, not an app-modal alert.
+        settings.confirmHideIcon = sheetConfirm
+        settings.show(pane: .general)
+        await settle()
+        settings.nativeCheckPerform(.setMenuBarIcon(false))
+        await settle()
+        guard let window = settings.nativeCheckWindow, let sheet = window.attachedSheet else {
+            throw Failure.check("Hiding the icon must ask in a sheet on Settings")
+        }
+        window.endSheet(sheet, returnCode: .alertSecondButtonReturn)
+        await settle()
+        try require(menu.isIconVisible && settings.model.menuBarIconVisible, "Cancel in the sheet keeps the icon")
+        settings.onToggleMenuBarIcon = previousIcon
+        try await snapshot(settings.nativeCheckWindow, "native-settings.png")
+        settings.nativeCheckWindow?.close()
+        await settle()
+        try require(!settings.nativeCheckIsPolling, "Settings must stop polling once closed")
         print("setup rows=\(rows.map(\.status)) polls=\(polls)")
     }
 
@@ -814,10 +982,6 @@ struct NativeUICheck {
         NSScreen.screens.first { $0.visibleFrame.insetBy(dx: 15, dy: 15).contains(window.frame) }
     }
 
-    /// Screen-parameter changes re-fit or close surfaces; lock, display sleep and session switches dismiss,
-    /// purge snapshots and refuse presentation until the session is back. Nothing here locks or reconfigures
-    /// the real displays: the workspace notifications are posted in-process and the lock path is invoked directly
-    /// (a distributed notification would reach other processes).
     /// Synthetic records in the halves of the first display form a pair: both surfaces badge its cards, the Overview
     /// menu offers Open pair and Ungroup, and ungrouping clears the badges. No window is focused or moved.
     @MainActor static func checkTilePairs(_ desktop: DesktopController, service: WindowService,
@@ -863,6 +1027,10 @@ struct NativeUICheck {
         print("PASS tile pairs")
     }
 
+    /// Screen-parameter changes re-fit or close surfaces; lock, display sleep and session switches dismiss,
+    /// purge snapshots and refuse presentation until the session is back. Nothing here locks or reconfigures
+    /// the real displays: the workspace notifications are posted in-process and the lock path is invoked directly
+    /// (a distributed notification would reach other processes).
     @MainActor static func checkLifecycle(_ desktop: DesktopController, service: WindowService,
                                           records: (Int) -> [WindowRecord]) async throws {
         print("START lifecycle")

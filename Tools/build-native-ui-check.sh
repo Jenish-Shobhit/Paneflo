@@ -18,6 +18,10 @@ xcrun swiftc -target "$TARGET_TRIPLE" -swift-version 6 -D PANEFLO_NATIVE_CHECK \
     "$PROJECT_ROOT/Sources/PanefloApp/DesktopController.swift" \
     "$PROJECT_ROOT/Sources/PanefloApp/TilePairController.swift" \
     "$PROJECT_ROOT"/Sources/PanefloApp/Surfaces/*.swift \
+    "$PROJECT_ROOT"/Sources/PanefloApp/Design/*.swift \
+    "$PROJECT_ROOT"/Sources/PanefloApp/Settings/*.swift \
+    "$PROJECT_ROOT"/Sources/PanefloApp/Settings/Panes/*.swift \
+    "$PROJECT_ROOT"/Sources/PanefloApp/Setup/*.swift \
     "$PROJECT_ROOT/Sources/PanefloApp/Input/GlobalShortcutService.swift" \
     "$PROJECT_ROOT/Sources/PanefloApp/SampleViews.swift" \
     "$PROJECT_ROOT/Tools/NativeUICheck.swift" -o "$OUTPUT_DIR/native-ui-check"

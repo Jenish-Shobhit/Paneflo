@@ -95,8 +95,6 @@ final class DesktopController: NSObject, SurfaceHost {
         super.init()
         switcher.host = self
         overview.host = self
-        settings.raiseTogetherButton.state = pairs.raiseTogether ? .on : .off
-        settings.onToggleRaiseTogether = { [weak self] in self?.pairs.raiseTogether = $0 }
         overview.onFirstCards = { [weak self] in self?.switcher.prepareHidden() }
         observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didHideNotification, object: NSApp, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.dismiss(restorePreviousApplication: false) }
@@ -406,20 +404,13 @@ final class DesktopController: NSObject, SurfaceHost {
 
     // MARK: Previews
 
-    func setStatus(_ text: String) { settings.status.stringValue = text }
-    func setShortcutsEnabled(_ enabled: Bool) { settings.shortcutButton.state = enabled ? .on : .off }
-    func setGestureState(enabled: Bool, description: String) {
-        settings.gestureButton.state = enabled ? .on : .off
-        settings.gestureStatus.stringValue = description
-    }
-    func enablePreviewControl() {
-        settings.previewButton.isEnabled = true
-        settings.previewButton.toolTip = "One live stream for the selected window while this overlay is visible."
-    }
-    func setPreviewsEnabled(_ enabled: Bool) { settings.previewButton.state = enabled ? .on : .off }
+    func setStatus(_ text: String) { settings.setStatus(text) }
+    func setShortcutsEnabled(_ enabled: Bool) { settings.setShortcutsEnabled(enabled) }
+    func setGestureState(enabled: Bool, description: String) { settings.setGestureState(enabled: enabled, description: description) }
+    func enablePreviewControl() { settings.enablePreviewControl() }
+    func setPreviewsEnabled(_ enabled: Bool) { settings.setPreviewsEnabled(enabled) }
     func setDesktopSettings(showsEntry: Bool, usesSystemShowDesktop: Bool) {
-        settings.desktopEntryButton.state = showsEntry ? .on : .off
-        settings.systemShowDesktopButton.state = usesSystemShowDesktop ? .on : .off
+        settings.setDesktopSettings(showsEntry: showsEntry, usesSystemShowDesktop: usesSystemShowDesktop)
     }
 
     /// The Desktop session started, changed or ended, or its setting changed. Hidden surfaces pick it up when they
@@ -452,9 +443,9 @@ final class DesktopController: NSObject, SurfaceHost {
         previews?.updateSurface(visible: false, cards: [], selected: nil, previewPixelSize: nil)
     }
 
-    func showPreferences() {
+    func showPreferences(pane: SettingsPane? = nil) {
         dismiss(restorePreviousApplication: false)
-        settings.show()
+        settings.show(pane: pane)
     }
 
     /// The Settings controls that are not routed through the surfaces (permissions, updates, menu bar).
@@ -565,23 +556,23 @@ final class DesktopController: NSObject, SurfaceHost {
         removeOutsideClickMonitor = remove
     }
     var nativeCheckOutsideClickMonitorInstalled: Bool { outsideClickMonitor != nil }
-    var nativeCheckGestureGuidanceStatus: String { settings.gestureGuidanceStatus.stringValue }
+    var nativeCheckGestureGuidanceStatus: String { settings.nativeCheckGestureGuidanceStatus }
     private var nativeCheckSurface: SurfacePanelController { visibleSurface ?? lastSurface ?? overview }
     var nativeCheckWindow: NSWindow { nativeCheckSurface.panel }
     var nativeCheckSwitcherWindow: NSWindow { switcher.panel }
     var nativeCheckOverviewWindow: NSWindow { overview.panel }
     var nativeCheckOverviewApplyCount: Int { overview.applyCount }
     var nativeCheckPreferencesConstructed: Bool { settings.isConstructed }
-    var nativeCheckPreviewControlEnabled: Bool { settings.previewButton.isEnabled }
-    var nativeCheckShortcutsEnabled: Bool { settings.shortcutButton.state == .on }
-    var nativeCheckGestureEnabled: Bool { settings.gestureButton.state == .on }
-    var nativeCheckStatus: String { settings.status.stringValue }
+    var nativeCheckPreviewControlEnabled: Bool { settings.model.previewControlEnabled }
+    var nativeCheckShortcutsEnabled: Bool { settings.model.shortcutsActive }
+    var nativeCheckGestureEnabled: Bool { settings.model.gestureEnabled }
+    var nativeCheckStatus: String { settings.model.status }
     var nativeCheckSearch: NSSearchField { nativeCheckSurface.search }
     var nativeCheckSelected: WindowIdentity? { nativeCheckSurface.selectedID }
     var nativeCheckSwitcherTargets: [SwitchTarget] { switcher.nativeCheckTargets }
     var nativeCheckSelectedTarget: SwitchTarget? { nativeCheckSurface.selectedTarget }
     var nativeCheckDesktopCard: CardView? { nativeCheckSurface.desktopCard }
-    var nativeCheckDesktopEntryControl: Bool { settings.desktopEntryButton.state == .on }
+    var nativeCheckDesktopEntryControl: Bool { settings.model.desktopEntry }
     func nativeCheckReplaceSessionState(_ probe: @escaping () -> (locked: Bool, onConsole: Bool)) { sessionState = probe }
     /// Pretends the visible surface was placed on a display that no longer exists.
     func nativeCheckDetachPlacedScreen() { visibleSurface?.nativeCheckForgetPlacedScreen() }
