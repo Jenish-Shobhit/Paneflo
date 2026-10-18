@@ -43,6 +43,8 @@ final class CardView: NSButton {
         }
     }
     var layoutBadge: String? { didSet { if oldValue != layoutBadge { invalidate() } } }
+    /// Tile-pair indicator after the app name; nil when the window has no partner.
+    var pairBadge: String? { didSet { if oldValue != pairBadge { updateAccessibilityLabel(); invalidate() } } }
     /// The Desktop pseudo-entry: titled "Desktop", shows the wallpaper (or a placeholder) and never a window preview.
     /// It has no `record`, so it is never reported to the capture engine.
     var isDesktopEntry = false {
@@ -174,7 +176,7 @@ final class CardView: NSButton {
         if isDesktopEntry {
             setAccessibilityLabel(desktopIsCurrent ? "Desktop, bring your windows back" : "Desktop, show the desktop")
         } else {
-            setAccessibilityLabel(record.map { "\($0.appName), \($0.title)" } ?? "Vacant overview slot")
+            setAccessibilityLabel(record.map { "\($0.appName), \($0.title)" + (pairBadge == nil ? "" : ", paired") } ?? "Vacant overview slot")
         }
     }
 
@@ -374,7 +376,7 @@ final class CardView: NSButton {
         } else if PreviewRenderer.usesReferenceRenderer {
             icon?.draw(in: NSRect(x: target.midX - 30, y: target.midY - 30, width: 60, height: 60))
         }
-        drawText(record.appName + (layoutBadge.map { " · " + $0 } ?? "") + (isVacancyPinned ? "  • pinned" : ""), in: NSRect(x: 15, y: bounds.height - 53, width: bounds.width - 30, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: .labelColor)
+        drawText(record.appName + (layoutBadge.map { " · " + $0 } ?? "") + (pairBadge.map { "  " + $0 } ?? "") + (isVacancyPinned ? "  • pinned" : ""), in: NSRect(x: 15, y: bounds.height - 53, width: bounds.width - 30, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: .labelColor)
         drawText(record.title, in: NSRect(x: 15, y: bounds.height - 34, width: bounds.width - 30, height: 17), font: .systemFont(ofSize: 11), color: .labelColor)
         if PreviewRenderer.usesReferenceRenderer {
             drawText((previewIsLive ? "● " : "") + statusText, in: NSRect(x: 15, y: bounds.height - 18, width: bounds.width - 30, height: 13), font: .systemFont(ofSize: 9), color: .secondaryLabelColor)

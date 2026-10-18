@@ -568,7 +568,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .tile(let zone):
             if desktop?.isVisible == true { desktop?.tileSelected(zone) }
             else { windows.tile(zone: zone) }
-        case .restore: windows.undo()
+        case .restore: desktop?.restoreRequested(); windows.undo()
+        case .openPair: desktop?.openPairSelected()
         }
     }
 

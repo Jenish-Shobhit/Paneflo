@@ -11,6 +11,7 @@ Requires macOS 26 or later on Apple silicon. Free and open source under the [MIT
 - **Switcher.** Hold ⌘ and press Tab (Shift–Tab goes back). Arrow keys also choose while ⌘ is held. Release ⌘ to focus, Escape to cancel.
 - **Tiling in the picker.** ⌘⌥ with the arrows: Left/Right for a half, Up to fill the display, Down to undo. Repeating a half moves the window to the next display.
 - **Tiling anywhere.** ⌃⌥ with the arrows tiles the focused window, ⌃⌥Return fills its display, ⌃⌥Z undoes.
+- **Tile pairs.** Two windows in the left and right (or top and bottom) halves of one display form a pair, marked ▮▮ on their cards. Opening either one from ⌘Tab or the Overview brings its partner forward too (Settings › Tiling › Raise tile pairs together, on by default). ⌘⌥Return in the picker or Overview always opens the selection with its partner; the Overview's right-click menu has Open pair and Ungroup. In the picker, after ⌘⌥← (or →) the hint asks for the other half: Tab to another window and press ⌘⌥→ (or ←) to place it beside the first on the same display and pair them.
 - **Overview.** ⌃⌥Space opens every window in stable slots. Arrows move spatially, search keeps slots in place, Return focuses, Escape closes.
 - **Gesture (optional, experimental).** Three-finger swipe up opens the Overview, down closes it.
 - **Desktop entry.** A Desktop card at the end of the ⌘Tab loop and a Desktop tile in the Overview reveal the desktop by hiding other apps. Optional in Settings.

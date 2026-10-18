@@ -129,6 +129,7 @@ struct NativeUICheck {
         try await checkPreviews(desktop, service: service, records: records)
         try await checkDesktopEntry(desktop, service: service, records: records)
         try await checkLifecycle(desktop, service: service, records: records)
+        try await checkTilePairs(desktop, service: service, records: records)
         service.nativeCheckInstall(records(20))
         await settle()
         try await checkInputRouting(desktop)
@@ -282,6 +283,19 @@ struct NativeUICheck {
         setup.update(model)
         try require(setup.nativeCheckStaleHintVisible && !setup.nativeCheckRestartVisible,
                     "Still off after a restart must show the stale-entry hint instead of another restart")
+        let overflow = setup.nativeCheckPermissionsOverflow
+        print("setup stuck overflow=\(overflow)")
+        try require(overflow <= 0, "The stuck-permissions step must fit the default window without scrolling (over by \(overflow) pt)")
+        // The longest note: two permissions still read off.
+        setup.update(SetupModel(permissions: state(true, false, false), intent: intent,
+                                missingBeforeRelaunch: [.inputMonitoring, .screenRecording]))
+        await settle()
+        try await snapshot(setup.nativeCheckWindow, "native-setup-stuck-long.png")
+        try require(!setup.nativeCheckRestartVisible, "The long stuck state shows no restart callout")
+        let longOverflow = setup.nativeCheckPermissionsOverflow
+        print("setup stuck long overflow=\(longOverflow) staleVisible=\(setup.nativeCheckStaleHintVisible)")
+        try require(longOverflow <= 0, "The longest stuck-permissions note must fit without scrolling (over by \(longOverflow) pt)")
+        setup.update(model)
         await settle()
         try await snapshot(setup.nativeCheckWindow, "native-setup-stuck.png")
         setup.nativeCheckPressReset()
@@ -981,6 +995,51 @@ struct NativeUICheck {
         NSScreen.screens.first { $0.visibleFrame.insetBy(dx: 15, dy: 15).contains(window.frame) }
     }
 
+    /// Synthetic records in the halves of the first display form a pair: both surfaces badge its cards, the Overview
+    /// menu offers Open pair and Ungroup, and ungrouping clears the badges. No window is focused or moved.
+    @MainActor static func checkTilePairs(_ desktop: DesktopController, service: WindowService,
+                                          records: (Int) -> [WindowRecord]) async throws {
+        print("START tile pairs")
+        desktop.desktopEntry = nil
+        guard let display = WindowService.displayAreas().first,
+              let left = LayoutEngine.plan(zone: .leftHalf, in: display.visibleFrame, gap: 8, backingScale: display.backingScale).rect,
+              let right = LayoutEngine.plan(zone: .rightHalf, in: display.visibleFrame, gap: 8, backingScale: display.backingScale).rect else {
+            throw Failure.check("No display for the tile-pair check")
+        }
+        var windows = records(6)
+        func placed(_ record: WindowRecord, _ frame: WindowRect) -> WindowRecord {
+            WindowRecord(id: record.id, appIdentifier: record.appIdentifier, appName: record.appName, title: record.title, frame: frame)
+        }
+        windows[1] = placed(windows[1], left)
+        windows[2] = placed(windows[2], right)
+        service.nativeCheckInstall(windows)
+        await settle()
+        try require(desktop.pairs.groups.groups.count == 1 && desktop.pairs.groups.partner(of: windows[1].id) == windows[2].id,
+                    "Windows in complementary halves must pair")
+        desktop.present(mode: .switcher, fromShortcut: true)
+        try require(desktop.nativeCheckCard(for: windows[1].id)?.pairBadge != nil && desktop.nativeCheckCard(for: windows[2].id)?.pairBadge != nil
+                    && desktop.nativeCheckCard(for: windows[0].id)?.pairBadge == nil, "The switcher must badge exactly the paired cards")
+        desktop.dismiss(restorePreviousApplication: false)
+        desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
+        await settle()
+        guard let card = desktop.nativeCheckCard(for: windows[2].id), card.pairBadge != nil else {
+            throw Failure.check("The Overview must badge a paired card")
+        }
+        let titles = card.menuProvider?(card)?.items.map(\.title) ?? []
+        try require(titles.contains("Open pair") && titles.contains("Ungroup"), "The Overview menu must offer Open pair and Ungroup, got \(titles)")
+        let plain = desktop.nativeCheckCard(for: windows[0].id)
+        try require(plain.flatMap { $0.menuProvider?($0) }?.items.contains { $0.title == "Ungroup" } == false,
+                    "An unpaired card must not offer Ungroup")
+        desktop.surfaceUngroup(windows[2].id)
+        try require(card.pairBadge == nil && desktop.nativeCheckCard(for: windows[1].id)?.pairBadge == nil
+                    && desktop.pairs.groups.groups.isEmpty, "Ungroup must clear both badges")
+        service.nativeCheckInstall(windows)
+        await settle()
+        try require(desktop.pairs.groups.groups.isEmpty, "An ungrouped pair must not be detected again while it stays put")
+        desktop.dismiss(restorePreviousApplication: false)
+        print("PASS tile pairs")
+    }
+
     /// Screen-parameter changes re-fit or close surfaces; lock, display sleep and session switches dismiss,
     /// purge snapshots and refuse presentation until the session is back. Nothing here locks or reconfigures
     /// the real displays: the workspace notifications are posted in-process and the lock path is invoked directly
@@ -1100,6 +1159,7 @@ struct NativeUICheck {
             case .restore: actions.append("restore")
             case .overview: actions.append("overview")
             case .tile: actions.append("tile")
+            case .openPair: actions.append("openPair")
             }
         }
         desktop.onSurfaceVisibilityChanged = { input.surfaceVisible = $0 }

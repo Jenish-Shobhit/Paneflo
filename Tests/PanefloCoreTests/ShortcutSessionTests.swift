@@ -306,4 +306,43 @@ struct ShortcutSessionTests {
         _ = router.route(kind: .up, keyCode: 123, modifiers: [.control, .option])
         #expect(!router.route(kind: .down, keyCode: 123, modifiers: [.command, .option]).suppress)
     }
+    @Test func commandOptionReturnOpensThePairAndEndsTheHeldSession() {
+        let maximize = ShortcutChord(keyCode: 36, modifiers: [.control, .option])
+        var router = ShortcutSession(configuration: .init(switcherEnabled: true, tiling: [maximize: .tile(.maximize)]))
+        // Outside a surface the chord belongs to the frontmost app.
+        #expect(!router.route(kind: .down, keyCode: 36, modifiers: [.command, .option]).suppress)
+        _ = router.route(kind: .down, keyCode: 48, modifiers: .command)
+        let open = router.route(kind: .down, keyCode: 36, modifiers: [.command, .option])
+        guard case .openPair? = open.action else { Issue.record("Missing open-pair intent"); return }
+        #expect(open.suppress && !router.switching)
+        // The Return key-up and the later Command release are owned or inert: no second commit.
+        #expect(router.route(kind: .up, keyCode: 36, modifiers: [.command, .option]).suppress)
+        #expect(router.route(kind: .modifiersChanged, keyCode: 55, modifiers: []).action == nil)
+        // Keypad Enter works the same; a held Return never reopens.
+        _ = router.route(kind: .down, keyCode: 48, modifiers: .command)
+        guard case .openPair? = router.route(kind: .down, keyCode: 76, modifiers: [.command, .option]).action else {
+            Issue.record("Keypad Enter must open the pair"); return
+        }
+        let held = router.route(kind: .down, keyCode: 76, modifiers: [.command, .option], isRepeat: true)
+        #expect(held.suppress && held.action == nil)
+        // Control–Option–Return still fills the screen; Command–Return in the picker stays swallowed and inert.
+        guard case .tile(.maximize)? = router.route(kind: .down, keyCode: 36, modifiers: [.control, .option]).action else {
+            Issue.record("Control–Option–Return must keep filling the screen"); return
+        }
+        _ = router.route(kind: .down, keyCode: 48, modifiers: .command)
+        let plain = router.route(kind: .down, keyCode: 36, modifiers: .command)
+        #expect(plain.suppress && plain.action == nil && plain.windowCommand == nil && router.switching)
+    }
+
+    @Test func commandOptionReturnOpensThePairInAKeyboardFocusedOverviewOnly() {
+        var router = ShortcutSession(configuration: .init(switcherEnabled: true))
+        router.surfaceVisible = true
+        router.selectionContextActive = true
+        guard case .openPair? = router.route(kind: .down, keyCode: 36, modifiers: [.command, .option]).action else {
+            Issue.record("Missing Overview open-pair"); return
+        }
+        _ = router.route(kind: .up, keyCode: 36, modifiers: [.command, .option])
+        router.selectionContextActive = false
+        #expect(!router.route(kind: .down, keyCode: 36, modifiers: [.command, .option]).suppress)
+    }
 }
