@@ -54,7 +54,10 @@ public final class SnapshotRunner<Payload: Sendable> {
     /// Issues tickets up to the scheduler's limits unless the breaker is backing off. After a
     /// backoff expires (half-open) only one probe request runs until it succeeds.
     public func pump() {
-        guard breaker.allows(now: clock()) else { return }
+        let now = clock()
+        // Timed-out requests whose OS callbacks never arrived stop holding capacity after a grace period.
+        scheduler.releaseExpiredAbandoned(now: now)
+        guard breaker.allows(now: now) else { return }
         let halfOpen = breaker.retryAt != nil
         if halfOpen, scheduler.outstandingCount > 0 { return }
         for ticket in scheduler.nextTickets(maximum: halfOpen ? 1 : Int.max) {
@@ -95,7 +98,7 @@ public final class SnapshotRunner<Payload: Sendable> {
             if failure == .failed { noteFailure() }
             onOutcome?(ticket, completion, .failed(failure))
         case .timedOut:
-            let completion = scheduler.timeout(ticket)
+            let completion = scheduler.timeout(ticket, now: clock())
             noteFailure()
             onOutcome?(ticket, completion, .timedOut)
         }

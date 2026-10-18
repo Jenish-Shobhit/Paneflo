@@ -44,21 +44,35 @@ public struct SnapshotScheduler: Sendable {
     /// Timed-out requests whose OS callbacks have not arrived. New work stops at this many, so
     /// repeated timeouts cannot accumulate unbounded OS requests.
     public let abandonedLimit: Int
+    /// How long a timed-out request keeps holding abandoned capacity. After this, the OS callback is
+    /// presumed lost: the request stops blocking new work, but a late callback is still recognized
+    /// and dropped. This bounds abandoned OS requests to `abandonedLimit` per grace period instead of
+    /// stopping snapshots for the rest of the process.
+    public let abandonedGrace: Double
+    /// Lost requests remembered for late-callback recognition; older ones are forgotten (a callback
+    /// that arrives after that reports `unknownTicket`, which is also dropped).
+    public static let forgottenLimit = 64
     public private(set) var queue: [SnapshotRequest] = []
     public private(set) var epoch: UInt64 = 0
     public private(set) var sessionActive = false
     private var outstanding: [UInt64: SnapshotTicket] = [:]
-    private var abandoned: [UInt64: SnapshotTicket] = [:]
+    private var abandoned: [UInt64: (ticket: SnapshotTicket, at: Double)] = [:]
+    private var lost: [UInt64: SnapshotTicket] = [:]
+    private var lostOrder: [UInt64] = []
     private var refreshed: Set<WindowIdentity> = []
     private var closedInFlight: Set<WindowIdentity> = []
     private var serial: UInt64 = 0
 
-    public init(concurrencyLimit: Int = 3, abandonedLimit: Int? = nil) {
+    public init(concurrencyLimit: Int = 3, abandonedLimit: Int? = nil, abandonedGrace: Double = 30) {
         self.concurrencyLimit = min(4, max(2, concurrencyLimit))
         self.abandonedLimit = max(1, abandonedLimit ?? self.concurrencyLimit)
+        self.abandonedGrace = max(0, abandonedGrace.isFinite ? abandonedGrace : 30)
     }
 
+    /// Timed-out requests still holding capacity (inside their grace period).
     public var abandonedCount: Int { abandoned.count }
+    /// Timed-out requests presumed lost; remembered only to drop a late callback.
+    public var lostCount: Int { lost.count }
 
     public var outstandingCount: Int { outstanding.count }
     public var outstandingTickets: [SnapshotTicket] { outstanding.values.sorted { $0.serial < $1.serial } }
@@ -112,8 +126,13 @@ public struct SnapshotScheduler: Sendable {
 
     /// Call exactly once per issued ticket, when the OS request actually finished (success or error).
     public mutating func complete(_ ticket: SnapshotTicket) -> SnapshotCompletion {
-        if abandoned[ticket.serial] == ticket {
+        if abandoned[ticket.serial]?.ticket == ticket {
             abandoned.removeValue(forKey: ticket.serial)
+            return .lateAfterTimeout
+        }
+        if lost[ticket.serial] == ticket {
+            lost.removeValue(forKey: ticket.serial)
+            lostOrder.removeAll { $0 == ticket.serial }
             return .lateAfterTimeout
         }
         guard outstanding[ticket.serial] == ticket else { return .unknownTicket }
@@ -125,13 +144,26 @@ public struct SnapshotScheduler: Sendable {
     }
 
     /// The deadline passed before the OS callback: free the concurrency slot, keep the request
-    /// counted as abandoned until `complete` reports its late callback.
-    public mutating func timeout(_ ticket: SnapshotTicket) -> SnapshotCompletion {
+    /// counted as abandoned until `complete` reports its late callback or `abandonedGrace` passes.
+    public mutating func timeout(_ ticket: SnapshotTicket, now: Double) -> SnapshotCompletion {
         guard outstanding[ticket.serial] == ticket else { return .unknownTicket }
         outstanding.removeValue(forKey: ticket.serial)
-        abandoned[ticket.serial] = ticket
+        abandoned[ticket.serial] = (ticket, now)
         if !outstanding.values.contains(where: { $0.id == ticket.id }) { closedInFlight.remove(ticket.id) }
         return .timedOut
+    }
+
+    /// Abandoned requests older than `abandonedGrace` stop holding capacity. Returns how many were released.
+    @discardableResult
+    public mutating func releaseExpiredAbandoned(now: Double) -> Int {
+        let expired = abandoned.filter { now - $0.value.at >= abandonedGrace }.keys.sorted()
+        for serial in expired {
+            guard let entry = abandoned.removeValue(forKey: serial) else { continue }
+            lost[serial] = entry.ticket
+            lostOrder.append(serial)
+        }
+        while lostOrder.count > Self.forgottenLimit { lost.removeValue(forKey: lostOrder.removeFirst()) }
+        return expired.count
     }
 
     /// Makes windows eligible again in this session (after a circuit-breaker backoff).
