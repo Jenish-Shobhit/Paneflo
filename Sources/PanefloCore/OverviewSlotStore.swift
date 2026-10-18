@@ -130,6 +130,49 @@ public struct OverviewSlotStore: Sendable {
         slots.insert(slot, at: min(max(0, index), slots.count))
     }
 
+    /// A free slot: unbound, unpinned and without a matching rule. The next new window takes it.
+    public static func isFree(_ slot: OverviewSlot) -> Bool { slot.binding == nil && !slot.isPinned && slot.matchingRule == nil }
+
+    /// Exchanges the positions of two slots; every other slot stays where it is. Dropping a window on another
+    /// window's slot swaps them.
+    @discardableResult
+    public mutating func swap(_ first: UUID, _ second: UUID) -> Bool {
+        guard first != second, let a = slots.firstIndex(where: { $0.id == first }),
+              let b = slots.firstIndex(where: { $0.id == second }) else { return false }
+        slots.swapAt(a, b)
+        return true
+    }
+
+    /// Moves a slot into an unbound slot's position without shifting others: its old position now holds that
+    /// vacancy. Refused when the target holds a window.
+    @discardableResult
+    public mutating func place(slotID: UUID, into vacancyID: UUID) -> Bool {
+        guard let target = slots.first(where: { $0.id == vacancyID }), target.binding == nil else { return false }
+        return swap(slotID, vacancyID)
+    }
+
+    /// Removes one unbound slot (free or kept). Refused for a slot holding a window.
+    @discardableResult
+    public mutating func remove(slotID: UUID) -> Bool {
+        guard let index = slots.firstIndex(where: { $0.id == slotID }), slots[index].binding == nil else { return false }
+        slots.remove(at: index)
+        return true
+    }
+
+    /// Removes every free slot; kept (pinned) vacancies stay. Returns how many were removed.
+    @discardableResult
+    public mutating func removeFreeSlots() -> Int {
+        let before = slots.count
+        slots.removeAll(where: Self.isFree)
+        return before - slots.count
+    }
+
+    /// Clears slots and pins, then places `records` in their current order.
+    public mutating func reset(_ records: [WindowRecord]) {
+        slots.removeAll()
+        reconcile(records)
+    }
+
     /// Matching IDs dim cards in place; no ordering or bindings change.
     public func matches(query: String, records: [WindowRecord]) -> Set<UUID> {
         let matchingWindows = Set(records.filter { WindowSearch.matches(query, record: $0) }.map(\.id))
