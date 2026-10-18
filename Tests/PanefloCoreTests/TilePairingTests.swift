@@ -84,6 +84,23 @@ struct SnapAssistSessionTests {
         #expect(step14 == nil)
     }
 
+    @Test func aSupersededPlacementReportNeverResetsANewerRequest() {
+        var assist = SnapAssistSession()
+        _ = assist.willTile(a, zone: .leftHalf)
+        let first = assist.requests
+        // Pressed again before the first placement reported (moving it to the neighbouring display).
+        _ = assist.willTile(a, zone: .leftHalf)
+        let second = assist.requests
+        #expect(first != second)
+        let superseded = assist.didTile(a, zone: .leftHalf, display: nil, request: first)
+        #expect(superseded == nil && assist.anchor?.id == a && assist.pairingHint != nil)
+        _ = assist.didTile(a, zone: .leftHalf, display: 1, request: second)
+        #expect(assist.anchor?.display == 1)
+        _ = assist.willTile(b, zone: .rightHalf)
+        let formed = assist.didTile(b, zone: .rightHalf, display: 1, request: assist.requests)
+        #expect(formed == .init(first: a, second: b, display: 1))
+    }
+
     @Test func theSameHalfForAnotherWindowStartsOver() {
         var assist = SnapAssistSession()
         _ = assist.willTile(a, zone: .leftHalf)

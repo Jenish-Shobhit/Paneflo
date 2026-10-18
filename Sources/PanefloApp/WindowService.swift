@@ -52,6 +52,14 @@ private struct PlacementReport: Sendable {
     var before: WindowRect?
     var after: WindowRect?
     var message: String
+    /// The display index a tile landed on (nil for restores and failures).
+    var display: Int? = nil
+}
+
+/// A finished tile: where it landed (display index in `WindowService.displayAreas()` order) and its frame.
+struct TileOutcome: Sendable {
+    let display: Int?
+    let frame: WindowRect
 }
 
 private enum WindowEvent: Sendable {
@@ -334,6 +342,18 @@ final class WindowService {
         }
     }
 
+    /// Brings `id` forward without focusing it (Accessibility raise only, no app activation), for opening a tile
+    /// pair. `completion` runs on the main actor once the raise was attempted, at once when it cannot be. A raise
+    /// still queued after a newer focus request than the one that follows it is dropped.
+    func raiseWithoutFocus(_ id: WindowIdentity, completion: @escaping @MainActor () -> Void) {
+        guard hasAccessibility, let target = targets[id], recordIndex[id]?.isMinimized == false,
+              let app = currentApplication(for: id) else { completion(); return }
+        if app.isHidden { app.unhide() }
+        worker.raise(target, allowedEpoch: worker.currentEpoch() &+ 1) { _ in
+            DispatchQueue.main.async { MainActor.assumeIsolated { completion() } }
+        }
+    }
+
     private func activate(_ intent: UInt64, reason: String) {
         guard let app = pendingActivations.removeValue(forKey: intent) else { return }
         // A newer focus request owns activation; a stale one must not steal the front.
@@ -368,27 +388,27 @@ final class WindowService {
     /// Tiles a window on its own display. The display is chosen from a fresh Accessibility
     /// frame read on the placement lane, never from the snapshot's record. Placement never blocks
     /// or is blocked by focus: both run on their own lanes with independent supersession.
-    func tile(_ id: WindowIdentity? = nil, zone: LayoutZone, screenIndex: Int? = nil, gap: Double = 8, completion: (@MainActor @Sendable (Bool) -> Void)? = nil) {
+    func tile(_ id: WindowIdentity? = nil, zone: LayoutZone, screenIndex: Int? = nil, gap: Double = 8, completion: (@MainActor @Sendable (TileOutcome?) -> Void)? = nil) {
         if id == nil, focusedID?.process.pid != NSWorkspace.shared.frontmostApplication?.processIdentifier {
             onStatus?("The frontmost window changed. Try again after its focus is confirmed.")
-            scheduleRefresh(); completion?(false); return
+            scheduleRefresh(); completion?(nil); return
         }
         guard hasAccessibility, let id = id ?? focusedID, validLifetime(id), recordIndex[id] != nil, let target = targets[id] else {
-            onStatus?("Select a window before arranging it."); completion?(false); return
+            onStatus?("Select a window before arranging it."); completion?(nil); return
         }
         let displays = Self.displayAreas()
-        guard !displays.isEmpty else { completion?(false); return }
+        guard !displays.isEmpty else { completion?(nil); return }
         let token = worker.beginPlacement(for: id)
         worker.place(target, request: .tile(zone: zone, displays: displays, explicitDisplay: screenIndex, gap: gap), token: token) { [weak self] report in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    guard let self else { completion?(false); return }
+                    guard let self else { completion?(nil); return }
                     if let before = report.before, let after = report.after {
                         self.undoHistory.record([GeometryChange(id: id, before: before, after: after)])
                     }
                     self.onStatus?(report.message)
                     self.worker.markDirty(target)
-                    completion?(report.after != nil)
+                    completion?(report.after.map { TileOutcome(display: report.display, frame: $0) })
                 }
             }
         }
@@ -417,7 +437,7 @@ final class WindowService {
     }
 
     /// Screens in AppKit order converted to Accessibility coordinates. Index 0 owns the global origin.
-    private static func displayAreas() -> [DisplayArea] {
+    static func displayAreas() -> [DisplayArea] {
         let screens = NSScreen.screens
         guard let primary = screens.first else { return [] }
         let height = primary.frame.height
@@ -603,6 +623,7 @@ private final class WindowWorker: @unchecked Sendable {
     private var intents = ActionIntents()
     fileprivate static let focusLane: UInt8 = 0
     fileprivate static let placementLane: UInt8 = 1
+    fileprivate static let raiseLane: UInt8 = 2
     /// Coordinator-only.
     private var onEvent: (@Sendable (WindowEvent) -> Void)?
 
@@ -973,6 +994,17 @@ private final class WindowWorker: @unchecked Sendable {
         }
     }
 
+    /// A tile partner's raise: AXRaise only, so the window comes forward without focus or activation. Dropped once
+    /// a focus request newer than `allowedEpoch` exists (the user moved on).
+    func raise(_ target: AXWindowTarget, allowedEpoch: UInt64, completion: @escaping @Sendable (Bool) -> Void) {
+        submit(pid: target.id.process.pid, priority: .interactive, lane: Self.raiseLane, cancelled: { completion(false) }) { [self] in
+            guard currentEpoch() <= allowedEpoch, Self.valid(target) else { completion(false); return }
+            let result = AXUIElementPerformAction(target.element, kAXRaiseAction as CFString)
+            RuntimeDiagnostics.mark("AX pair stage=raise result=\(result.rawValue)")
+            completion(result == .success)
+        }
+    }
+
     /// Rectangle-style size, position, size: the first size write lets a window that is larger than
     /// the destination fit, the position write moves it, and the last size write corrects any size
     /// the move changed. One readback follows for undo bookkeeping and failure reporting. Only when
@@ -988,6 +1020,7 @@ private final class WindowWorker: @unchecked Sendable {
             }
             let requested: WindowRect
             let bounds: WindowRect?
+            var display: Int?
             switch request {
             case let .tile(zone, displays, explicitDisplay, gap):
                 // The display comes from the window's frame as read now, not from the last scan.
@@ -997,6 +1030,7 @@ private final class WindowWorker: @unchecked Sendable {
                 }
                 requested = plan.rect
                 bounds = displays[plan.displayIndex].visibleFrame
+                display = plan.displayIndex
             case let .restore(frame, displays):
                 guard let restored = DisplayPlacement.restoredFrame(frame, displays: displays) else {
                     completion(PlacementReport(before: before, message: "The saved position is no longer available.")); return
@@ -1019,7 +1053,7 @@ private final class WindowWorker: @unchecked Sendable {
             write(kAXSizeAttribute, requested, position: false)
             guard var actual = Self.frame(target.element) else {
                 completion(PlacementReport(before: before, after: requested,
-                                           message: "Layout sent. The application did not report its new geometry.")); return
+                                           message: "Layout sent. The application did not report its new geometry.", display: display)); return
             }
             RuntimeDiagnostics.mark("AX placement requested=\(Self.geometryText(requested)) before=\(Self.geometryText(before)) actual=\(Self.geometryText(actual))")
             var note = "Layout applied. Undo is available."
@@ -1050,7 +1084,8 @@ private final class WindowWorker: @unchecked Sendable {
                 completion(PlacementReport(before: before, message: reason)); return
             }
             completion(PlacementReport(before: before, after: actual,
-                                       message: failures.isEmpty ? note : "The application accepted part of the layout. Undo is available."))
+                                       message: failures.isEmpty ? note : "The application accepted part of the layout. Undo is available.",
+                                       display: display))
         }
     }
 
@@ -1102,3 +1137,6 @@ private final class WindowWorker: @unchecked Sendable {
         return WindowRect(x: point.x, y: point.y, width: size.width, height: size.height)
     }
 }
+
+/// Opening a tile pair: raise the partner, then focus the chosen window.
+extension WindowService: PairActivationExecutor {}

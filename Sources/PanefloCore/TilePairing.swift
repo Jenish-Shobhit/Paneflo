@@ -13,6 +13,8 @@ public struct SnapAssistSession: Equatable, Sendable {
         /// The display index its placement landed on; nil until the placement reports.
         public var display: Int?
         public var placed: Bool
+        /// The `requests` count when this placement was requested; matches its report to it.
+        public var request: UInt64 = 0
     }
 
     /// What a placement request should do.
@@ -37,6 +39,9 @@ public struct SnapAssistSession: Equatable, Sendable {
 
     public private(set) var anchor: Anchor?
     public private(set) var partner: Anchor?
+    /// Counts half-screen requests. Read it right after `willTile` and pass it to `didTile`, so a superseded
+    /// placement's late report never touches a newer request for the same window.
+    public private(set) var requests: UInt64 = 0
 
     public init() {}
 
@@ -68,23 +73,26 @@ public struct SnapAssistSession: Equatable, Sendable {
             if anchor?.id == id || partner?.id == id { reset() }
             return Request()
         }
+        requests &+= 1
         if let anchor, anchor.id != id, zone == Self.complement(of: anchor.zone) {
-            partner = Anchor(id: id, zone: zone, display: nil, placed: false)
+            partner = Anchor(id: id, zone: zone, display: nil, placed: false, request: requests)
             return Request(explicitDisplay: anchor.display, pairsWith: anchor.id)
         }
         // A first half, the same window again, or the same half for another window: start over from this one.
-        anchor = Anchor(id: id, zone: zone, display: nil, placed: false)
+        anchor = Anchor(id: id, zone: zone, display: nil, placed: false, request: requests)
         partner = nil
         return Request()
     }
 
-    /// A placement requested through `willTile` finished on `display`, or failed (`display` nil).
-    public mutating func didTile(_ id: WindowIdentity, zone: LayoutZone, display: Int?) -> Formation? {
-        if var current = partner, current.id == id, current.zone == zone {
+    /// A placement requested through `willTile` finished on `display`, or failed (`display` nil). `request` is the
+    /// `requests` value read after that `willTile`; nil matches by window and zone alone.
+    public mutating func didTile(_ id: WindowIdentity, zone: LayoutZone, display: Int?, request: UInt64? = nil) -> Formation? {
+        func matches(_ part: Anchor) -> Bool { part.id == id && part.zone == zone && (request == nil || request == part.request) }
+        if var current = partner, matches(current) {
             guard let display else { partner = nil; return nil }
             current.display = display; current.placed = true
             partner = current
-        } else if var current = anchor, current.id == id, current.zone == zone {
+        } else if var current = anchor, matches(current) {
             guard let display else { reset(); return nil }
             current.display = display; current.placed = true
             anchor = current

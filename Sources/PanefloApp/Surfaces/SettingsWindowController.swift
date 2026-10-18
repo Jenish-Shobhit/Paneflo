@@ -16,6 +16,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     let previewButton = NSButton(checkboxWithTitle: "Live previews", target: nil, action: nil)
     let desktopEntryButton = NSButton(checkboxWithTitle: "Show Desktop in ⌘Tab and Overview", target: nil, action: nil)
     let systemShowDesktopButton = NSButton(checkboxWithTitle: "Use macOS Show Desktop (experimental)", target: nil, action: nil)
+    let raiseTogetherButton = NSButton(checkboxWithTitle: "Open tile pairs together", target: nil, action: nil)
     /// Screen Recording guidance next to the previews toggle; hidden when nothing is needed.
     let previewPermissionStatus = NSTextField(wrappingLabelWithString: "")
     private let previewPermissionSection = NSStackView()
@@ -33,6 +34,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     var onTogglePreviews: ((Bool) -> Void)?
     var onToggleDesktopEntry: ((Bool) -> Void)?
     var onToggleSystemShowDesktop: ((Bool) -> Void)?
+    var onToggleRaiseTogether: ((Bool) -> Void)?
     var onToggleAutomaticUpdates: ((Bool) -> Void)?
     var onCheckForUpdates: (() -> Void)?
     var onToggleMenuBarIcon: ((Bool) -> Void)?
@@ -198,6 +200,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         stack.addArrangedSubview(systemShowDesktopButton)
         stack.addArrangedSubview(note("Desktop hides other apps (Finder stays) and choosing a window brings back only its app. The experimental option sends your macOS Show Desktop shortcut instead; it needs permission to post keys and is untested on most setups."))
 
+        header("Tile pairs", stack)
+        raiseTogetherButton.target = self; raiseTogetherButton.action = #selector(toggleRaiseTogether)
+        raiseTogetherButton.setAccessibilityLabel("Open tile pairs together")
+        stack.addArrangedSubview(raiseTogetherButton)
+        stack.addArrangedSubview(note("Two windows in the left and right (or top and bottom) halves of one display form a pair. Opening one from ⌘Tab or the Overview brings its partner forward too. ⌘⌥Return always opens the pair."))
+
         header("Updates", stack)
         automaticUpdatesButton.target = self; automaticUpdatesButton.action = #selector(toggleAutomaticUpdates)
         stack.addArrangedSubview(automaticUpdatesButton)
@@ -245,6 +253,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     @objc private func togglePreviews() { onTogglePreviews?(previewButton.state == .on) }
     @objc private func toggleDesktopEntry() { onToggleDesktopEntry?(desktopEntryButton.state == .on) }
     @objc private func toggleSystemShowDesktop() { onToggleSystemShowDesktop?(systemShowDesktopButton.state == .on) }
+    @objc private func toggleRaiseTogether() { onToggleRaiseTogether?(raiseTogetherButton.state == .on) }
     @objc private func toggleAutomaticUpdates() { onToggleAutomaticUpdates?(automaticUpdatesButton.state == .on) }
     @objc private func checkForUpdates() { onCheckForUpdates?() }
     @objc private func toggleMenuBarIcon() { onToggleMenuBarIcon?(menuBarIconButton.state == .on) }

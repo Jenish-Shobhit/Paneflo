@@ -35,7 +35,7 @@ final class OverviewPanelController: SurfacePanelController {
         super.init(contentSize: OverviewPanelController.contentSize(for: frame))
         if let data = defaults.data(forKey: "overview.slots.v1"), let stored = try? OverviewSlotStore(metadata: data) { slots = stored }
         heading.stringValue = "Your overview"
-        keyboardHint.stringValue = "arrows select   ⌘⌥← → tile   ⌘⌥↑ fill   ⌘⌥↓ undo   return open   esc close"
+        keyboardHint.stringValue = "arrows select   ⌘⌥← → tile   ⌘⌥↑ fill   ⌘⌥↓ undo   return open   ⌘⌥return open pair   esc close"
     }
 
     static func contentSize(for visibleFrame: NSRect) -> NSSize {
@@ -250,6 +250,7 @@ final class OverviewPanelController: SurfacePanelController {
             item.target = self; item.representedObject = slot.id.uuidString
             menu.addItem(item)
         }
+        if let id = card.record?.id { appendPairItems(to: menu, for: id) }
         return menu
     }
 

@@ -50,6 +50,12 @@ protocol SurfaceHost: AnyObject {
     func surfaceActivateDesktop()
     /// Puts the current wallpaper on a visible surface's Desktop card (cached image at once, refresh later).
     func surfaceShowWallpaper(_ card: CardView, on surface: SurfacePanelController)
+    /// The tile-pair indicator for a window's card; nil when it has no partner.
+    func pairBadge(for id: WindowIdentity) -> String?
+    /// Open `id` together with its tile partner.
+    func surfaceOpenPair(_ id: WindowIdentity)
+    /// Dissolve the tile pair containing `id`.
+    func surfaceUngroup(_ id: WindowIdentity)
 }
 
 /// Shared chrome, keyboard handling, selection and preview plumbing for one pre-created panel.
@@ -81,6 +87,8 @@ class SurfacePanelController: NSObject, NSSearchFieldDelegate, NSWindowDelegate 
     private var viewportObserver: NSObjectProtocol?
     private var prewarming = false
     private var prewarmToken = 0
+    /// The key hint a snap-assist pairing hint temporarily replaces.
+    private var standardHint: String?
 
     /// On screen for the user. A pre-warm pass (alpha 0, ignoring the mouse) does not count.
     var isShown: Bool { panel.isVisible && !prewarming }
@@ -456,6 +464,43 @@ class SurfacePanelController: NSObject, NSSearchFieldDelegate, NSWindowDelegate 
         case 36, 76: activateSelected(); return true
         default: return false
         }
+    }
+
+    // MARK: Tile pairs (self-contained: a pair badge, a temporary hint and two menu items)
+
+    /// Shows the snap-assist hint in place of the key hint; nil restores the key hint.
+    func setPairingHint(_ hint: String?) {
+        if let hint {
+            if standardHint == nil { standardHint = keyboardHint.stringValue }
+            if keyboardHint.stringValue != hint { keyboardHint.stringValue = hint }
+        } else if let standard = standardHint {
+            standardHint = nil
+            keyboardHint.stringValue = standard
+        }
+    }
+
+    /// Updates every displayed window card's pair indicator from the host.
+    func refreshPairBadges() {
+        for (id, card) in cardsByWindow { card.pairBadge = host?.pairBadge(for: id) }
+    }
+
+    /// Appends "Open pair" and "Ungroup" to a card's context menu when its window has a tile partner.
+    func appendPairItems(to menu: NSMenu, for id: WindowIdentity) {
+        guard host?.pairBadge(for: id) != nil else { return }
+        menu.addItem(.separator())
+        for (title, action) in [("Open pair", #selector(openPairFromMenu(_:))), ("Ungroup", #selector(ungroupFromMenu(_:)))] {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self; item.representedObject = id
+            menu.addItem(item)
+        }
+    }
+
+    @objc private func openPairFromMenu(_ sender: NSMenuItem) {
+        if let id = sender.representedObject as? WindowIdentity { host?.surfaceOpenPair(id) }
+    }
+
+    @objc private func ungroupFromMenu(_ sender: NSMenuItem) {
+        if let id = sender.representedObject as? WindowIdentity { host?.surfaceUngroup(id) }
     }
 
     // MARK: Geometry

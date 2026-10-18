@@ -16,6 +16,7 @@ xcrun swiftc -target "$TARGET_TRIPLE" -swift-version 6 -D PANEFLO_NATIVE_CHECK \
     "$PROJECT_ROOT/Sources/PanefloApp/Capture/CaptureController.swift" \
     "$PROJECT_ROOT/Sources/PanefloApp/WindowService.swift" \
     "$PROJECT_ROOT/Sources/PanefloApp/DesktopController.swift" \
+    "$PROJECT_ROOT/Sources/PanefloApp/TilePairController.swift" \
     "$PROJECT_ROOT"/Sources/PanefloApp/Surfaces/*.swift \
     "$PROJECT_ROOT/Sources/PanefloApp/Input/GlobalShortcutService.swift" \
     "$PROJECT_ROOT/Sources/PanefloApp/SampleViews.swift" \
