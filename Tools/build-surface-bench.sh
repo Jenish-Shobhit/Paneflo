@@ -31,6 +31,11 @@ APP_SOURCES="$SOURCE_ROOT/Sources/PanefloApp"
 set -- "$APP_SOURCES/RuntimeDiagnostics.swift" "$APP_SOURCES/Capture/CaptureController.swift" \
     "$APP_SOURCES/WindowService.swift" "$APP_SOURCES/DesktopController.swift" "$APP_SOURCES/SampleViews.swift"
 if [ -f "$APP_SOURCES/TilePairController.swift" ]; then set -- "$@" "$APP_SOURCES/TilePairController.swift"; fi
+for directory in Design Settings Settings/Panes Setup; do
+    if [ -d "$APP_SOURCES/$directory" ]; then
+        for file in "$APP_SOURCES/$directory"/*.swift; do set -- "$@" "$file"; done
+    fi
+done
 if [ -d "$APP_SOURCES/Surfaces" ]; then
     for file in "$APP_SOURCES"/Surfaces/*.swift; do set -- "$@" "$file"; done
 fi
@@ -39,6 +44,7 @@ if grep -rqs "func prewarm()" "$APP_SOURCES"; then FLAGS="-D SURFACE_BENCH_PREWA
 if grep -rqs "func nativeCheckReplaceOutsideClickMonitor" "$APP_SOURCES"; then FLAGS="$FLAGS -D SURFACE_BENCH_MONITOR_HOOK"; fi
 if grep -rqs "protocol PreviewProvider" "$APP_SOURCES"; then FLAGS="$FLAGS -D SURFACE_BENCH_PREVIEWS"; fi
 if grep -rqs "protocol DesktopEntryProvider" "$APP_SOURCES"; then FLAGS="$FLAGS -D SURFACE_BENCH_DESKTOP"; fi
+if grep -rqs "static var usesGlass" "$APP_SOURCES"; then FLAGS="$FLAGS -D SURFACE_BENCH_GLASS"; fi
 
 xcrun swiftc -target "$TARGET_TRIPLE" -swift-version 6 -parse-as-library -O \
     -module-cache-path "$OUTPUT_DIR/module-cache" -emit-library -emit-module \

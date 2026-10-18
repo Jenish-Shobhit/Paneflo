@@ -7,7 +7,8 @@ import Darwin
 /// requests a permission. Each launch writes one sample file; `--report <dir>` aggregates.
 ///
 /// Usage:
-///   surface-bench <output-dir> <card-count>        (launched through LaunchServices)
+///   surface-bench <output-dir> <card-count> [hud]  (launched through LaunchServices; `hud` measures the switcher
+///                                                   with the HUD fallback material instead of Liquid Glass)
 ///   surface-bench --report <output-dir>             (prints median/p90/min/max per metric)
 @main
 struct SurfaceBench {
@@ -99,6 +100,9 @@ struct SurfaceBench {
     // MARK: - Scenario
 
     @MainActor static func run(count: Int, recorder: Recorder) async {
+        #if SURFACE_BENCH_GLASS
+        if CommandLine.arguments.dropFirst(3).contains("hud") { SwitcherPanelController.usesGlass = false }
+        #endif
         let service = WindowService()
         let desktop = DesktopController(service: service)
         service.onChange = { desktop.updateSnapshot() }

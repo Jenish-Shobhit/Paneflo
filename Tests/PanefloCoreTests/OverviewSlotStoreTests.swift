@@ -87,4 +87,46 @@ struct OverviewSlotStoreTests {
         #expect(throws: (any Error).self) { try OverviewSlotStore(metadata: future) }
         #expect(throws: (any Error).self) { try OverviewSlotStore(metadata: Data("broken".utf8)) }
     }
+
+    @Test
+    func testPlaceSwapAndRemoveFreeSlotsKeepOtherPositions() {
+        var store = OverviewSlotStore()
+        store.reconcile([record(1), record(2), record(3), record(4)])
+        let ids = store.slots.map(\.id)
+        store.reconcile([record(1), record(3), record(4)])
+        #expect(OverviewSlotStore.isFree(store.slots[1]))
+        // Window 4 dropped on the free slot: it moves there, its old place becomes free, nothing else shifts.
+        let placed = store.place(slotID: ids[3], into: ids[1])
+        #expect(placed)
+        #expect(store.slots.map(\.binding) == [windowID(1), windowID(4), windowID(3), nil])
+        #expect(store.slots.map(\.id) == [ids[0], ids[3], ids[2], ids[1]])
+        // A bound target is refused by place and accepted by swap.
+        let refused = store.place(slotID: ids[0], into: ids[2])
+        let swapped = store.swap(ids[0], ids[2])
+        #expect(!refused && swapped)
+        #expect(store.slots.map(\.binding) == [windowID(3), windowID(4), windowID(1), nil])
+        let same = store.swap(ids[0], ids[0]), unknown = store.swap(ids[0], UUID())
+        #expect(!same && !unknown)
+        // A new window still takes the free slot.
+        store.reconcile([record(1), record(3), record(4), record(5)])
+        #expect(store.slots[3].binding == windowID(5))
+    }
+
+    @Test
+    func testRemovingFreeSlotsKeepsPinnedVacanciesAndWindows() {
+        var store = OverviewSlotStore()
+        store.reconcile([record(1), record(2), record(3), record(4)])
+        let kept = store.slots[0].id
+        store.pin(slotID: kept, matchingRule: SlotMatchingRule(appIdentifier: "other.app"))
+        store.reconcile([record(3)])
+        #expect(store.slots.count == 4)
+        let removedBound = store.remove(slotID: store.slots[2].id)
+        let removedFree = store.removeFreeSlots()
+        #expect(!removedBound && removedFree == 2)
+        #expect(store.slots.map(\.binding) == [nil, windowID(3)] && store.slots[0].id == kept)
+        let removedKept = store.remove(slotID: kept)
+        #expect(removedKept && store.slots.map(\.binding) == [windowID(3)])
+        store.reset([record(7), record(8)])
+        #expect(store.slots.map(\.binding) == [windowID(7), windowID(8)] && store.slots.allSatisfy { !$0.isPinned })
+    }
 }

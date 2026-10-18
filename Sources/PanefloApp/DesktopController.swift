@@ -13,6 +13,11 @@ final class DesktopController: NSObject, SurfaceHost {
     let pairs = TilePairController()
     /// Set for the duration of an explicit "Open pair" activation.
     private var explicitPairOpen = false
+    /// Set for the duration of an explicit "Open alone" activation.
+    private var explicitAlone = false
+    /// Switcher, Overview and tile-pair preferences; re-read only by `preferencesChanged()`.
+    private(set) var preferences = SurfacePreferences(defaults: .standard)
+    private var appNames: [String: String?] = [:]
     private var latestPlacement: UInt64 = 0
     private var presentationGeneration: UInt64 = 0
     private var overviewReturnApplication: NSRunningApplication?
@@ -96,6 +101,19 @@ final class DesktopController: NSObject, SurfaceHost {
         switcher.host = self
         overview.host = self
         overview.onFirstCards = { [weak self] in self?.switcher.prepareHidden() }
+        // Settings writes the shared preference keys; re-read them when defaults change (never on input).
+        observers.append(NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: UserDefaults.standard,
+                                                                queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.preferencesChanged() }
+        })
+        // Accent color, Increase Contrast and Reduce Transparency re-resolve card colors and the Overview backdrop.
+        observers.append(NotificationCenter.default.addObserver(forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.appearanceSettingsChanged() }
+        })
+        workspaceObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.appearanceSettingsChanged() }
+        })
         observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didHideNotification, object: NSApp, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.dismiss(restorePreviousApplication: false) }
         })
@@ -279,13 +297,43 @@ final class DesktopController: NSObject, SurfaceHost {
         showPairingHint()
     }
 
-    /// The snap-assist hint replaces the visible surface's key hint while it waits for a second window.
+    /// Snap assist is shown visually, never as text: while it waits for the other half, the selected card carries a
+    /// faint glyph of the half it would take.
     private func showPairingHint() {
-        let hint = pairs.pairingHint
+        let pending = preferences.snapAssist ? pairs.pendingHalf : nil
         for surface in [switcher, overview] as [SurfacePanelController] {
-            surface.setPairingHint(surface === visibleSurface ? hint : nil)
+            let visible = surface === visibleSurface
+            surface.setSnapAssist(zone: visible ? pending?.zone : nil, anchor: visible ? pending?.anchor : nil)
         }
     }
+
+    /// The accent color or an accessibility display option changed.
+    private func appearanceSettingsChanged() {
+        PanefloStyle.Accessibility.refresh()
+        CardPalette.invalidate()
+        for surface in [switcher, overview] as [SurfacePanelController] { surface.refreshColors() }
+        overview.accessibilityDisplayChanged()
+    }
+
+    // MARK: Preferences (Settings calls these through closures wired by the app)
+
+    /// Re-reads the switcher, Overview and tile-pair preferences. Visible surfaces keep their presentation; the next
+    /// one uses the new values.
+    func preferencesChanged() {
+        let next = SurfacePreferences(defaults: .standard)
+        guard next != preferences else { return }
+        let overviewChanged = next.showsFreeSlots != preferences.showsFreeSlots
+        preferences = next
+        if overviewChanged { overview.preferencesChanged() }
+        showPairingHint()
+    }
+
+    /// Removes every free Overview slot; kept slots stay. Returns how many were removed.
+    @discardableResult
+    func removeFreeSlots() -> Int { overview.removeFreeSlots() }
+
+    /// Clears Overview slots and pins and places the current windows in order.
+    func resetSlots() { overview.resetSlots() }
 
     func focusOverview(recognizedAtUptimeNanoseconds: UInt64? = nil) {
         pendingGestureRecognizedAt = recognizedAtUptimeNanoseconds
@@ -342,9 +390,10 @@ final class DesktopController: NSObject, SurfaceHost {
     /// Registry change. Hidden surfaces do no work here: the switcher builds on present and the
     /// Overview coalesces into at most one diff per second.
     func updateSnapshot() {
-        pairs.reconcile(service.snapshot, displays: WindowService.displayAreas())
+        let pairsChanged = pairs.reconcile(service.snapshot, displays: WindowService.displayAreas())
         switcher.snapshotChanged()
         overview.snapshotChanged()
+        if pairsChanged { visibleSurface?.refreshPairs() }
         if let surface = visibleSurface { surfaceSelectionChanged(surface) }
     }
 
@@ -355,14 +404,14 @@ final class DesktopController: NSObject, SurfaceHost {
         let presentedGeneration = presentationGeneration
         surface.setLayoutBadge(zone == .leftHalf ? "Left half" : zone == .rightHalf ? "Right half" : "Fill screen", for: id)
         // Snap assist: the second half of a pair goes on the first half's display.
-        let (request, token) = pairs.willTile(id, zone: zone)
+        let (request, token) = preferences.snapAssist ? pairs.willTile(id, zone: zone) : (SnapAssistSession.Request(), 0)
         showPairingHint()
         service.tile(id, zone: zone, screenIndex: request.explicitDisplay) { [weak self, weak surface] outcome in
             guard let self else { return }
             // Every outcome reaches snap assist, including one a newer placement superseded for feedback.
             if self.pairs.didTile(id, zone: zone, token: token, outcome: outcome, snapshot: self.service.snapshot,
                                   displays: WindowService.displayAreas()) {
-                self.visibleSurface?.refreshPairBadges()
+                self.visibleSurface?.refreshPairs()
             }
             self.showPairingHint()
             guard self.latestPlacement == generation else { return }
@@ -472,7 +521,6 @@ final class DesktopController: NSObject, SurfaceHost {
     /// only; the engine call does no capture, AX or window-server work synchronously.
     func surfaceSelectionChanged(_ surface: SurfacePanelController) {
         guard surface === visibleSurface else { return }
-        surface.refreshPairBadges()
         guard let previews else { return }
         guard surface.showsPreviews else { endPreviewSession(); return }
         let cards = surface.previewCards()
@@ -492,7 +540,7 @@ final class DesktopController: NSObject, SurfaceHost {
 
     func surfaceActivate(_ id: WindowIdentity) {
         // Read before dismissing: the snap-assist half still being placed counts as the partner.
-        let partner = pairs.partner(for: id, explicit: explicitPairOpen)
+        let partner = explicitAlone ? nil : pairs.partner(for: id, explicit: explicitPairOpen)
         // Focus never waits for a pending tile: placement finishes on its own lane.
         dismiss(restorePreviousApplication: false)
         let open: @MainActor () -> Void = { [weak self] in
@@ -508,7 +556,36 @@ final class DesktopController: NSObject, SurfaceHost {
         desktopEntry.prepareToFocus(pid: id.process.pid) { open() }
     }
 
-    func pairBadge(for id: WindowIdentity) -> String? { pairs.badge(for: id) }
+    func pairPartner(of id: WindowIdentity) -> WindowIdentity? { pairs.groups.partner(of: id) }
+
+    var sessionPairs: [TilePairMembers] {
+        guard preferences.sideBySide else { return [] }
+        return pairs.groups.groups.map { TilePairMembers(first: $0.first, second: $0.second) }
+    }
+
+    func surfaceOpenAlone(_ id: WindowIdentity) {
+        explicitAlone = true
+        defer { explicitAlone = false }
+        surfaceActivate(id)
+    }
+
+    func icon(forApp appIdentifier: String) -> NSImage? {
+        if let icon = iconCache[appIdentifier] { return icon }
+        if let record = service.snapshot.records.first(where: { $0.appIdentifier == appIdentifier }) { return icon(for: record) }
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: appIdentifier) else { return nil }
+        let icon = NSWorkspace.shared.icon(forFile: url.path)
+        iconCache[appIdentifier] = icon
+        return icon
+    }
+
+    func appName(forApp appIdentifier: String) -> String? {
+        if let record = service.snapshot.records.first(where: { $0.appIdentifier == appIdentifier }) { return record.appName }
+        if let cached = appNames[appIdentifier] { return cached }
+        let name = NSWorkspace.shared.urlForApplication(withBundleIdentifier: appIdentifier)
+            .map { FileManager.default.displayName(atPath: $0.path).replacingOccurrences(of: ".app", with: "") }
+        appNames[appIdentifier] = name
+        return name
+    }
 
     func surfaceOpenPair(_ id: WindowIdentity) {
         explicitPairOpen = true
@@ -519,7 +596,7 @@ final class DesktopController: NSObject, SurfaceHost {
     func surfaceUngroup(_ id: WindowIdentity) {
         guard pairs.ungroup(id) else { return }
         RuntimeDiagnostics.mark("tilePairs ungrouped")
-        visibleSurface?.refreshPairBadges()
+        visibleSurface?.refreshPairs()
     }
 
     var desktopLoopMode: DesktopLoopMode { desktopEntry?.loopMode ?? .hidden }
@@ -562,6 +639,13 @@ final class DesktopController: NSObject, SurfaceHost {
     var nativeCheckSwitcherWindow: NSWindow { switcher.panel }
     var nativeCheckOverviewWindow: NSWindow { overview.panel }
     var nativeCheckOverviewApplyCount: Int { overview.applyCount }
+    var nativeCheckOverview: OverviewPanelController { overview }
+    var nativeCheckSwitcherContent: NSView { switcher.content }
+    var nativeCheckOverviewContent: NSView { overview.content }
+    var nativeCheckSwitcherPlan: SwitcherLayout { switcher.nativeCheckPlan }
+    var nativeCheckFocusLine: String? { switcher.nativeCheckFocusLine }
+    var nativeCheckActivePairBackdrops: Int { nativeCheckSurface.grid.nativeCheckActiveBackdrops }
+    func nativeCheckSetSnapAssist(zone: LayoutZone?, anchor: WindowIdentity?) { visibleSurface?.setSnapAssist(zone: zone, anchor: anchor) }
     var nativeCheckPreferencesConstructed: Bool { settings.isConstructed }
     var nativeCheckPreviewControlEnabled: Bool { settings.model.previewControlEnabled }
     var nativeCheckShortcutsEnabled: Bool { settings.model.shortcutsActive }
@@ -590,7 +674,7 @@ final class DesktopController: NSObject, SurfaceHost {
     func nativeCheckCard(for id: WindowIdentity) -> CardView? { nativeCheckSurface.cardsByWindow[id] }
     var nativeCheckCards: [CardView] { nativeCheckSurface.grid.cards }
     var nativeCheckViewport: NSRect { nativeCheckSurface.scroll.contentView.documentVisibleRect }
-    var nativeCheckCardHeight: CGFloat { nativeCheckSurface.grid.metrics.cardHeight }
+    var nativeCheckCardHeight: CGFloat { nativeCheckSurface.grid.cardHeight }
     func nativeCheckQuery(_ value: String) {
         let surface = nativeCheckSurface
         surface.search.stringValue = value

@@ -2,10 +2,14 @@ import AppKit
 import PanefloCore
 
 /// The ⌘Tab picker (held, non-activating) and the manual Switch/Arrange lists.
-/// Built from the registry snapshot only when presented; nothing runs while hidden.
+///
+/// A compact Liquid Glass shelf that hugs the cards: no heading and no key hints, just the cards and one line with
+/// the selected window's full title. Tier, columns, rows and panel size are computed once per presentation; a
+/// selection step changes layer properties on at most four cards plus one text layer. Nothing runs while hidden.
 @MainActor
 final class SwitcherPanelController: SurfacePanelController {
-    static let cardHeight: CGFloat = 142
+    /// The glass shelf; false falls back to the HUD material (kept for measurement and as a safety valve).
+    static var usesGlass = true
     private(set) var mode = DesktopMode.switcher
     private(set) var shortcutSession = false
     private var session = SwitcherSession(snapshot: WindowSnapshot(records: []))
@@ -15,15 +19,42 @@ final class SwitcherPanelController: SurfacePanelController {
     var displayed: [WindowIdentity] { targets.compactMap(\.windowID) }
     private var records: [WindowIdentity: WindowRecord] = [:]
     private var appliedQuery = ""
+    private(set) var plan = SwitcherLayout.plan(count: 8, width: 1200, height: 800, chrome: 80)
+    private let focusLine = FocusLineView()
+    private var viewportHeight: CGFloat = 200
 
     override var showsPreviews: Bool { mode != .tiling }
 
     init() {
-        // Pre-sized for the common held picker: four columns, two rows, no search field.
-        let initial = NSSize(width: 4 * 208 + 36, height: 2 * SwitcherPanelController.cardHeight + 10 + 94)
+        let initial = NSSize(width: 4 * 214 + 28, height: 2 * 177 + 10 + 70)
         super.init(contentSize: initial)
-        heading.stringValue = "Switch windows"
+        content.addSubview(focusLine)
         search.isHidden = true
+        layoutChrome()
+    }
+
+    override func makeBackdrop(content: NSView) -> NSView {
+        let root: NSView
+        if Self.usesGlass {
+            let glass = NSGlassEffectView()
+            glass.style = .regular
+            glass.cornerRadius = PanefloStyle.Radius.panel
+            glass.contentView = content
+            root = glass
+        } else {
+            let effect = NSVisualEffectView()
+            effect.material = .hudWindow; effect.blendingMode = .behindWindow; effect.state = .active
+            effect.wantsLayer = true
+            effect.layer?.cornerRadius = PanefloStyle.Radius.panel
+            effect.layer?.cornerCurve = .continuous
+            effect.layer?.masksToBounds = true
+            content.frame = effect.bounds
+            content.autoresizingMask = [.width, .height]
+            effect.addSubview(content)
+            root = effect
+        }
+        root.setAccessibilityLabel("Window switcher")
+        return root
     }
 
     func present(mode: DesktopMode, fromShortcut: Bool, backwards: Bool) {
@@ -31,42 +62,42 @@ final class SwitcherPanelController: SurfacePanelController {
         beginPresentation()
         self.mode = mode
         shortcutSession = fromShortcut && mode == .switcher
-        let headingText = mode == .tiling ? "Arrange a window" : "Switch windows"
-        if heading.stringValue != headingText { heading.stringValue = headingText }
-        let hint = shortcutSession ? "⇥ or arrows select   ⌥← → tile   ⌥↑ fill   ⌥↓ undo   release ⌘ to open   ⌥↩ open pair   esc cancel   W close · M minimize · H hide · Q quit"
-            : "arrows select   ⌘⌥← → tile   ⌘⌥↑ fill   ⌘⌥↓ undo   return open   esc close"
-        if keyboardHint.stringValue != hint { keyboardHint.stringValue = hint }
         if search.isHidden != shortcutSession { search.isHidden = shortcutSession }
         if !search.stringValue.isEmpty { search.stringValue = "" }
         let snapshot = service.snapshot
         let screen = NSScreen.pointerScreen
-        // Arrange lists windows only; switching sessions may include the Desktop entry.
+        // Arrange lists windows only; switching sessions may include the Desktop entry and keep pairs side by side.
         session = SwitcherSession(snapshot: snapshot, direction: backwards ? .backward : .forward,
-                                  desktop: mode == .switcher ? host?.desktopLoopMode ?? .hidden : .hidden)
+                                  desktop: mode == .switcher ? host?.desktopLoopMode ?? .hidden : .hidden,
+                                  pairs: mode == .switcher ? host?.sessionPairs ?? [] : [])
         if mode == .switcher { setSelectedTarget(session.selectedTarget) }
         else { setSelectedID(service.focusedID ?? snapshot.orderedRecords.first?.id) }
         rebuild(snapshot: snapshot, screen: screen)
         fit(on: screen)
+        refreshPairs()
         // The held picker receives every key through the event tap, so it never takes key focus
         // from the frontmost app. Manual Switch/Arrange sessions need the search field.
         if shortcutSession { orderFrontWithoutKey() } else { orderFront(searchFocused: true) }
         if let target = selectedTarget, let card = card(for: target) { revealCard(card) }
+        selectionDidChange()
         showDesktopWallpaper()
     }
 
     /// One-time launch preparation: builds cards for the current registry while hidden and
-    /// draws them once, so the first ⌘Tab pays neither card construction nor first display.
+    /// renders them once, so the first ⌘Tab pays neither card construction nor first display.
     func prepareHidden(on preferredScreen: NSScreen? = nil) {
         guard !isShown, let service else { return }
         let snapshot = service.snapshot
         mode = .switcher
         shortcutSession = true
         search.isHidden = true
-        session = SwitcherSession(snapshot: snapshot, desktop: host?.desktopLoopMode ?? .hidden)
+        session = SwitcherSession(snapshot: snapshot, desktop: host?.desktopLoopMode ?? .hidden, pairs: host?.sessionPairs ?? [])
         setSelectedTarget(session.selectedTarget)
         let screen = preferredScreen ?? NSScreen.pointerScreen
         rebuild(snapshot: snapshot, screen: screen)
         fit(on: screen)
+        refreshPairs()
+        selectionDidChange()
         session.cancel()
         shortcutSession = false
         prewarm()
@@ -97,6 +128,8 @@ final class SwitcherPanelController: SurfacePanelController {
         }
         rebuild(snapshot: snapshot)
         fit()
+        refreshPairs()
+        select(target: selectedTarget, notify: false)
         showDesktopWallpaper()
     }
 
@@ -105,6 +138,7 @@ final class SwitcherPanelController: SurfacePanelController {
         if isShown {
             rebuild(snapshot: service.snapshot, screen: screen)
             fit(on: screen)
+            refreshPairs()
         } else {
             // Re-lay out the pre-warmed panel for the new display so the next ⌘Tab is warm there.
             prepareHidden(on: screen)
@@ -118,22 +152,40 @@ final class SwitcherPanelController: SurfacePanelController {
 
     // MARK: Content
 
+    private func usableArea(_ screen: NSScreen?) -> NSSize {
+        let frame = (screen ?? layoutScreen)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        return NSSize(width: frame.width * PanefloStyle.Switcher.widthShare, height: frame.height * PanefloStyle.Switcher.heightShare)
+    }
+
+    /// Panel height that is not grid.
+    private var chromeHeight: CGFloat {
+        PanefloStyle.Switcher.panelPadding + (search.isHidden ? 0 : PanefloStyle.Switcher.searchHeight + 10)
+            + 10 + FocusLineView.height + (failureFeedback.isHidden ? 0 : 4 + 16) + 12
+    }
+
     private func rebuild(snapshot: WindowSnapshot, screen: NSScreen? = nil) {
         records = Dictionary(snapshot.records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         targets = mode == .switcher ? session.filteredTargets : snapshot.orderedRecords.map { .window($0.id) }
         appliedQuery = search.stringValue
-        let screenWidth = (screen ?? layoutScreen)?.visibleFrame.width ?? 1000
-        grid.metrics = .init(columns: Self.columns(for: targets.count, screenWidth: screenWidth), cardHeight: Self.cardHeight)
+        let area = usableArea(screen)
+        plan = SwitcherLayout.plan(count: targets.count, pairStarts: session.pairStarts(in: targets),
+                                   width: Double(area.width), height: Double(area.height), chrome: Double(chromeHeight),
+                                   forced: host?.preferences.cardSize.forcedTier)
+        let style = CardStyle.switcher(plan.tier)
+        grid.layout = .switcher(plan)
         let query = search.stringValue
         let selected = selectedID
         let targets = targets
         grid.apply(keys: targets.map(AnyHashable.init)) { card, index in
+            card.style = style
+            card.hoverEnabled = false
             guard case .window(let id) = targets[index] else { configureDesktopCard(card); return }
             let record = records[id]
             card.isDesktopEntry = false
+            card.vacancy = nil
             card.record = record
             card.icon = record.flatMap { host?.icon(for: $0) }
-            card.isVacancyPinned = false
+            card.isPinned = false
             card.dragEnabled = false
             card.layoutBadge = layoutFeedback[id]
             card.selected = record != nil && id == selected
@@ -145,7 +197,7 @@ final class SwitcherPanelController: SurfacePanelController {
         indexCards(targets.map(\.windowID), desktopIndex: targets.firstIndex(of: .desktop))
         if targets.allSatisfy({ $0 == .desktop }), query.isEmpty || targets.isEmpty {
             let accessible = service?.hasAccessibility ?? false
-            grid.showEmpty(!query.isEmpty ? "No windows match this search."
+            grid.showEmpty(!query.isEmpty ? "No windows match “\(query)”."
                 : accessible ? "No eligible windows found. Open a normal application window, then refresh."
                 : "Your windows will appear here after Accessibility access is enabled.")
         } else { grid.showEmpty(nil) }
@@ -154,19 +206,54 @@ final class SwitcherPanelController: SurfacePanelController {
     private func fit(on target: NSScreen? = nil) {
         guard let screen = target ?? layoutScreen else { return }
         let usable = screen.visibleFrame.insetBy(dx: 16, dy: 16)
-        let columns = grid.metrics.columns
-        let rows = max(1, (targets.count + columns - 1) / columns)
-        let visibleRows = CGFloat(min(rows, 2))
-        // A lone Desktop card leaves room for the empty-state text under it.
-        let note: CGFloat = targets == [.desktop] && search.stringValue.isEmpty ? 94 : 0
-        let viewport = min(visibleRows * Self.cardHeight + (visibleRows - 1) * 10 + note,
-                           max(80, usable.height - (search.isHidden ? 110 : 145)))
-        let size = NSSize(width: min(CGFloat(columns) * 208 + 36, usable.width),
-                          height: min(viewport + (search.isHidden ? 94 : 128) + (failureFeedback.isHidden ? 0 : 30), usable.height))
-        place(contentSize: size, on: screen)
+        let visibleGrid = CGFloat(plan.gridHeight(rows: plan.visibleRows))
+        let emptyNote: CGFloat = grid.contentHeight > CGFloat(plan.gridHeight(rows: plan.rows)) ? 70 : 0
+        viewportHeight = targets.isEmpty ? grid.contentHeight : min(grid.contentHeight, visibleGrid + emptyNote)
+        let minimumWidth: CGFloat = search.isHidden ? 0 : 420
+        let width = min(max(CGFloat(plan.gridWidth) + 2 * PanefloStyle.Switcher.panelPadding, minimumWidth, 300), usable.width)
+        let height = min(viewportHeight + chromeHeight, usable.height)
+        place(contentSize: NSSize(width: width, height: height), on: screen)
+        layoutChrome()
+    }
+
+    override func layoutChrome() {
+        let bounds = content.bounds
+        let padding = PanefloStyle.Switcher.panelPadding
+        let width = max(0, bounds.width - 2 * padding)
+        var y = padding
+        if !search.isHidden {
+            setFrame(search, NSRect(x: padding, y: y, width: width, height: PanefloStyle.Switcher.searchHeight))
+            y += PanefloStyle.Switcher.searchHeight + 10
+        }
+        let available = max(40, bounds.height - y - (chromeHeight - padding - (search.isHidden ? 0 : PanefloStyle.Switcher.searchHeight + 10)))
+        let viewport = min(viewportHeight, available)
+        setFrame(scroll, NSRect(x: padding, y: y, width: width, height: viewport))
+        y += viewport + 10
+        setFrame(focusLine, NSRect(x: padding + 6, y: y, width: max(0, width - 12), height: FocusLineView.height))
+        y += FocusLineView.height
+        if !failureFeedback.isHidden {
+            setFrame(failureFeedback, NSRect(x: padding, y: y + 4, width: width, height: 16))
+        }
+        updateFadeMask()
+    }
+
+    private func setFrame(_ view: NSView, _ frame: NSRect) { if view.frame != frame { view.frame = frame } }
+
+    private func updateFadeMask() {
+        applyScrollFade(plan.rows > plan.visibleRows, fade: PanefloStyle.Switcher.scrollFade)
     }
 
     override func failureFeedbackChanged() { if isShown { fit() } }
+
+    override func selectionDidChange() {
+        guard let target = selectedTarget, let card = card(for: target) else { focusLine.show(title: "", app: ""); return }
+        if card.isDesktopEntry {
+            focusLine.show(title: SwitcherSession.desktopTitle, app: card.desktopIsCurrent ? "Bring your windows back" : "Show the desktop")
+        } else if let record = card.record {
+            focusLine.show(title: record.title.isEmpty ? record.appName : record.title, app: record.appName,
+                           partner: card.pairPartnerName)
+        }
+    }
 
     // MARK: Navigation
 
@@ -195,20 +282,17 @@ final class SwitcherPanelController: SurfacePanelController {
 
     override func navigateRows(_ delta: Int) {
         guard isShown else { return }
-        let columns = grid.metrics.columns
         let current = selectedTarget.flatMap { targets.firstIndex(of: $0) }
         if mode == .switcher {
             // Rows exist only when the picker wraps; a single row has nothing above or below.
-            if let next = GridNavigation.vertical(from: current, columns: columns, count: targets.count,
-                                                   eligible: Array(targets.indices), direction: delta),
-               session.select(targets[next]) {
+            if let next = plan.vertical(from: current, direction: delta), session.select(targets[next]) {
                 select(target: session.selectedTarget)
             }
             return
         }
         let eligible = Set(eligibleSelectionIDs())
-        let indices = targets.indices.filter { targets[$0].windowID.map(eligible.contains) ?? false }
-        if let next = GridNavigation.vertical(from: current, columns: columns, count: targets.count, eligible: indices, direction: delta) {
+        let indices = Set(targets.indices.filter { targets[$0].windowID.map(eligible.contains) ?? false })
+        if let next = plan.vertical(from: current, direction: delta, eligible: indices) {
             select(target: targets[next])
         }
     }
@@ -219,6 +303,7 @@ final class SwitcherPanelController: SurfacePanelController {
             setSelectedTarget(session.selectedTarget)
             if let service { rebuild(snapshot: service.snapshot) }
             fit()
+            refreshPairs()
             select(target: selectedTarget)
             showDesktopWallpaper()
             return
@@ -246,5 +331,7 @@ final class SwitcherPanelController: SurfacePanelController {
 
     #if PANEFLO_NATIVE_CHECK
     var nativeCheckTargets: [SwitchTarget] { targets }
+    var nativeCheckPlan: SwitcherLayout { plan }
+    var nativeCheckFocusLine: String? { focusLine.nativeCheckText }
     #endif
 }

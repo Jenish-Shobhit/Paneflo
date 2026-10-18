@@ -19,6 +19,13 @@ public enum SwitchTarget: Hashable, Sendable {
     }
 }
 
+/// The two windows of a tile pair, left (or top) first.
+public struct TilePairMembers: Equatable, Hashable, Sendable {
+    public let first: WindowIdentity
+    public let second: WindowIdentity
+    public init(first: WindowIdentity, second: WindowIdentity) { self.first = first; self.second = second }
+}
+
 /// Whether and where the Desktop pseudo-entry appears in a session's loop.
 public enum DesktopLoopMode: Equatable, Sendable {
     /// No Desktop entry. Behaviour is identical to a window-only loop.
@@ -59,24 +66,76 @@ public struct SwitcherSession: Sendable {
     public var orderedIDs: [WindowIdentity] { orderedTargets.compactMap(\.windowID) }
     public var selectedID: WindowIdentity? { selectedTarget?.windowID }
 
-    public init(snapshot: WindowSnapshot, direction: CycleDirection = .forward, desktop: DesktopLoopMode = .hidden) {
+    /// Tile pairs as (left or top, right or bottom), kept adjacent in the loop for this session.
+    public let pairs: [TilePairMembers]
+
+    /// `pairs` places each tile pair's two members side by side, spatial order, at the position of the more recently
+    /// used member. The initial selection is the one the plain MRU loop would choose, so a quick press still returns
+    /// to the previous window.
+    public init(snapshot: WindowSnapshot, direction: CycleDirection = .forward, desktop: DesktopLoopMode = .hidden,
+                pairs: [TilePairMembers] = []) {
         let ordered = snapshot.orderedRecords
-        var targets = ordered.map { SwitchTarget.window($0.id) }
+        let mru = ordered.map(\.id)
+        let present = Set(mru)
+        let pairs = pairs.filter { $0.first != $0.second && present.contains($0.first) && present.contains($0.second) }
+        let arranged = Self.arrange(mru, pairs: pairs)
+        var targets = arranged.map { SwitchTarget.window($0) }
+        var plain = mru.map { SwitchTarget.window($0) }
         switch desktop {
         case .hidden: break
-        case .trailing: targets.append(.desktop)
-        case .current: targets.insert(.desktop, at: min(1, targets.count))
+        case .trailing:
+            targets.append(.desktop); plain.append(.desktop)
+        case .current:
+            plain.insert(.desktop, at: min(1, plain.count))
+            var after = min(1, targets.count)
+            if let first = mru.first, let index = arranged.firstIndex(of: first) {
+                let partnerFollows = index + 1 < arranged.count && pairs.contains { $0.first == first && $0.second == arranged[index + 1] }
+                after = index + (partnerFollows ? 2 : 1)
+            }
+            targets.insert(.desktop, at: min(after, targets.count))
         }
         self.desktopMode = desktop
+        self.pairs = pairs
         self.orderedTargets = targets
         self.records = Dictionary(uniqueKeysWithValues: ordered.map { ($0.id, $0) })
         if desktop == .current, direction == .forward {
-            self.selectedTarget = targets.first
-        } else if targets.count > 1 {
-            self.selectedTarget = direction == .forward ? targets[1] : targets.last
+            self.selectedTarget = plain.first
+        } else if plain.count > 1 {
+            self.selectedTarget = direction == .forward ? plain[1] : plain.last
         } else {
-            self.selectedTarget = targets.first
+            self.selectedTarget = plain.first
         }
+    }
+
+    /// MRU order with each pair's members adjacent (first member first) where the more recent one stood.
+    public static func arrange(_ mru: [WindowIdentity], pairs: [TilePairMembers]) -> [WindowIdentity] {
+        guard !pairs.isEmpty else { return mru }
+        var partnerOf: [WindowIdentity: TilePairMembers] = [:]
+        for pair in pairs where partnerOf[pair.first] == nil && partnerOf[pair.second] == nil {
+            partnerOf[pair.first] = pair; partnerOf[pair.second] = pair
+        }
+        var emitted = Set<WindowIdentity>()
+        var result: [WindowIdentity] = []
+        result.reserveCapacity(mru.count)
+        for id in mru where !emitted.contains(id) {
+            if let pair = partnerOf[id] {
+                for member in [pair.first, pair.second] where emitted.insert(member).inserted { result.append(member) }
+            } else {
+                emitted.insert(id); result.append(id)
+            }
+        }
+        return result
+    }
+
+    /// Indices in `targets` where a pair's first member is directly followed by its second.
+    public func pairStarts(in targets: [SwitchTarget]) -> Set<Int> {
+        guard !pairs.isEmpty, targets.count > 1 else { return [] }
+        var starts = Set<Int>()
+        for index in 0..<(targets.count - 1) {
+            guard case .window(let a) = targets[index], case .window(let b) = targets[index + 1] else { continue }
+            if pairs.contains(where: { $0.first == a && $0.second == b }) { starts.insert(index) }
+        }
+        return starts
     }
 
     /// Explicit refresh for a manually opened surface. Shortcut invocations must not call this.
@@ -84,7 +143,7 @@ public struct SwitcherSession: Sendable {
     public mutating func refresh(snapshot: WindowSnapshot) {
         let query = searchQuery
         let previous = selectedTarget
-        self = SwitcherSession(snapshot: snapshot, desktop: desktopMode)
+        self = SwitcherSession(snapshot: snapshot, desktop: desktopMode, pairs: pairs)
         setSearchQuery(query)
         if let previous { _ = select(previous) }
     }

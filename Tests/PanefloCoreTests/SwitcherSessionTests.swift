@@ -88,4 +88,29 @@ struct SwitcherSessionTests {
         let outcome67 = session.commit() == nil
         #expect(outcome67)
     }
+
+    @Test
+    func testTilePairsSitSideBySideWithoutChangingTheQuickSwitchTarget() {
+        let five = WindowSnapshot(records: (1...5).map { record(UInt32($0)) })
+        // Windows 2 (right half) and 4 (left half) are a pair: they sit together where 2 stood, left first.
+        let pair = TilePairMembers(first: windowID(4), second: windowID(2))
+        var session = SwitcherSession(snapshot: five, pairs: [pair])
+        #expect(session.orderedIDs == [windowID(1), windowID(4), windowID(2), windowID(3), windowID(5)])
+        #expect(session.selectedID == windowID(2), "A quick press still returns to the previous window")
+        #expect(session.pairStarts(in: session.orderedTargets) == [1])
+        session.advance()
+        #expect(session.selectedID == windowID(3))
+        let backward = SwitcherSession(snapshot: five, direction: .backward, pairs: [pair])
+        #expect(backward.selectedID == windowID(5))
+        // The frontmost window's partner follows it; a Desktop that is current goes after the whole pair.
+        let front = SwitcherSession(snapshot: five, desktop: .current, pairs: [TilePairMembers(first: windowID(1), second: windowID(3))])
+        #expect(front.orderedTargets == [.window(windowID(1)), .window(windowID(3)), .desktop, .window(windowID(2)),
+                                         .window(windowID(4)), .window(windowID(5))])
+        #expect(front.selectedTarget == .window(windowID(1)))
+        // Pairs with a missing member are ignored; a search that separates the members drops the pair start.
+        let stale = SwitcherSession(snapshot: five, pairs: [TilePairMembers(first: windowID(9), second: windowID(2))])
+        #expect(stale.orderedIDs == five.orderedRecords.map(\.id) && stale.pairs.isEmpty)
+        #expect(session.pairStarts(in: [.window(windowID(4)), .window(windowID(3))]).isEmpty)
+        #expect(SwitcherSession.arrange([windowID(1), windowID(2)], pairs: []) == [windowID(1), windowID(2)])
+    }
 }

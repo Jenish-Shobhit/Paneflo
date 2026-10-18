@@ -8,14 +8,14 @@ Requires macOS 26 or later on Apple silicon. Free and open source under the [MIT
 
 ## Features
 
-- **Switcher.** Hold ⌘ and press Tab (Shift–Tab goes back). Arrow keys also choose while ⌘ is held. Release ⌘ to focus, Escape to cancel.
+- **Switcher.** Hold ⌘ and press Tab (Shift–Tab goes back). Arrow keys also choose while ⌘ is held. Release ⌘ to focus, Escape to cancel. Windows appear as cards on a compact glass shelf, sized to fit your windows on as few rows as possible, with the selected window's full title underneath. There are no key hints on screen; Settings lists every key.
 - **Tiling in the picker.** ⌘⌥ with the arrows: Left/Right for a half, Up to fill the display, Down to undo. Repeating a half moves the window to the next display.
 - **Tiling anywhere.** ⌃⌥ with the arrows tiles the focused window, ⌃⌥Return fills its display, ⌃⌥Z undoes.
-- **Tile pairs.** Two windows in the left and right (or top and bottom) halves of one display form a pair, marked ▮▮ on their cards. Opening either one from ⌘Tab or the Overview brings its partner forward too (Settings › Tiling › Raise tile pairs together, on by default). ⌘⌥Return in the picker or Overview always opens the selection with its partner; the Overview's right-click menu has Open pair and Ungroup. In the picker, after ⌘⌥← (or →) the hint asks for the other half: Tab to another window and press ⌘⌥→ (or ←) to place it beside the first on the same display and pair them.
-- **Overview.** ⌃⌥Space opens every window in stable slots. Arrows move spatially, search keeps slots in place, Return focuses, Escape closes.
+- **Tile pairs.** Two windows in the left and right (or top and bottom) halves of one display form a pair, shown side by side in ⌘Tab with a link between them. Opening either one from ⌘Tab or the Overview brings its partner forward too (Settings › Tiling › Raise tile pairs together, on by default). ⌘⌥Return in the picker or Overview always opens the selection with its partner; the Overview's right-click menu has Open Pair, Open Alone and Unpair. In the picker, after ⌘⌥← (or →) the selected card shows a faint outline of the other half: Tab to another window and press ⌘⌥→ (or ←) to place it beside the first on the same display and pair them.
+- **Overview.** ⌃⌥Space opens every window in stable slots on a translucent overlay over your desktop. Arrows move spatially, search keeps slots in place, Return focuses, Escape or a click on the background closes. A free slot (where a closed window was) takes the next new window; drag a window onto it to place it there, or onto another window to swap them.
 - **Gesture (optional, experimental).** Three-finger swipe up opens the Overview, down closes it.
 - **Desktop entry.** A Desktop card at the end of the ⌘Tab loop and a Desktop tile in the Overview reveal the desktop by hiding other apps. Optional in Settings.
-- **Previews (optional).** Cached snapshots labelled with their age, and one live preview for the selected window. Each card says Live, Snapshot, Loading, Unavailable or Paused.
+- **Previews (optional).** Cached snapshots and one live preview for the selected window, shown without labels so the card looks like the window. A small symbol marks minimized, hidden, other-Space and paused previews; VoiceOver (and the Overview tooltip) says whether a picture is live or a snapshot and how old it is.
 - **Window actions while switching.** With ⌘ held, W closes the selected window, M minimizes it, H hides its app and Q quits its app; the picker stays open. Other keys pressed while switching never reach the app behind it. Finder is never quit.
 
 ⌘Tab and the tiling shortcuts start by themselves once setup is done; previews need Screen Recording, and the gesture is opt-in in Settings.
