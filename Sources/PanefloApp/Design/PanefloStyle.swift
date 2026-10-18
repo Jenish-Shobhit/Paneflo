@@ -204,6 +204,12 @@ enum PanefloStyle {
             return value
         }
 
+        /// Re-reads the options now (called from the coordinator's change observer, so ordering is deterministic).
+        @MainActor static func refresh() {
+            if cached == nil { _ = current }
+            cached = read()
+        }
+
         @MainActor static func read() -> Accessibility {
             let workspace = NSWorkspace.shared
             return Accessibility(increaseContrast: workspace.accessibilityDisplayShouldIncreaseContrast,
@@ -224,10 +230,16 @@ enum PanefloStyle {
         appearance.bestMatch(from: [.darkAqua, .vibrantDark, .aqua, .vibrantLight]).map { $0 == .darkAqua || $0 == .vibrantDark } ?? false
     }
 
+    /// The plain appearance used to resolve layer colors. Views inside materials report a vibrant appearance whose
+    /// colors assume vibrancy blending, which plain layers do not use.
+    static func layerAppearance(for appearance: NSAppearance) -> NSAppearance {
+        NSAppearance(named: isDark(appearance) ? .darkAqua : .aqua) ?? appearance
+    }
+
     /// Resolves a semantic color for a layer under `appearance`.
     @MainActor static func cgColor(_ color: NSColor, for appearance: NSAppearance) -> CGColor {
         var resolved = color.cgColor
-        appearance.performAsCurrentDrawingAppearance { resolved = color.cgColor }
+        layerAppearance(for: appearance).performAsCurrentDrawingAppearance { resolved = color.cgColor }
         return resolved
     }
 

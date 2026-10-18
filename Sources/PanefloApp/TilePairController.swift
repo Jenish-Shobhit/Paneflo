@@ -6,7 +6,7 @@ import PanefloCore
 /// window-server call itself.
 @MainActor
 final class TilePairController {
-    static let raiseTogetherKey = "tilePairs.raiseTogether"
+    static let raiseTogetherKey = SurfacePreferences.Key.raiseTogether
 
     private(set) var groups = TileGroupRegistry()
     private(set) var snap = SnapAssistSession()
@@ -16,16 +16,15 @@ final class TilePairController {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        raiseTogetherValue = defaults.object(forKey: Self.raiseTogetherKey) as? Bool ?? true
+        raiseTogetherValue = SurfacePreferences(defaults: defaults).raiseTogether
     }
 
     /// Opening a paired window brings its partner forward too (default on).
     var raiseTogether: Bool {
         get { raiseTogetherValue }
-        set { raiseTogetherValue = newValue; defaults.set(newValue, forKey: Self.raiseTogetherKey) }
+        set { guard newValue != raiseTogetherValue else { return }; raiseTogetherValue = newValue; defaults.set(newValue, forKey: Self.raiseTogetherKey) }
     }
 
-    var pairingHint: String? { snap.pairingHint }
 
     private var now: Double { ProcessInfo.processInfo.systemUptime }
 
@@ -37,8 +36,11 @@ final class TilePairController {
         return changed
     }
 
-    /// The small pair indicator for a card; nil when the window has no partner.
-    func badge(for id: WindowIdentity) -> String? { groups.group(containing: id) == nil ? nil : "▮▮ Paired" }
+    /// Snap assist is waiting for the other half: the half to fill and the window already placed.
+    var pendingHalf: (zone: LayoutZone, anchor: WindowIdentity)? {
+        guard let anchor = snap.anchor, snap.partner == nil, let zone = SnapAssistSession.complement(of: anchor.zone) else { return nil }
+        return (zone, anchor.id)
+    }
 
     func isPaired(_ id: WindowIdentity) -> Bool { groups.group(containing: id) != nil }
 

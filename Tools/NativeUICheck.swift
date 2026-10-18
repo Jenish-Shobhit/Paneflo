@@ -130,6 +130,7 @@ struct NativeUICheck {
         try await checkDesktopEntry(desktop, service: service, records: records)
         try await checkLifecycle(desktop, service: service, records: records)
         try await checkTilePairs(desktop, service: service, records: records)
+        try await checkRedesignedSurfaces(desktop, service: service, records: records, output: output)
         service.nativeCheckInstall(records(20))
         await settle()
         try await checkInputRouting(desktop)
@@ -331,10 +332,21 @@ struct NativeUICheck {
         try require(switcherFrame.size != overviewFrame.size, "Switcher must keep its own size")
         try require(desktop.nativeCheckOverviewWindow.frame == overviewFrame, "Presenting the switcher must not touch the Overview panel")
 
-        // Selection redraws only the previous and the new card.
+        // Selection is layer properties on at most four cards: no redraw, no layout, no animation, no image work.
+        try require(desktop.nativeCheckSwitcherWindow.animationBehavior == .none, "The switcher panel must never animate")
         CardView.invalidations = 0
+        CardView.selectionChromeChanges.removeAll()
+        let passes = CardGrid.positionPasses, iconMisses = IconContents.misses, glyphRenders = GlyphImages.renders
+        let framesBefore = desktop.nativeCheckCards.map(\.frame)
         desktop.switchStep(backwards: false)
-        try require(CardView.invalidations == 2, "A Tab step must redraw exactly two cards, redrew \(CardView.invalidations)")
+        try require(CardView.invalidations == 0, "A Tab step must not redraw any card, redrew \(CardView.invalidations)")
+        try require(CardView.selectionChromeChanges.count <= 4, "A Tab step may change at most four cards, changed \(CardView.selectionChromeChanges.count)")
+        try require(CardGrid.positionPasses == passes && desktop.nativeCheckCards.map(\.frame) == framesBefore, "A Tab step must not lay out cards")
+        try require(IconContents.misses == iconMisses && GlyphImages.renders == glyphRenders, "A Tab step must not prepare any image")
+        try require(!desktop.nativeCheckCards.contains(where: \.nativeCheckAnimating), "Selection must not animate")
+        for _ in 0..<20 { desktop.switchStep(backwards: false) }
+        try require(CardView.invalidations == 0 && CardGrid.positionPasses == passes, "Twenty Tab steps must not redraw or lay out")
+        try require(desktop.nativeCheckCards.allSatisfy { !$0.nativeCheckHasToolTip }, "The held switcher shows no tooltips")
         guard let reusedID = desktop.nativeCheckSelected, let reusedCard = desktop.nativeCheckCard(for: reusedID) else {
             throw Failure.check("Missing selected switcher card")
         }
@@ -376,7 +388,10 @@ struct NativeUICheck {
         try require(card.menu == nil, "Card menus must be built lazily")
         let rightClick = NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
             windowNumber: desktop.nativeCheckWindow.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
-        try require(card.menu(for: rightClick)?.items.count == 3, "A right-click must build the slot menu")
+        let slotMenu = card.menu(for: rightClick)?.items.map(\.title) ?? []
+        try require(["Open", "Tile Left", "Pin Slot", "Move Slot Left", "Move Slot Right"].allSatisfy(slotMenu.contains),
+                    "A right-click must build the slot menu, got \(slotMenu)")
+        try require(card.nativeCheckHasToolTip, "Overview cards offer an on-hover tooltip")
 
         // A mouse-down outside the panel closes the Overview; the monitor exists only while it is visible.
         try require(desktop.nativeCheckOutsideClickMonitorInstalled && outsideMonitors == 1, "Visible Overview must install one outside-click monitor")
@@ -492,6 +507,37 @@ struct NativeUICheck {
         try? png.write(to: URL(fileURLWithPath: output).appendingPathComponent(name))
     }
 
+    /// Renders a surface's chrome layers over an invented wallpaper and an approximation of its material (layer
+    /// rendering cannot capture system glass or blur), for design review of the card and slot layers.
+    @MainActor static func writeSurfacePreviewPNG(_ content: NSView, name: String, dark: Bool, radius: CGFloat, material: CGFloat) {
+        let output = CommandLine.arguments.dropFirst().first ?? NSTemporaryDirectory()
+        guard let layer = content.layer else { return }
+        let scale: CGFloat = 2, pad: CGFloat = radius > 0 ? 40 : 0
+        let size = CGSize(width: content.bounds.width + 2 * pad, height: content.bounds.height + 2 * pad)
+        guard let context = CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8,
+                                      bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+        context.scaleBy(x: scale, y: scale)
+        let wallpaper = dark ? [CGColor(red: 0.06, green: 0.27, blue: 0.25, alpha: 1), CGColor(red: 0.16, green: 0.13, blue: 0.33, alpha: 1), CGColor(red: 0.35, green: 0.17, blue: 0.12, alpha: 1)]
+            : [CGColor(red: 0.55, green: 0.83, blue: 0.78, alpha: 1), CGColor(red: 0.62, green: 0.6, blue: 0.93, alpha: 1), CGColor(red: 0.96, green: 0.68, blue: 0.56, alpha: 1)]
+        if let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: wallpaper as CFArray, locations: [0, 0.55, 1]) {
+            context.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: size.width, y: size.height), options: [])
+        }
+        let panel = CGRect(x: pad, y: pad, width: content.bounds.width, height: content.bounds.height)
+        context.addPath(CGPath(roundedRect: panel, cornerWidth: radius, cornerHeight: radius, transform: nil))
+        context.setFillColor(dark ? CGColor(red: 0.12, green: 0.12, blue: 0.13, alpha: material) : CGColor(red: 0.97, green: 0.97, blue: 0.98, alpha: material))
+        context.fillPath()
+        // Layer rendering draws in a flipped space for flipped views; match the view's own geometry.
+        context.saveGState()
+        context.translateBy(x: pad, y: pad + content.bounds.height)
+        context.scaleBy(x: 1, y: -1)
+        layer.render(in: context)
+        context.restoreGState()
+        guard let image = context.makeImage(),
+              let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return }
+        try? png.write(to: URL(fileURLWithPath: output).appendingPathComponent(name))
+    }
+
     static func makePixelBuffer() -> CVPixelBuffer {
         var buffer: CVPixelBuffer?
         let attributes: [CFString: Any] = [kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary]
@@ -546,8 +592,10 @@ struct NativeUICheck {
                     "A first snapshot must reach its card without redrawing any card, redrew \(CardView.invalidations)")
         try require(previews.cards.filter { $0.id != other }.allSatisfy { desktop.nativeCheckCard(for: $0.id)?.pixels.hasContent == false },
                     "A snapshot must reach only its own card")
-        try require(otherCard.nativeCheckStatusText?.hasPrefix("Snapshot · ") == true && !otherCard.nativeCheckLiveDotVisible,
-                    "A snapshot must be labelled with its age, got \(otherCard.nativeCheckStatusText ?? "nil")")
+        try require(otherCard.nativeCheckStatusText?.hasPrefix("Snapshot · ") == true && otherCard.nativeCheckIndicatorSymbol == nil,
+                    "A snapshot keeps its age in the spoken label and shows no chip, got \(otherCard.nativeCheckStatusText ?? "nil")")
+        try require(otherCard.accessibilityHelp()?.hasPrefix("Snapshot, ") == true && otherCard.nativeCheckBadgeVisible,
+                    "A snapshot card must speak its age and badge its app")
         CardView.invalidations = 0
         previews.deliverSnapshot(secondImage, for: other)
         try require(CardView.invalidations == 0 && otherCard.nativeCheckLayerContents === secondImage,
@@ -558,8 +606,9 @@ struct NativeUICheck {
         do {
             guard let frame = previews.deliverLive(for: selected) else { throw Failure.check("Live frame was refused") }
             try require(selectedCard.nativeCheckLayerContents === frame.surface, "Live frames must be shown zero-copy")
-            try require(selectedCard.nativeCheckStatusText == "Live" && selectedCard.nativeCheckLiveDotVisible,
-                        "A live card must show the Live label and dot")
+            try require(selectedCard.nativeCheckStatusText == "Live" && selectedCard.nativeCheckIndicatorSymbol == nil
+                        && selectedCard.accessibilityHelp() == "Live window preview",
+                        "A live card looks like the window (no chip) and says Live to VoiceOver")
             try require(CardView.invalidations == 0 && previews.liveStreamCount == 1, "The first live frame must not redraw any card")
         }
         CardView.invalidations = 0
@@ -572,11 +621,21 @@ struct NativeUICheck {
         // Tab with previews attached: still two redraws; the outgoing card keeps its last frame as a snapshot.
         CardView.invalidations = 0
         desktop.switchStep(backwards: false)
-        try require(CardView.invalidations == 2, "A Tab step with previews must redraw exactly two cards, redrew \(CardView.invalidations)")
+        try require(CardView.invalidations == 0, "A Tab step with previews must not redraw any card, redrew \(CardView.invalidations)")
         try require(previews.selected == desktop.nativeCheckSelected && previews.liveStreamCount == 0,
                     "A selection change must move the single stream")
         try require(selectedCard.pixels.hasContent && selectedCard.nativeCheckStatusText?.hasPrefix("Snapshot · ") == true
-                    && !selectedCard.nativeCheckLiveDotVisible, "The outgoing card must keep its last frame, labelled as a snapshot")
+                    && selectedCard.nativeCheckIndicatorSymbol == nil, "The outgoing card must keep its last frame, labelled as a snapshot")
+        // Unavailable and paused states get a small glyph; the words stay in the spoken label.
+        let indicatorID = previews.cards.first(where: { $0.id != selected && $0.id != other })?.id ?? other
+        let indicatorCard = desktop.nativeCheckCard(for: indicatorID)
+        for (presentation, symbol) in [(PreviewPresentation.unavailable(.minimized), "minus"), (.unavailable(.appHidden), "eye.slash"),
+                                       (.unavailable(.otherSpace), "square.on.square"), (.paused(.memoryPressure), "pause.fill"),
+                                       (.unavailable(.captureFailed), nil), (.loading, nil)] as [(PreviewPresentation, String?)] {
+            previews.forceDeliver(PreviewUpdate(id: indicatorID, content: .keep, presentation: presentation))
+            try require(indicatorCard?.nativeCheckIndicatorSymbol == symbol,
+                        "\(presentation) must show \(symbol ?? "no glyph"), got \(indicatorCard?.nativeCheckIndicatorSymbol ?? "none")")
+        }
 
         // Dismiss: hidden, zero streams, no pixels, no frames, no labels.
         desktop.dismiss(restorePreviousApplication: false)
@@ -682,7 +741,7 @@ struct NativeUICheck {
             throw Failure.check("Missing the Desktop card")
         }
         try require(card.nativeCheckLayerContents === fake.wallpaper && card.nativeCheckStatusText == "Wallpaper"
-                    && !card.nativeCheckLiveDotVisible && card.previewLabel != "Live",
+                    && card.nativeCheckIndicatorSymbol == nil && card.previewLabel != "Live",
                     "The Desktop card must show the wallpaper labelled Wallpaper, never Live")
         try require(fake.refreshRequests > 0, "Presenting must ask for a wallpaper refresh off the input path")
         try require(previews.cards.allSatisfy { id in windows.contains { $0.id == id.id } } && previews.cards.count <= 20,
@@ -692,11 +751,11 @@ struct NativeUICheck {
         CardView.invalidations = 0
         desktop.switchStep(backwards: true)
         try require(desktop.nativeCheckSelectedTarget == .window(windows[0].id), "Shift-Tab from the second stop must reach the first")
-        try require(CardView.invalidations == 2, "A step must redraw two cards, redrew \(CardView.invalidations)")
+        try require(CardView.invalidations == 0, "A step must not redraw cards, redrew \(CardView.invalidations)")
         CardView.invalidations = 0
         desktop.switchStep(backwards: true)
         try require(desktop.nativeCheckSelectedTarget == .desktop, "Shift-Tab from the first stop must wrap to the Desktop")
-        try require(CardView.invalidations == 2, "Stepping onto the Desktop must redraw two cards, redrew \(CardView.invalidations)")
+        try require(CardView.invalidations == 0, "Stepping onto the Desktop must not redraw cards, redrew \(CardView.invalidations)")
         try require(previews.visible && previews.selected == nil && previews.liveStreamCount == 0,
                     "The Desktop selection must never be sent to the capture engine as a live target")
         try require(card.selected && card.nativeCheckStatusText == "Wallpaper", "The selected Desktop card keeps its Wallpaper label")
@@ -762,8 +821,8 @@ struct NativeUICheck {
         try require(tile.nativeCheckLayerContents === fake.wallpaper, "The home tile must show the wallpaper")
         CardView.invalidations = 0
         desktop.navigate(.backward)
-        try require(desktop.nativeCheckSelectedTarget == .desktop && CardView.invalidations == 2,
-                    "Left from the first window must select the home tile with two redraws, redrew \(CardView.invalidations)")
+        try require(desktop.nativeCheckSelectedTarget == .desktop && CardView.invalidations == 0,
+                    "Left from the first window must select the home tile without redraws, redrew \(CardView.invalidations)")
         try require(previews.selected == nil && previews.liveStreamCount == 0, "The home tile must never stream")
         desktop.navigate(.forward)
         try require(desktop.nativeCheckSelected == firstWindow, "Right from the tile must return to the first window")
@@ -811,7 +870,7 @@ struct NativeUICheck {
     static func sameSize(_ a: NSSize, _ b: NSSize) -> Bool { abs(a.width - b.width) <= 1 && abs(a.height - b.height) <= 1 }
 
     @MainActor static func fits(_ window: NSWindow) -> NSScreen? {
-        NSScreen.screens.first { $0.visibleFrame.insetBy(dx: 15, dy: 15).contains(window.frame) }
+        NSScreen.screens.first { $0.visibleFrame.insetBy(dx: -1, dy: -1).contains(window.frame) }
     }
 
     /// Screen-parameter changes re-fit or close surfaces; lock, display sleep and session switches dismiss,
@@ -840,27 +899,154 @@ struct NativeUICheck {
         try require(desktop.pairs.groups.groups.count == 1 && desktop.pairs.groups.partner(of: windows[1].id) == windows[2].id,
                     "Windows in complementary halves must pair")
         desktop.present(mode: .switcher, fromShortcut: true)
-        try require(desktop.nativeCheckCard(for: windows[1].id)?.pairBadge != nil && desktop.nativeCheckCard(for: windows[2].id)?.pairBadge != nil
-                    && desktop.nativeCheckCard(for: windows[0].id)?.pairBadge == nil, "The switcher must badge exactly the paired cards")
+        try require(desktop.nativeCheckCard(for: windows[1].id)?.pairPartnerName != nil && desktop.nativeCheckCard(for: windows[2].id)?.pairPartnerName != nil
+                    && desktop.nativeCheckCard(for: windows[0].id)?.pairPartnerName == nil, "The switcher must link exactly the paired cards")
+        let targets = desktop.nativeCheckSwitcherTargets
+        guard let leftIndex = targets.firstIndex(of: .window(windows[1].id)), let leftCard = desktop.nativeCheckCard(for: windows[1].id),
+              let rightCard = desktop.nativeCheckCard(for: windows[2].id) else { throw Failure.check("Missing pair cards") }
+        try require(targets.indices.contains(leftIndex + 1) && targets[leftIndex + 1] == .window(windows[2].id),
+                    "Pair members must sit side by side, left first, got \(targets)")
+        try require(leftCard.nativeCheckSeamVisible && !rightCard.nativeCheckSeamVisible && leftCard.frame.minY == rightCard.frame.minY,
+                    "A pair must share one row with a link at the seam")
+        try require(leftCard.accessibilityLabel()?.hasSuffix(", tiled with Synthetic app 1") == true,
+                    "A pair member must say what it is tiled with, got \(leftCard.accessibilityLabel() ?? "nil")")
+        desktop.nativeCheckSelect(.window(windows[1].id))
+        try require(leftCard.nativeCheckRingVisible && rightCard.nativeCheckPartnerRingVisible && desktop.nativeCheckActivePairBackdrops == 1,
+                    "Selecting a member must ring it, dash its partner and wash the pair background")
+        desktop.nativeCheckSelect(.window(windows[0].id))
+        try require(!rightCard.nativeCheckPartnerRingVisible && desktop.nativeCheckActivePairBackdrops == 0, "Leaving the pair clears its highlight")
         desktop.dismiss(restorePreviousApplication: false)
         desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
         await settle()
-        guard let card = desktop.nativeCheckCard(for: windows[2].id), card.pairBadge != nil else {
+        guard let card = desktop.nativeCheckCard(for: windows[2].id), card.pairPartnerName != nil else {
             throw Failure.check("The Overview must badge a paired card")
         }
         let titles = card.menuProvider?(card)?.items.map(\.title) ?? []
-        try require(titles.contains("Open pair") && titles.contains("Ungroup"), "The Overview menu must offer Open pair and Ungroup, got \(titles)")
+        try require(titles.contains("Open Pair") && titles.contains("Open Alone") && titles.contains("Unpair"),
+                    "The Overview menu must offer Open Pair, Open Alone and Unpair, got \(titles)")
         let plain = desktop.nativeCheckCard(for: windows[0].id)
-        try require(plain.flatMap { $0.menuProvider?($0) }?.items.contains { $0.title == "Ungroup" } == false,
-                    "An unpaired card must not offer Ungroup")
+        try require(plain.flatMap { $0.menuProvider?($0) }?.items.contains { $0.title == "Unpair" } == false,
+                    "An unpaired card must not offer Unpair")
         desktop.surfaceUngroup(windows[2].id)
-        try require(card.pairBadge == nil && desktop.nativeCheckCard(for: windows[1].id)?.pairBadge == nil
+        try require(card.pairPartnerName == nil && desktop.nativeCheckCard(for: windows[1].id)?.pairPartnerName == nil
                     && desktop.pairs.groups.groups.isEmpty, "Ungroup must clear both badges")
         service.nativeCheckInstall(windows)
         await settle()
         try require(desktop.pairs.groups.groups.isEmpty, "An ungrouped pair must not be detected again while it stays put")
         desktop.dismiss(restorePreviousApplication: false)
         print("PASS tile pairs")
+    }
+
+    /// The redesigned switcher and Overview: size tiers and the title line, the free-slot well and its hover and
+    /// drop states, drag-to-place and swap, removing free slots, snap-assist ghost, and the accessibility display
+    /// options. Renders light/dark/contrast PNGs of the layer tree. No window is focused, moved or captured.
+    @MainActor static func checkRedesignedSurfaces(_ desktop: DesktopController, service: WindowService,
+                                                   records: (Int) -> [WindowRecord], output: String) async throws {
+        print("START redesigned surfaces")
+        desktop.desktopEntry = nil
+        let all = records(12)
+        service.nativeCheckInstall(all)
+        await settle()
+        // Earlier checks left free slots behind (100 windows, then 20); start from a clean slot order.
+        desktop.resetSlots()
+
+        // Held switcher: one tier for all cards, no heading or hints, the title line names the selection.
+        desktop.present(mode: .switcher, fromShortcut: true)
+        let plan = desktop.nativeCheckSwitcherPlan
+        let cards = desktop.nativeCheckCards
+        try require(plan.positions.count == cards.count && Set(cards.map(\.frame.size)).count == 1, "Switcher cards must share one tier size")
+        guard let selected = desktop.nativeCheckSelected, let record = all.first(where: { $0.id == selected }) else { throw Failure.check("No selection") }
+        try require(desktop.nativeCheckFocusLine?.hasPrefix(record.title) == true, "The title line must name the selection, got \(desktop.nativeCheckFocusLine ?? "nil")")
+        try require(desktop.nativeCheckCard(for: selected)?.nativeCheckTitle == record.title
+                    && desktop.nativeCheckCard(for: selected)?.nativeCheckSubtitle == record.appName, "A card shows the title, then the app")
+        // Snap assist is a faint glyph on the selected card, never text.
+        desktop.nativeCheckSetSnapAssist(zone: .rightHalf, anchor: all[0].id)
+        try require(desktop.nativeCheckCard(for: selected)?.nativeCheckCornerSymbol == "rectangle.righthalf.filled", "Snap assist marks the selected card")
+        desktop.switchStep(backwards: false)
+        try require(desktop.nativeCheckCard(for: selected)?.nativeCheckCornerSymbol == nil
+                    && desktop.nativeCheckCard(for: desktop.nativeCheckSelected!)?.nativeCheckCornerSymbol == "rectangle.righthalf.filled",
+                    "The snap-assist glyph follows the selection")
+        desktop.nativeCheckSetSnapAssist(zone: nil, anchor: nil)
+        writeLayerPNG(desktop.nativeCheckSwitcherWindow, name: "native-switcher-redesign.png")
+        if let current = desktop.nativeCheckSelected.flatMap({ desktop.nativeCheckCard(for: $0) }) {
+            try require(current.nativeCheckRingVisible && current.layer?.masksToBounds == false,
+                        "The selection ring must draw outside the card, got \(current.nativeCheckRingDebug)")
+        }
+        desktop.dismiss(restorePreviousApplication: false)
+
+        // Overview: closing window 5 leaves a free slot in place.
+        desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
+        await settle()
+        desktop.dismiss(restorePreviousApplication: false)
+        service.nativeCheckInstall(all.filter { $0.id != all[4].id })
+        await settle()
+        desktop.focusOverview(); desktop.nativeCheckSuppressExternalRestore()
+        await settle()
+        let overview = desktop.nativeCheckOverview
+        guard let free = desktop.nativeCheckCards.first(where: { $0.record == nil && !$0.isDesktopEntry }) else {
+            throw Failure.check("A closed window must leave a free slot")
+        }
+        try require(free.nativeCheckVacancyLabel == "Free slot" && free.accessibilityLabel() == "Free slot", "The free slot must read Free slot")
+        try require(free.nativeCheckVacancyHintOpacity == 0, "No instructions are shown at rest")
+        free.nativeCheckSetHovered(true)
+        try require(free.nativeCheckVacancyHintOpacity == 1, "Hovering a free slot shows its hint")
+        free.nativeCheckSetHovered(false)
+        free.isDropTarget = true
+        try require(free.nativeCheckVacancyDropLabelOpacity == 1, "A drag over a free slot shows the drop state")
+        free.isDropTarget = false
+        try require(overview.nativeCheckCountText.contains("1 free slot"), "The header counts free slots, got \(overview.nativeCheckCountText)")
+        writeLayerPNG(desktop.nativeCheckOverviewWindow, name: "native-overview-redesign.png")
+
+        // Drag a window onto the free slot: it moves there and its old slot becomes free; nothing else shifts.
+        let before = desktop.nativeCheckSlots
+        guard let freeIndex = before.firstIndex(where: { $0 == nil }), let lastWindow = before.lastIndex(where: { $0 != nil }),
+              let source = desktop.nativeCheckCard(for: before[lastWindow]!) else { throw Failure.check("Missing drag fixture") }
+        overview.nativeCheckDrag(from: source, to: free)
+        var after = before
+        after.swapAt(freeIndex, lastWindow)
+        try require(desktop.nativeCheckSlots == after, "Dropping on a free slot must move only that window, got \(desktop.nativeCheckSlots)")
+        // Drag onto another window: the two swap.
+        guard let first = desktop.nativeCheckCard(for: after[0]!), let second = desktop.nativeCheckCard(for: after[1]!) else { throw Failure.check("Missing swap fixture") }
+        overview.nativeCheckDrag(from: first, to: second)
+        var swapped = after
+        swapped.swapAt(0, 1)
+        try require(desktop.nativeCheckSlots == swapped, "Dropping on a window must swap the two slots")
+        try require(desktop.removeFreeSlots() == 1 && !desktop.nativeCheckSlots.contains(where: { $0 == nil }), "Remove Free Slots must drop the vacancy")
+
+        // Accessibility display options: Reduce Transparency drops the scrim for an opaque backdrop.
+        PanefloStyle.Accessibility.nativeCheckOverride(.init(increaseContrast: true, reduceTransparency: true, reduceMotion: true, differentiateWithoutColor: false))
+        CardPalette.invalidate()
+        overview.nativeCheckRefreshBackdrop()
+        for card in desktop.nativeCheckCards { card.refreshColors() }
+        try require(!overview.nativeCheckScrimVisible && overview.nativeCheckOpaqueBackdropVisible, "Reduce Transparency must use an opaque backdrop")
+        try require(desktop.nativeCheckCards.filter { $0.record != nil }.allSatisfy { $0.layer?.borderWidth == 1 }, "Increase Contrast must border every card")
+        writeLayerPNG(desktop.nativeCheckOverviewWindow, name: "native-overview-contrast.png")
+        PanefloStyle.Accessibility.nativeCheckOverride(nil)
+        CardPalette.invalidate()
+        overview.nativeCheckRefreshBackdrop()
+        for card in desktop.nativeCheckCards { card.refreshColors() }
+        try require(desktop.nativeCheckCards.filter { $0.record != nil && !$0.selected }.allSatisfy { $0.layer?.borderWidth == 0 }
+                    || PanefloStyle.Accessibility.current.increaseContrast, "Without Increase Contrast cards have no border")
+
+        // Both appearances render.
+        for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+            desktop.nativeCheckOverviewWindow.appearance = NSAppearance(named: appearance)
+            await settle()
+            writeSurfacePreviewPNG(desktop.nativeCheckOverviewContent, name: "native-overview-\(name).png", dark: name == "dark", radius: 0, material: 0.55)
+        }
+        desktop.nativeCheckOverviewWindow.appearance = nil
+        desktop.dismiss(restorePreviousApplication: false)
+        for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+            desktop.nativeCheckSwitcherWindow.appearance = NSAppearance(named: appearance)
+            desktop.present(mode: .switcher, fromShortcut: true)
+            await settle()
+            writeSurfacePreviewPNG(desktop.nativeCheckSwitcherContent, name: "native-switcher-\(name).png", dark: name == "dark", radius: 28, material: 0.72)
+            desktop.dismiss(restorePreviousApplication: false)
+        }
+        desktop.nativeCheckSwitcherWindow.appearance = nil
+        _ = output
+        await settle()
+        print("PASS redesigned surfaces")
     }
 
     @MainActor static func checkLifecycle(_ desktop: DesktopController, service: WindowService,
