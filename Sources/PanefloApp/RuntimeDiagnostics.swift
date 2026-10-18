@@ -5,6 +5,11 @@ import Foundation
 enum RuntimeDiagnostics {
     static let isEnabled = CommandLine.arguments.contains("--diagnostics")
 
+    /// `--bench-no-input`: benchmark launches (scripts/bench.sh launch) only. The process installs no event tap and no
+    /// trackpad listener, shows no setup window and runs no update check, so it can run next to the owner's session
+    /// without touching input. Never set by the app itself or by a normal launch.
+    static let benchNoInput = CommandLine.arguments.contains("--bench-no-input")
+
     static func mark(_ phase: String) {
         guard isEnabled else { return }
         let line = "Paneflo startup: \(phase)\n"

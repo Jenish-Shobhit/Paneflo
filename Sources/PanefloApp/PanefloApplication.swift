@@ -124,7 +124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windows.start()
         let model = reconcile(permissions)
         // Never Settings at launch. Setup only while something required is missing, and once per launch.
-        let showsSetup = model.showsAtLaunch(alreadyShownThisLaunch: false)
+        let showsSetup = !RuntimeDiagnostics.benchNoInput && model.showsAtLaunch(alreadyShownThisLaunch: false)
         if showsSetup {
             let step = SetupFlow.openingStep(for: model, welcomeSeen: setupPreferences.welcomeSeen)
             setupPreferences.welcomeSeen = true
@@ -138,8 +138,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.capture.prewarm()
         }
         // updates hook: isBusy defers automatic checks and offers while a switcher or overview session is showing.
-        UpdateController.shared.start(isBusy: { [weak self] in self?.desktop?.isVisible == true },
-                                      report: { [weak self] in self?.desktop?.setStatus($0) })
+        if !RuntimeDiagnostics.benchNoInput { UpdateController.shared.start(isBusy: { [weak self] in self?.desktop?.isVisible == true },
+                                      report: { [weak self] in self?.desktop?.setStatus($0) }) }
         RuntimeDiagnostics.mark("startup menuReady=true settingsShown=false setupShown=\(showsSetup) staleHint=\(model.showsStaleHint)")
     }
 

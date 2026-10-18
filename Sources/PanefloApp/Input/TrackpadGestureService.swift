@@ -74,6 +74,7 @@ final class TrackpadGestureService {
     /// True means user enable intent was accepted; .active confirms hardware observation.
     @discardableResult
     func start() -> Bool {
+        if RuntimeDiagnostics.benchNoInput { return false }
         if isEnabled { return true }
         cancelTransientRetry()
         transientRetry.reset()

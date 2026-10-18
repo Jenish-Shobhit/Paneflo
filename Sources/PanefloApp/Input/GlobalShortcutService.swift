@@ -60,6 +60,7 @@ final class GlobalShortcutService {
     /// The user (or startup restore) enables shortcuts. Also the manual re-enable after an interruption.
     @discardableResult
     func start(configuration: Configuration) -> Bool {
+        if RuntimeDiagnostics.benchNoInput { return false }
         endRecovery()
         recovery.reset()
         intendedConfiguration = configuration.isEmpty ? nil : configuration
