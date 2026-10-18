@@ -62,6 +62,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.onToggleGesture = { [weak self] in self?.setGestures($0) }
         controller.onToggleShortcuts = { [weak self] in self?.setShortcuts($0) }
         shortcuts.onAction = { [weak self] in self?.handle($0) }
+        shortcuts.onWindowCommand = { [weak self] command in
+            guard let self, let id = self.desktop?.switcherSelection else { return }
+            self.windows.perform(command, on: id)
+        }
         shortcuts.onStateChange = { [weak self, weak controller] state in
             controller?.setShortcutsEnabled(state == .active)
             if state == .active, let description = self?.shortcuts.installedTapDescription { controller?.setStatus("Shortcuts installed: \(description). ⌘Tab and ⌃⌥ controls are enabled.") }

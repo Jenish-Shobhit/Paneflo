@@ -24,6 +24,37 @@ public enum ShortcutAction: Sendable {
     case overview, tile(LayoutZone), tileSelected(LayoutZone), restore
 }
 
+/// Command chords that act on the held switcher's selected window instead of the frontmost app.
+/// Delivered on `ShortcutRoute.windowCommand`, separate from `ShortcutAction`.
+public enum SwitcherWindowCommand: Sendable, Equatable {
+    /// Command-W: press the window's close button.
+    case close
+    /// Command-M: minimize the window.
+    case minimize
+    /// Command-H: hide the window's app.
+    case hideApplication
+    /// Command-Q: ask the window's app to quit.
+    case quitApplication
+
+    /// Physical ANSI key codes: W 13, M 46, H 4, Q 12.
+    public init?(keyCode: UInt16) {
+        switch keyCode {
+        case 13: self = .close
+        case 46: self = .minimize
+        case 4: self = .hideApplication
+        case 12: self = .quitApplication
+        default: return nil
+        }
+    }
+
+    /// Paneflo never acts on itself, and never quits Finder.
+    public func isPermitted(bundleIdentifier: String?, isPaneflo: Bool) -> Bool {
+        if isPaneflo { return false }
+        if self == .quitApplication, bundleIdentifier == "com.apple.finder" { return false }
+        return true
+    }
+}
+
 public struct ShortcutConfiguration: Sendable {
     public var switcherEnabled: Bool
     public var overview: ShortcutChord?
@@ -39,7 +70,11 @@ public enum ShortcutEventKind: Sendable { case down, up, modifiersChanged }
 public struct ShortcutRoute: Sendable {
     public var suppress = false
     public var action: ShortcutAction?
-    public init(suppress: Bool = false, action: ShortcutAction? = nil) { self.suppress = suppress; self.action = action }
+    /// A Command chord aimed at the held switcher's selected window. The session keeps switching.
+    public var windowCommand: SwitcherWindowCommand?
+    public init(suppress: Bool = false, action: ShortcutAction? = nil, windowCommand: SwitcherWindowCommand? = nil) {
+        self.suppress = suppress; self.action = action; self.windowCommand = windowCommand
+    }
 }
 
 /// Only owned chords and their paired key-ups are suppressed. No text/IME interception.
@@ -48,6 +83,9 @@ public struct ShortcutRoute: Sendable {
 /// key-window or application-active state; the only exception is marked IME text.
 /// While Command is held in the switcher, arrows select. Command–Option–arrows arrange the selection
 /// in the switcher and in a keyboard-focused Overview (Down undoes).
+///
+/// While the held switcher is up, every key-down belongs to Paneflo and never reaches the frontmost
+/// app: Command-W/M/H/Q become window commands for the selection, and other keys are swallowed.
 public struct ShortcutSession: Sendable {
     public var configuration: ShortcutConfiguration
     public private(set) var switching = false
@@ -125,11 +163,18 @@ public struct ShortcutSession: Sendable {
             // A dedicated chord fires once per physical press, unlike switch cycling.
             if isRepeat && action != nil { return ShortcutRoute(suppress: ownedKeys.contains(keyCode)) }
         }
+        if action == nil && switching {
+            // Command is held (a key without it committed above). Nothing typed while the picker is up
+            // may reach the app behind it; Command-W/M/H/Q act on the selection once per physical press.
+            let command = modifiers == .command && !isRepeat ? SwitcherWindowCommand(keyCode: keyCode) : nil
+            ownedKeys.insert(keyCode)
+            return ShortcutRoute(suppress: true, windowCommand: command)
+        }
         guard let action else { return ShortcutRoute(suppress: isRepeat && ownedKeys.contains(keyCode)) }
         // Arranging fires once per physical press; selection movement repeats like Tab.
         if isRepeat {
             switch action {
-            case .tileSelected, .restore: return ShortcutRoute(suppress: ownedKeys.contains(keyCode))
+            case .tileSelected, .restore: return ShortcutRoute(suppress: switching || ownedKeys.contains(keyCode))
             default: break
             }
         }

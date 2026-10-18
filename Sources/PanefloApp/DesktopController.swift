@@ -54,6 +54,11 @@ final class DesktopController: NSObject, SurfaceHost {
     var onTogglePreviews: ((Bool) -> Void)? { get { settings.onTogglePreviews } set { settings.onTogglePreviews = newValue } }
     var isVisible: Bool { switcher.isShown || overview.isShown }
     var isOverviewVisible: Bool { overview.isShown }
+    /// The held ⌘Tab picker's selected window, for window commands while switching.
+    var switcherSelection: WindowIdentity? {
+        guard switcher.isShown, switcher.shortcutSession, let id = switcher.selectedID, switcher.isEligible(id) else { return nil }
+        return id
+    }
     private var visibleSurface: SurfacePanelController? { overview.isShown ? overview : switcher.isShown ? switcher : nil }
 
     init(service: WindowService) {

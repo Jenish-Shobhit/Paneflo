@@ -14,6 +14,8 @@ final class GlobalShortcutService {
     }
     private(set) var state: State = .disabled { didSet { onStateChange?(state) } }
     var onAction: ((ShortcutAction) -> Void)?
+    /// Command-W/M/H/Q pressed while the held switcher is up; aimed at its selected window.
+    var onWindowCommand: ((SwitcherWindowCommand) -> Void)?
     var onStateChange: ((State) -> Void)?
     private(set) var installedTapDescription: String?
     private var engine: ShortcutTapEngine?
@@ -90,6 +92,9 @@ final class GlobalShortcutService {
                 RuntimeDiagnostics.mark("input action queuedMilliseconds=\(waited)")
             }
             onAction?(action)
+        case .windowCommand(let command, let source):
+            guard engine === source else { return }
+            onWindowCommand?(command)
         case .failed(let reason, let source):
             guard engine === source else { return }
             stop()
@@ -139,6 +144,7 @@ final class ShortcutTapEngine: Sendable {
     }
     enum Event: Sendable {
         case action(ShortcutAction, ShortcutTapEngine)
+        case windowCommand(SwitcherWindowCommand, ShortcutTapEngine)
         case failed(String, ShortcutTapEngine)
     }
     private struct Shared {
@@ -278,6 +284,7 @@ final class ShortcutTapEngine: Sendable {
             return (result, wasSwitching && !state.router.switching, escape)
         }
         if let action = result.action { emit(.action(action, self)) }
+        if let command = result.windowCommand { emit(.windowCommand(command, self)) }
         if measuresLatency {
             let elapsed = DispatchTime.now().uptimeNanoseconds &- started
             let summary = shared.withLock { state in
