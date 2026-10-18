@@ -67,13 +67,18 @@ public struct SemanticVersion: Comparable, Hashable, Sendable, CustomStringConve
         }
     }
 
+    /// semver §11: an identifier is numeric only if it is solely ASCII digits (no sign). Numeric identifiers compare by
+    /// value (length, then digits, so no integer overflow) and sort before alphanumeric ones, which compare in ASCII
+    /// order. Leading zeros in numeric identifiers are rejected by the initializer, so length-then-digits is exact.
+    private static func isNumeric(_ s: String) -> Bool { !s.isEmpty && s.utf8.allSatisfy { $0 >= 48 && $0 <= 57 } }
+
     private static func preReleaseIsBefore(_ a: [String], _ b: [String]) -> Bool {
         for (x, y) in zip(a, b) where x != y {
-            switch (Int(x), Int(y)) {
-            case let (i?, j?): return i < j
-            case (_?, nil): return true       // a number comes before a word
-            case (nil, _?): return false
-            case (nil, nil): return x < y
+            switch (isNumeric(x), isNumeric(y)) {
+            case (true, true): return x.utf8.count != y.utf8.count ? x.utf8.count < y.utf8.count : x.utf8.lexicographicallyPrecedes(y.utf8)
+            case (true, false): return true
+            case (false, true): return false
+            case (false, false): return x.utf8.lexicographicallyPrecedes(y.utf8)
             }
         }
         return a.count < b.count
