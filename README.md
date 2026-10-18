@@ -2,67 +2,61 @@
 
 Every window. In its place.
 
-Paneflo is a native macOS menu-bar app for finding, arranging, and switching between individual windows. Its organized overview is Paneflo's own panel; it does not modify Apple's Mission Control or control native Spaces.
+Paneflo is a native macOS menu-bar app for finding, arranging and switching between individual windows. It has three modules that share one list of your windows: a ⌘Tab that lists windows instead of apps, keyboard tiling, and an organized Overview that keeps windows in slots you control. The Overview is Paneflo's own panel; it does not modify Apple's Mission Control or control native Spaces.
 
-## Project status
+Requires macOS 26 or later on Apple silicon. Free and open source under the [MIT License](LICENSE). Current state and limits: [docs/status.md](docs/status.md).
 
-Paneflo is a native macOS developer preview with a compact window switcher, keyboard tiling, a stable organized Overview, and separate Settings. Its menu-bar item is icon-only. Preview capture and global input replacement are opt-in. Cards show cached, labelled snapshots; only the selected eligible window can have a live preview.
+## Features
 
-Source revision `83b82d3` passed 69 tests across 15 suites, release compilation, and [hosted CI](https://github.com/Jenish-Shobhit/Paneflo/actions/runs/39037675075), including capture ownership checks and app packaging. The unchanged signed app was verified and launched locally with Accessibility, Input Monitoring, and Screen Recording granted; it restored gestures and discovered 10 real windows without showing Settings. A native in-process UI check passed with synthetic 20- and 100-window snapshots, including nonempty search, Escape ownership, marked input-method composition, stale cancellation, and app-hide cleanup. Prepared Overview content made warm synthetic openings take 6–13 ms on one host. Fresh openings took 315–685 ms, chiefly during AppKit's first window activation; cold-open speed has not been resolved. Earlier physical checks covered selected-window placement/focus, Overview input, and post-wake behavior. Final-bundle physical checks of swipe dismissal, Escape, tiling, and gesture latency remain pending. See [implementation status](docs/status.md) for the evidence and remaining limits.
+- **Switcher.** Hold ⌘ and press Tab (Shift–Tab goes back). Arrow keys also choose while ⌘ is held. Release ⌘ to focus, Escape to cancel.
+- **Tiling in the picker.** ⌘⌥ with the arrows: Left/Right for a half, Up to fill the display, Down to undo. Repeating a half moves the window to the next display.
+- **Tiling anywhere.** ⌃⌥ with the arrows tiles the focused window, ⌃⌥Return fills its display, ⌃⌥Z undoes.
+- **Overview.** ⌃⌥Space opens every window in stable slots. Arrows move spatially, search keeps slots in place, Return focuses, Escape closes.
+- **Gesture (optional, experimental).** Three-finger swipe up opens the Overview, down closes it.
+- **Desktop entry.** A Desktop card at the end of the ⌘Tab loop and a Desktop tile in the Overview reveal the desktop by hiding other apps. Optional in Settings.
+- **Previews (optional).** Cached snapshots labelled with their age, and one live preview for the selected window. Each card says Live, Snapshot, Loading, Unavailable or Paused.
+<!-- Coming in 1.0 (hardening 0.8): -->
+- **Window actions while switching** (coming in 1.0): ⌘Q, ⌘W, ⌘M and ⌘H on the selected window.
 
-## Build and run
+Shortcuts, previews and the gesture are off until you enable them in Settings.
 
-Requires macOS 26 or later on Apple silicon and Swift 6.2 or newer with the macOS SDK. There are no third-party package dependencies. Paneflo is released under the [MIT License](LICENSE); see the [changelog](CHANGELOG.md).
+## Install
+
+1. Download `Paneflo-<version>.zip` from [GitHub Releases](https://github.com/Jenish-Shobhit/Paneflo/releases/latest) or the [download page](https://jenish-shobhit.github.io/Paneflo/), unzip it, and move **Paneflo.app** to `/Applications`.
+2. Paneflo is not notarized yet. On first open, go to **System Settings › Privacy & Security** and choose **Open Anyway**.
+3. Open Settings (it opens on first launch) and grant:
+   - **Accessibility**: find, focus, move and resize other apps' windows.
+   - **Input Monitoring**: catch ⌘Tab, the tiling shortcuts and the gesture.
+   - **Screen Recording**: only for previews.
+4. For the gesture, turn off the three-finger **Mission Control** and **App Exposé** swipes in **System Settings › Trackpad › More Gestures** (or move them to four fingers). Paneflo does not change them.
+
+## Updates
+
+Choose **Check for Updates…** in the menu-bar menu. Paneflo also checks once a day unless you turn off **Check for Updates Automatically**, and never while the picker or Overview is showing. A download is verified (size, SHA-256, bundle ID, version, code signature, and the same signing certificate as the running copy) before it replaces the app. Releases are signed with the same certificate so permissions carry over.
+
+## Privacy
+
+Paneflo's only network use is the update check and download from GitHub (`UpdateNetwork.swift` is the only code using `URLSession`). There is no analytics or telemetry. Snapshots stay in memory and are never written to disk or sent anywhere. Slot order and settings are stored locally.
+
+## Build from source
+
+Requires Swift 6.2 or newer with the macOS SDK. No third-party packages.
 
 ```sh
 ./scripts/make-signing-identity.sh   # once: creates the self-signed "Paneflo Dev" certificate
 ./scripts/build.sh --install --run   # build, sign, replace /Applications/Paneflo.app, open it
+./scripts/test.sh                    # Swift Testing suites in PanefloCore
 ```
 
-`scripts/build.sh` builds a release executable, assembles `build/Paneflo.app`, and signs it with "Paneflo Dev" (ad hoc, with a warning, when that identity is missing; macOS then asks for permissions again after every rebuild). Other options: `--debug`, `--run`, and `--zip` (writes `dist/Paneflo-<version>.zip`). Run the installed copy so Accessibility, Input Monitoring, and Screen Recording permissions persist. This is not Developer ID signing or notarization. The first launch opens Settings; later launches stay quiet when permissions are ready. Explicit shortcut, preview, and gesture choices are saved and restored only when their permissions and capability checks allow it. To discover and control other windows, grant Accessibility access from Settings. Input replacement and previews have separate controls; startup does not request permissions automatically.
+`scripts/build.sh [--debug] [--install] [--run] [--zip]`: `--install` quits a running Paneflo and replaces `/Applications/Paneflo.app`; `--run` opens it; `--zip` writes `dist/Paneflo-<version>.zip` (release builds only). Without the "Paneflo Dev" identity the app is signed ad hoc and macOS asks for permissions again after every rebuild. Run the installed copy so permissions persist. `open build/Paneflo.app --args --diagnostics` prints title-free startup phases. In an executor that blocks SwiftPM's manifest sandbox, prefix a script with `PANEFLO_SPM_DISABLE_SANDBOX=1`.
 
-For a developer run and core tests:
+Developer checks live in `Tools/` (own-process fixtures, native UI check, surface and tiling benches, capture-ownership check). They use synthetic windows and measure only Paneflo itself.
 
-```sh
-open build/Paneflo.app --args --diagnostics
-./scripts/test.sh
-sh ./Tools/test-capture-ownership.sh
-```
-
-To measure surface latency on your host, `sh Tools/build-surface-bench.sh build/bench --runs 5` builds an own-window bench, runs it with 20 and 60 synthetic cards, and prints median/p90/min/max for switcher and Overview presentation, selection steps, Escape, and main-thread work while hidden. `--source <checkout>` measures another revision with the same bench. It shows its own panels briefly and installs no event tap.
-
-Use LaunchServices (`open`) or Finder to launch the native app. `--diagnostics` prints title-free startup phases to stderr. `build/Paneflo.app/Contents/MacOS/Paneflo --version` exits without initializing AppKit.
-
-Build caches live under ignored `.build/`. The test script runs bundled Swift Testing and derives its framework search path from the selected Command Line Tools or Xcode installation. In an executor that blocks SwiftPM's manifest sandbox for this dependency-free package, prefix a script with `PANEFLO_SPM_DISABLE_SANDBOX=1`.
-
-## Controls
-
-Enable Paneflo shortcuts in Settings to replace Command–Tab behavior. macOS requires Accessibility and Input Monitoring access. Paneflo installs an event tap, then suppresses only the shortcuts it handles. It tries the HID head-insert tap and falls back to the session head-insert tap if needed. Installation does not guarantee precedence over every system or third-party handler. The tap runs on its own high-priority thread, so typing in other apps never waits for Paneflo's interface. If macOS disables the tap, Paneflo re-enables it up to three times within 10 seconds; after that it releases the tap and asks the user to enable shortcuts again. Use the menu-bar **Disable global shortcuts** command to release it directly.
-
-With shortcuts enabled:
-
-- Hold Command and press Tab or Shift–Tab to choose a window in the compact picker. While Command remains held, the arrow keys also choose: Left/Right step through windows and Up/Down move by row when the picker wraps. Option–Left/Right places the chosen window in the left/right half, Option–Up fills the usable display area, and Option–Down undoes the latest placement. Release Command to focus it after placement completes. Escape cancels selection.
-- Whenever the picker or Overview is on screen, Escape closes it, even if another window has keyboard focus. The one exception is an Escape that ends input-method composition in Paneflo's search field.
-- Control–Option–Space opens the larger organized Overview. Arrow keys move spatially through its stable slots; search preserves those positions. Command–Option–Left/Right places the selected window in a half, Command–Option–Up fills its display, and Command–Option–Down undoes the latest placement. Return or a click focuses a window; Escape closes Overview.
-- Control–Option–arrows tile the focused window, Control–Option–Return fills its display, and Control–Option–Z undoes the latest geometry change.
-
-Turn on Live previews in Settings; the first time, macOS asks for Screen Recording access. Settings says what is still needed, starts previews once access is confirmed without a relaunch where macOS allows it, and asks for a restart when it does not. Each card shows its state: Live, Snapshot · age, Loading, Unavailable (minimized, not on this Space, app hidden, Screen Recording off), or Paused. Snapshots stay in a byte-bounded memory cache across dismissals, so a reopened switcher shows them at once while visible cards refresh. Paneflo admits at most one live stream, for the selected eligible window, while a switching surface is visible; dismissal stops it. App hide, turning previews off, critical memory pressure, and permission loss clear the cache. The card wiring passes synthetic own-window checks; behavior with real windows still needs hands-on validation.
-
-The optional built-in trackpad adapter is intended to open Overview with three-finger up and dismiss it with three-finger down. It uses an unsupported macOS interface and is restricted to Apple silicon, macOS 27, and a validated framework revision. Disable conflicting native Mission Control/App Exposé swipe bindings before using it; Paneflo does not change them automatically. Sleep/session suspension permits one resume attempt after clean shutdown and matching wake events. Recognition now handles a fresh stroke after a finger-free idle and requires fresh-contact evidence after observation starts. Gestures and shortcut actions are never discarded for arriving late; an action is dropped only when the surface it targets has already closed. These rules pass synthetic checks; physical down dismissal remains unverified on the final bundle.
-
-The menu-bar **Synthetic developer fixtures** item opens the sample interface for trying the core layout and overview interactions without moving desktop windows.
-
-For real-window integration checks, build the synthetic fixture app with `./Tools/build-fixture.sh`. Launch separate, clearly titled instances with `open -n build/PanefloFixture.app --args --label Responsive` and `open -n build/PanefloFixture.app --args --label Slow`. The default is two windows; `--count 1...20` sets the count. Its **Animate fixture** control starts a 30 fps test view only when enabled; **Pause fixture for 5 seconds** deliberately blocks only that fixture process to test unresponsive-window handling. Run `build/PanefloFixture.app/Contents/MacOS/PanefloFixture --help` for argument details.
-
-## Specifications
+## Project
 
 - [Product scope and acceptance criteria](docs/specs/000-product.md)
-- [Native architecture and engineering acceptance criteria](docs/specs/001-engineering.md)
-- [Contributor workflow](AGENTS.md)
-- [Implementation status and remaining gates](docs/status.md)
+- [Native architecture and engineering criteria](docs/specs/001-engineering.md)
+- [Implementation status and known limits](docs/status.md)
+- [Changelog](CHANGELOG.md) and [contributor workflow](AGENTS.md)
 
-Private development material lives under `dev_acrtifacts/`, which is intentionally gitignored. It is not included in a fresh checkout.
-
-## Technical direction
-
-Swift, AppKit, and Core Animation serve the interactive path; Settings opens separately from the switching surfaces. Paneflo currently runs in one process. Supported OS versions, emergency shortcut recovery, durable window matching, the project license, and the measured resource budget remain open decisions.
+Private development material lives under the gitignored `dev_acrtifacts/` and is not part of a checkout.

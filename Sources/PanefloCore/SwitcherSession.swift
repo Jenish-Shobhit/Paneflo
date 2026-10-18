@@ -46,6 +46,9 @@ public enum DesktopLoopMode: Equatable, Sendable {
 public struct SwitcherSession: Sendable {
     public static let desktopTitle = "Desktop"
 
+    /// Whether a search query matches the Desktop entry (the same rule as window search; empty matches).
+    public static func desktopMatches(_ query: String) -> Bool { WindowSearch.matches(query, text: desktopTitle) }
+
     public private(set) var orderedTargets: [SwitchTarget]
     public private(set) var selectedTarget: SwitchTarget?
     public private(set) var status: SwitcherStatus = .active
@@ -91,7 +94,7 @@ public struct SwitcherSession: Sendable {
         case .window(let id):
             return records[id].map { WindowSearch.matches(searchQuery, record: $0) } ?? false
         case .desktop:
-            return WindowSearch.matches(searchQuery, text: Self.desktopTitle)
+            return Self.desktopMatches(searchQuery)
         }
     }
 

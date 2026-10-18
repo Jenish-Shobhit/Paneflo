@@ -2,7 +2,7 @@ import AppKit
 import QuartzCore
 import PanefloCore
 
-/// One window (or vacant Overview slot) card. Every property setter compares before it
+/// One window card, vacant Overview slot, or the Desktop entry (`isDesktopEntry`). Every property setter compares before it
 /// invalidates, so a selection change redraws only the cards whose appearance changed.
 ///
 /// The app icon, preview pixels and preview label live in their own layers: a snapshot, a live
@@ -30,7 +30,7 @@ final class CardView: NSButton {
             // A slot card rebound to another window must never show the previous window's pixels.
             if oldValue?.id != record?.id, hasPreviewState || pixels.hasContent { clearPreview() }
             toolTip = record?.title
-            setAccessibilityLabel(record.map { "\($0.appName), \($0.title)" } ?? "Vacant overview slot")
+            updateAccessibilityLabel()
             invalidate()
             updateIconLayer()
             updateStatusLayer()
@@ -43,6 +43,35 @@ final class CardView: NSButton {
         }
     }
     var layoutBadge: String? { didSet { if oldValue != layoutBadge { invalidate() } } }
+    /// The Desktop pseudo-entry: titled "Desktop", shows the wallpaper (or a placeholder) and never a window preview.
+    /// It has no `record`, so it is never reported to the capture engine.
+    var isDesktopEntry = false {
+        didSet {
+            guard oldValue != isDesktopEntry else { return }
+            clearPreview()
+            toolTip = nil
+            updateAccessibilityLabel()
+            if !PreviewRenderer.usesReferenceRenderer {
+                // The wallpaper fills its area; window previews are letterboxed.
+                previewLayer.contentsGravity = isDesktopEntry ? .resizeAspectFill : .resizeAspect
+                previewLayer.masksToBounds = isDesktopEntry
+                previewLayer.cornerRadius = isDesktopEntry ? 8 : 0
+            }
+            invalidate()
+            updateIconLayer()
+            updateStatusLayer()
+        }
+    }
+    /// The desktop is the current state: choosing the entry brings the windows back instead of showing the desktop.
+    var desktopIsCurrent = false {
+        didSet {
+            guard oldValue != desktopIsCurrent, isDesktopEntry else { return }
+            updateAccessibilityLabel()
+            invalidate()
+        }
+    }
+    /// What choosing this card selects.
+    var switchTarget: SwitchTarget? { isDesktopEntry ? .desktop : record.map { .window($0.id) } }
     private let previewLayer = CALayer()
     private let iconLayer = CALayer()
     private var iconLayerSource: (image: NSImage, scale: CGFloat)?
@@ -67,7 +96,7 @@ final class CardView: NSButton {
     }
     var isVacancyPinned = false { didSet { if oldValue != isVacancyPinned { invalidate() } } }
     var dragEnabled = false
-    var onDoubleClick: ((WindowIdentity) -> Void)?
+    var onDoubleClick: ((SwitchTarget) -> Void)?
     var onDragEnd: ((Int, NSPoint) -> Void)?
     /// Context menus are built only when AppKit asks for one (right-click or Control-click).
     var menuProvider: ((CardView) -> NSMenu?)?
@@ -130,6 +159,27 @@ final class CardView: NSButton {
         hasPreviewState = true
         setLabel(update.label(now: now), live: update.presentation.isLive)
     }
+
+    /// The Desktop entry's wallpaper, labelled "Wallpaper"; nil shows the placeholder. Never labelled live.
+    func showWallpaper(_ image: CGImage?) {
+        guard isDesktopEntry else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        setPixels(image.map { .snapshot($0) } ?? .none)
+        setLabel(image == nil ? nil : "Wallpaper", live: false)
+    }
+
+    private func updateAccessibilityLabel() {
+        if isDesktopEntry {
+            setAccessibilityLabel(desktopIsCurrent ? "Desktop, bring your windows back" : "Desktop, show the desktop")
+        } else {
+            setAccessibilityLabel(record.map { "\($0.appName), \($0.title)" } ?? "Vacant overview slot")
+        }
+    }
+
+    /// A window card or the Desktop entry, as opposed to a vacant slot.
+    private var hasItem: Bool { record != nil || isDesktopEntry }
 
     /// Back to the app icon with no preview label (previews off, card reused, surface hidden).
     func clearPreview() {
@@ -222,7 +272,7 @@ final class CardView: NSButton {
     /// The app icon, shown while the card has no preview pixels.
     private func updateIconLayer() {
         guard !PreviewRenderer.usesReferenceRenderer else { return }
-        let visible = record != nil && icon != nil && !pixels.hasContent
+        let visible = record != nil && !isDesktopEntry && icon != nil && !pixels.hasContent
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if visible, let icon {
@@ -243,7 +293,7 @@ final class CardView: NSButton {
 
     private func updateStatusLayer() {
         guard !PreviewRenderer.usesReferenceRenderer else { return }
-        let text = record == nil ? "" : statusText
+        let text = hasItem ? statusText : ""
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let scale = window?.backingScaleFactor ?? 1
@@ -256,7 +306,7 @@ final class CardView: NSButton {
         statusLayer.isHidden = text.isEmpty
         let dot = convertToLayer(NSRect(x: 15, y: bounds.height - 15, width: 6, height: 6))
         if liveDot.frame != dot { liveDot.frame = dot }
-        liveDot.isHidden = !previewIsLive || record == nil
+        liveDot.isHidden = !previewIsLive || record == nil || isDesktopEntry
         let opacity: Float = matches ? 1 : 0.24
         statusLayer.opacity = opacity; liveDot.opacity = opacity
         CATransaction.commit()
@@ -274,7 +324,8 @@ final class CardView: NSButton {
 
     /// Computed on request so preview updates never pay for accessibility bookkeeping.
     override func accessibilityHelp() -> String? {
-        switch pixels {
+        if isDesktopEntry { return pixels.hasContent ? "Desktop wallpaper" : nil }
+        return switch pixels {
         case .live: "Live window preview"
         case .snapshot: "Window snapshot" + (previewLabel.map { ", " + $0 } ?? "")
         case .none: previewLabel ?? (record == nil ? nil : "App icon")
@@ -283,7 +334,7 @@ final class CardView: NSButton {
 
     override func mouseDown(with event: NSEvent) {
         guard isEnabled else { return }
-        if event.clickCount == 2, let record { onDoubleClick?(record.id); return }
+        if event.clickCount == 2, let switchTarget { onDoubleClick?(switchTarget); return }
         guard dragEnabled, let window else { super.mouseDown(with: event); return }
         let start = event.locationInWindow
         var dragged = false
@@ -305,6 +356,10 @@ final class CardView: NSButton {
         (selected ? NSColor.controlAccentColor.withAlphaComponent(0.16) : .controlBackgroundColor).setFill(); path.fill()
         (selected ? NSColor.controlAccentColor : .separatorColor).setStroke(); path.lineWidth = selected ? 3 : 1; path.stroke()
         NSGraphicsContext.saveGraphicsState(); NSGraphicsContext.current?.cgContext.setAlpha(matches ? 1 : 0.24)
+        if isDesktopEntry {
+            drawDesktopEntry()
+            NSGraphicsContext.restoreGraphicsState(); return
+        }
         guard let record else {
             drawText(isVacancyPinned ? "Pinned vacancy" : "Vacant slot", in: NSRect(x: 18, y: 68, width: bounds.width - 36, height: 24), font: .systemFont(ofSize: 13), color: .secondaryLabelColor)
             NSGraphicsContext.restoreGraphicsState(); return
@@ -325,6 +380,32 @@ final class CardView: NSButton {
             drawText((previewIsLive ? "● " : "") + statusText, in: NSRect(x: 15, y: bounds.height - 18, width: bounds.width - 30, height: 13), font: .systemFont(ofSize: 9), color: .secondaryLabelColor)
         }
         NSGraphicsContext.restoreGraphicsState()
+    }
+
+    /// A quiet stand-in drawn under the wallpaper layer (visible when no still wallpaper exists, for example a
+    /// dynamic one), plus the entry's two text lines.
+    private func drawDesktopEntry() {
+        let area = previewRect
+        let backdrop = NSBezierPath(roundedRect: area, xRadius: 8, yRadius: 8)
+        NSGradient(starting: NSColor.systemTeal.withAlphaComponent(0.22), ending: NSColor.systemIndigo.withAlphaComponent(0.30))?
+            .draw(in: backdrop, angle: -60)
+        // Always drawn: the wallpaper layer (aspect-fill) covers it completely when present, so a wallpaper arriving
+        // or being released never needs a redraw.
+        if let symbol = NSImage(systemSymbolName: "menubar.dock.rectangle", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 30, weight: .light).applying(.init(hierarchicalColor: .secondaryLabelColor))) {
+            let size = symbol.size
+            symbol.draw(in: NSRect(x: area.midX - size.width / 2, y: area.midY - size.height / 2, width: size.width, height: size.height))
+        }
+        if PreviewRenderer.usesReferenceRenderer, let preview = referenceImage {
+            NSGraphicsContext.saveGraphicsState(); backdrop.addClip()
+            NSImage(cgImage: preview, size: area.size).draw(in: area)
+            NSGraphicsContext.restoreGraphicsState()
+        }
+        drawText(SwitcherSession.desktopTitle, in: NSRect(x: 15, y: bounds.height - 53, width: bounds.width - 30, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: .labelColor)
+        drawText(desktopIsCurrent ? "Bring your windows back" : "Show the desktop", in: NSRect(x: 15, y: bounds.height - 34, width: bounds.width - 30, height: 17), font: .systemFont(ofSize: 11), color: .labelColor)
+        if PreviewRenderer.usesReferenceRenderer, let previewLabel {
+            drawText(previewLabel, in: NSRect(x: 15, y: bounds.height - 18, width: bounds.width - 30, height: 13), font: .systemFont(ofSize: 9), color: .secondaryLabelColor)
+        }
     }
 
     #if PANEFLO_NATIVE_CHECK

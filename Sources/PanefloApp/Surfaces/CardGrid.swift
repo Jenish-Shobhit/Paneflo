@@ -49,6 +49,7 @@ final class CardGrid: NSView {
             for (key, card) in byKey where !incoming.contains(key) {
                 card.releasePayload()
                 card.record = nil
+                card.isDesktopEntry = false
                 card.selected = false
                 card.removeFromSuperview()
                 if pool.count < 8 { pool.append(card) }
@@ -75,9 +76,10 @@ final class CardGrid: NSView {
     }
 
     func showEmpty(_ message: String?) {
+        guard message != nil || !emptyLabel.isHidden else { return }
         emptyLabel.isHidden = message == nil
         if let message, emptyLabel.stringValue != message { emptyLabel.stringValue = message }
-        if message != nil { positionCards() }
+        positionCards()
     }
 
     var rows: Int { cards.isEmpty ? 0 : (cards.count + metrics.columns - 1) / max(1, metrics.columns) }
@@ -85,8 +87,10 @@ final class CardGrid: NSView {
     /// Document height for the current cards; independent of width.
     var contentHeight: CGFloat {
         if cards.isEmpty { return emptyLabel.isHidden ? 0 : 100 }
-        return CGFloat(rows) * metrics.cardHeight + CGFloat(max(0, rows - 1)) * metrics.spacing
+        return cardsHeight + (emptyLabel.isHidden ? 0 : metrics.spacing + 84)
     }
+
+    private var cardsHeight: CGFloat { CGFloat(rows) * metrics.cardHeight + CGFloat(max(0, rows - 1)) * metrics.spacing }
 
     /// Frame of card `index` for a document of the given width.
     func frameForCard(at index: Int, width: CGFloat) -> NSRect {
@@ -107,7 +111,8 @@ final class CardGrid: NSView {
             if card.frame != target { card.frame = target }
         }
         if !emptyLabel.isHidden {
-            let target = NSRect(x: 0, y: 8, width: width, height: 84)
+            // Below the cards when some remain (the Desktop entry alone), else at the top.
+            let target = NSRect(x: 0, y: cards.isEmpty ? 8 : cardsHeight + metrics.spacing, width: width, height: 84)
             if emptyLabel.frame != target { emptyLabel.frame = target }
         }
     }

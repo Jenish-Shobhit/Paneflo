@@ -212,7 +212,7 @@
         </a>
         <a class="button quiet" href="#install">Install steps</a>
       </div>
-      <p class="meta" id="download-meta">A developer preview for macOS 26 or later on Apple silicon. Free and open source (MIT).</p>
+      <p class="meta" id="download-meta">For macOS 26 or later on Apple silicon. Free and open source (MIT). Not notarized yet; the install steps cover the one-time Open Anyway.</p>
     </div>
     <div>
       <div class="desk" id="desk" role="img" aria-label="An illustration of five overlapping windows settling into a tidy grid">
@@ -232,27 +232,31 @@
     <div class="cards">
       <div class="card">
         <h3>A window switcher</h3>
-        <p>Hold <kbd>⌘</kbd> and press <kbd>Tab</kbd> to pick a single window, not just an app. The selected window can show a live preview while the picker is open; other cards use cached thumbnails and say so when one is out of date or unavailable.</p>
+        <p>Hold <kbd>⌘</kbd> and press <kbd>Tab</kbd> (<kbd>Shift</kbd> goes back) to pick a single window, not just an app. Arrow keys choose too, and <kbd>Esc</kbd> cancels. The selected window can show a live preview while the picker is open; other cards use cached thumbnails and say so when one is out of date or unavailable.</p>
       </div>
       <div class="card">
         <h3>Tiling inside ⌘Tab</h3>
-        <p>While the picker is open and ⌘ is held, the arrow keys pick a window. Add <kbd>⌥</kbd>: <kbd>⌥</kbd><kbd>←</kbd> or <kbd>⌥</kbd><kbd>→</kbd> puts the chosen window in the left or right half, <kbd>⌥</kbd><kbd>↑</kbd> fills the display, and <kbd>⌥</kbd><kbd>↓</kbd> undoes the last move. Release ⌘ and it comes forward, already placed.</p>
+        <p>While the picker is open and ⌘ is held, the arrow keys pick a window. Add <kbd>⌥</kbd>: <kbd>⌘</kbd><kbd>⌥</kbd><kbd>←</kbd> or <kbd>→</kbd> puts the chosen window in the left or right half (press again to send it to the next display), <kbd>⌘</kbd><kbd>⌥</kbd><kbd>↑</kbd> fills the display, and <kbd>⌘</kbd><kbd>⌥</kbd><kbd>↓</kbd> undoes the last move. Release ⌘ and it comes forward, already placed.</p>
       </div>
       <div class="card">
         <h3>An organized Overview</h3>
         <p>Press <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd> for a panel of every window in slots you control. Arrow keys move through the slots, <kbd>⌘</kbd><kbd>⌥</kbd> with the arrows tiles the selected window the same way as in the picker, search keeps their places, and Return focuses the window.</p>
-        <span class="tag">Optional: three-finger swipe up</span>
+        <span class="tag">Optional: three-finger swipe up opens, down closes</span>
+      </div>
+      <div class="card">
+        <h3>The desktop, in the loop</h3>
+        <p>A Desktop card, showing your wallpaper, ends the ⌘Tab loop and starts the Overview. Choose it to reveal the desktop; choose it again, or any window, to bring things back. You can turn it off in Settings.</p>
       </div>
       <div class="card">
         <h3>Keyboard tiling anywhere</h3>
-        <p><kbd>⌃</kbd><kbd>⌥</kbd> with the arrow keys tiles the focused window to a half, <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Return</kbd> fills its display, and <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Z</kbd> undoes the last move.</p>
+        <p><kbd>⌃</kbd><kbd>⌥</kbd> with the arrow keys tiles the focused window to a half (left, right, top or bottom), <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Return</kbd> fills its display, and <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Z</kbd> undoes the last move.</p>
       </div>
       <div class="card">
         <h3>The menu bar entry</h3>
         <p>Every view is also in Paneflo's menu bar menu (Switch windows, Arrange windows, Organized overview), so you can try it before turning any shortcut on. Shortcuts and the gesture are opt-in in Settings.</p>
       </div>
     </div>
-    <p class="note"><strong>Paneflo's own overview.</strong> It is a panel Paneflo draws; it does not change Apple's Mission Control or Spaces. The trackpad gesture is experimental: it uses an unsupported macOS interface and is limited to Apple silicon on a macOS version Paneflo has been checked against, so Settings tells you when it is unavailable.</p>
+    <p class="note"><strong>Paneflo's own overview.</strong> It is a panel Paneflo draws; it does not change Apple's Mission Control or Spaces. The trackpad gesture is experimental: it uses an unsupported macOS interface, needs Apple silicon, and checks at runtime that the trackpad data looks as expected, so Settings tells you when it is unavailable. The system three-finger Mission Control and App Exposé swipes must be turned off first.</p>
   </section>
 
   <section aria-labelledby="install">
@@ -278,7 +282,7 @@
     <div class="two">
       <dl class="asks">
         <div><dt>Accessibility</dt><dd>To find other apps' windows, focus them and move or resize them. Without it Paneflo can't see or place anything. <span class="path">Privacy &amp; Security › Accessibility</span>.</dd></div>
-        <div><dt>Input Monitoring</dt><dd>To catch ⌘Tab, the tiling shortcuts and the trackpad gesture.<span class="path">Privacy &amp; Security › Input Monitoring</span>.</dd></div>
+        <div><dt>Input Monitoring</dt><dd>To catch ⌘Tab, the tiling shortcuts and the trackpad gesture. <span class="path">Privacy &amp; Security › Input Monitoring</span>.</dd></div>
         <div><dt>Screen Recording</dt><dd>Only if you turn on previews, for window thumbnails and the one live preview. Without it the switcher still works, with no pictures. <span class="path">Privacy &amp; Security › Screen &amp; System Audio Recording</span>.</dd></div>
       </dl>
       <div>
@@ -286,7 +290,7 @@
         <ul class="plain">
           <li><strong>macOS 26 or later</strong> on a Mac with <strong>Apple silicon</strong>.</li>
           <li>Free, open source under the MIT license, no account and no analytics.</li>
-          <li>A developer preview: expect rough edges, and check the <a href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/docs/status.md">implementation status</a> for what has and hasn't been verified.</li>
+          <li>Paneflo makes no network requests other than checking GitHub for updates. See the <a href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/docs/status.md">implementation status</a> for what has and hasn't been verified, and its known limits (other Spaces and full-screen windows, for one).</li>
         </ul>
       </div>
     </div>
@@ -294,11 +298,11 @@
 
   <section aria-labelledby="updates">
     <h2 id="updates">Updates</h2>
-    <p class="sub">Paneflo updates itself from GitHub releases, and only when you say so.</p>
+    <p class="sub">Paneflo updates itself from GitHub releases, and installs only when you choose.</p>
     <div class="two">
       <ul class="plain">
         <li>Choose <strong>Check for Updates…</strong> in Paneflo's menu bar menu. If a newer version exists you see its release notes and can <strong>Install and Relaunch</strong>, choose <strong>Later</strong>, or <strong>Skip This Version</strong>.</li>
-        <li>Paneflo also checks once a day, quietly, and never while the switcher or Overview is open. Turn that off with <strong>Check for Updates Automatically</strong> in the same menu; with it off, nothing is requested until you ask.</li>
+        <li>Paneflo also checks once a day, quietly, and never while the switcher or Overview is open. Turn that off with <strong>Check for Updates Automatically</strong> in the same menu; with it off, nothing is requested until you ask. No analytics or other network traffic.</li>
       </ul>
       <ul class="plain">
         <li><strong>Verified before it's installed.</strong> Paneflo checks the download's size and SHA-256, its bundle ID and version, and that its code signature is valid and made with the same certificate as the copy you're running. Anything else is refused.</li>
@@ -342,11 +346,13 @@
       var version = String(release.tag_name || "").replace(/^v/i, "");
       if (!/^\d+(\.\d+){0,2}$/.test(version)) return;
       var name = "Paneflo-" + version + ".zip";
-      var zip = (release.assets || []).filter(function (a) { return a.name === name; })[0];
+      var assets = release.assets || [];
+      var zip = assets.filter(function (a) { return a.name === name; })[0] ||
+                assets.filter(function (a) { return /^Paneflo-.*\.zip$/.test(a.name); })[0];
       if (!zip || !ghHost.test(zip.browser_download_url)) return;
       document.getElementById("download").href = zip.browser_download_url;
       document.getElementById("download-label").textContent = "Download Paneflo " + version;
-      document.getElementById("zip-name").textContent = name;
+      document.getElementById("zip-name").textContent = zip.name;
       if (ghHost.test(release.html_url || "")) {
         document.getElementById("notes").href = release.html_url;
         document.getElementById("releases-link").href = release.html_url;
@@ -357,7 +363,7 @@
         if (!isNaN(date)) meta += ", released " + date.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
       }
       var mb = zip.size / 1048576;
-      meta += ". A " + (mb >= 10 ? Math.round(mb) : mb.toFixed(1)) + " MB zip for macOS 26 or later on Apple silicon, a developer preview.";
+      meta += ". A " + (mb >= 10 ? Math.round(mb) : mb.toFixed(1)) + " MB zip for macOS 26 or later on Apple silicon.";
       document.getElementById("download-meta").textContent = meta;
     })
     .catch(function () {});

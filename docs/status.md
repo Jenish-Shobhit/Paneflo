@@ -1,42 +1,45 @@
 # Implementation status
 
-Updated 2026-10-17. Source checks, signed-app launch, and local permission verification pass; final-bundle physical input acceptance remains pending.
+Updated 2026-10-18 (source at `d337ed9`, 1.0.0 release candidate in preparation). Automated checks pass; the owner's hands-on acceptance on the final bundle is pending.
 
-## Available
+## Done
 
-- One native Swift 6.2+ menu-bar app with an icon-only menu item, compact Command–Tab window picker, separate Settings, keyboard tiling, and a larger organized Overview.
-- Accessibility-backed window discovery, identity validation, focus, half-screen/fill placement, and geometry undo. Remote window control requires Accessibility access.
-- In the picker, Command–arrows move the selection; Command–Option–Left/Right places the chosen window in a half, Command–Option–Up fills the display, and Command–Option–Down undoes the latest placement; the Overview uses the same Command–Option–arrows. Releasing Command waits for placement before focusing that selection; Escape cancels deferred focus.
-- Stable Overview slots, pinning, spatial arrow selection, and in-place search, independent of recent-use switch order. Slot metadata is saved locally. The ⌘Tab picker and the Overview use separate pre-created panels, pre-warmed at launch. Registry changes while the Overview is hidden are coalesced into at most one card diff per second, and a dismissal never rebuilds it. The Overview is a non-activating key panel and closes when another app activates.
-- Explicit shortcut, preview, and gesture enable choices are saved. Configured startup stays quiet when permissions are ready; first launch or missing permissions opens Settings without automatic permission prompts.
-- Opt-in global shortcut replacement with HID-first/session fallback and explicit failure recovery. The tap runs on a dedicated thread with bounded re-enable (three per 10 s). Escape is owned whenever a Paneflo surface is visible, except during input-method composition; queued actions no longer expire. Installation does not certify precedence over every competing input handler.
-- Opt-in previews wired end to end to the cards. On open, cards show cached snapshots labelled with their age, and visible cards refresh with up to three concurrent one-shot captures. The selected eligible window gets one live stream (IOSurface frames shown without copying) once the selection has held for 100 ms. Labels: Live, Snapshot · age, Loading, Unavailable with a reason, or Paused. The snapshot cache (24 MiB, halved under memory warning) survives dismissal. Dismissal stops the stream; app hide, turning previews off, critical memory pressure, and permission loss purge the cache. Settings shows Screen Recording guidance next to the previews toggle and re-checks access when Paneflo or Settings becomes active.
-- An optional native built-in trackpad adapter, gated to Apple silicon/macOS 27 and a validated framework revision. It uses an unsupported interface and requires conflicting native swipe bindings to be disabled separately. Lifecycle suspension preserves enable intent and permits one restart after all wake reasons clear and physical shutdown succeeds; failure clears intent. The recognizer handles finger-free idle gaps and requires fresh-contact evidence on a new observation. Late gestures are delivered rather than dropped.
+Milestone numbers follow the order the work landed.
 
-## Validation
+- **0.1 Build and updates** (`544385b`, `be731b0`, `4ac076a`, `9897a99`, merge `f9ebc75`): MIT license, macOS 26 / Apple silicon floor, `scripts/build.sh` (sign, install, zip), `scripts/release.sh`; Check for Updates… with verified download, install and relaunch; daily automatic check; GitHub Pages download site.
+- **0.2 Input and surfaces** (`b4ef8d3`, `e092c58`, `41ae863`, `f3a46ad`): Escape owned whenever a Paneflo surface is visible; event tap on its own thread with bounded re-enable; separate pre-warmed picker and Overview panels, card diffing, non-activating Overview.
+- **0.3 Window correctness** (`f147d76`, `3c4196b`, merge `428cb0e`): Command-Tab MRU seeded from window-server order, raise-before-activate focus, per-window Accessibility notifications, window numbers by direct lookup, separate Accessibility lanes for focus and placement.
+- **0.4 Previews** (`3ffdf47`, `bb8948b`, `03f1907`, `1d83d90`, merge `7b659cb`): byte-bounded snapshot cache (24 MiB) that survives dismissal, up to three concurrent refreshes, one debounced live stream for the selected window, pressure tiers, deadlines and circuit breakers for discovery, screenshots and stream start, honest card labels.
+- **0.5 Gesture** (`ae95f54`, merge `4824c45`): centroid-based three-finger recognizer, runtime contact-layout sanity check, Settings guidance about conflicting system swipes; gated to Apple silicon on macOS 26 or later.
+- **0.6 Tiling** (`9b528e3`, merge `ab0a25d`): placement in one pass planned from a fresh frame, focus decoupled from placement, per-window undo, repeat-to-next-display, display-aware zones.
+- **0.7 Desktop entry and lifecycle** (`53ff066`, `005e342`, `d17cd0b`): Desktop card in the loop and Overview home tile (Show Desktop by hiding apps; wallpaper image, never captured); surfaces open on the pointer's display; display change, screen lock, display sleep and user switching close surfaces and purge snapshots.
 
-Source revision `83b82d3` passed **69 tests in 15 suites** and release compilation. [Hosted CI](https://github.com/Jenish-Shobhit/Paneflo/actions/runs/39037675075) passed the same source with core tests, capture-ownership Address Sanitizer checks, and app packaging/signing. The ad-hoc signed app was also signature-verified and launched locally. A native in-process UI check passed with synthetic 20- and 100-window snapshots. It exercised nonempty Overview queries and Escape, first Escape during marked input-method composition followed by closure on the next press, rapid presentation with stale cancellation, and expiry of one-second-old standalone tile/restore/Overview actions while preserving switcher commit. Native app hide cleared an injected synthetic image and signaled capture and keyboard ownership as inactive. Local capture-ownership checks finished with zero live leases under a two-lease cap. The fresh-contact, idle-gap, and 250 ms gesture delivery rules have synthetic regression coverage.
+## Verification
 
-In the synthetic own-window check on one host, warm Overview openings took 6–13 ms with prepared content. Fresh first openings took 315–685 ms, chiefly at AppKit's first `makeKeyAndOrderFront` (about 200–670 ms). This does not measure native swipe latency or establish a cold-open fix.
+- `./scripts/test.sh` at `d337ed9`: **242 tests in 38 suites passed**, covering shortcut routing, switcher and Desktop sessions, layout and display placement, gesture recognition (synthetic replays), snapshot cache and scheduler, window matching, update parsing, verification and install planning.
+- Own-process tools (`Tools/`): a native UI check with synthetic windows (search, Escape ownership, input-method composition, stale cancellation, Desktop card, display and lock notifications, app-hide cleanup), a capture-ownership check, and surface, tiling and capture benches against Paneflo's own fixture windows.
+- Synthetic own-process measurements on one host (Mac14,2, M2, 8 GB, macOS 27.0.1) using Paneflo's own fixture windows and synthetic cards. They are not comparative, say nothing about any other product, and are not physical footprint, total system memory or swipe latency.
+  - Surface bench (20 / 60 synthetic cards, medians): warm Command-Tab present call about 4.5 ms / 7.6 ms with cached snapshots on every card; Tab step call about 0.4 ms; first Overview open call 63 ms median at 20 cards (15–30 ms on quiet launches, up to about 300 ms when the host was under memory pressure); Overview arrow step about 0.1 ms.
+  - Tiling (fixture windows): tile request to final frame 8–11 ms; releasing Command to focus with a pending tile 12–13 ms. Focus on a fixture window: 11–18 ms.
+  - Previews (6 fixture windows, pre-warmed): first snapshot 155 ms, all cards 347 ms, selected card live 186–216 ms; cached snapshots on reopen delivered within the open call; dismissal to zero live streams 25–33 ms.
+- Earlier hands-on checks on one host covered selected-window placement and release-to-focus, Overview input and post-sleep/wake behavior. They do not carry over to the final bundle.
 
-Preview card wiring (milestone 0.4b) passed the native own-window check with an injected synthetic preview backend. Snapshot and live updates reached only their own card and redrew no card. Labels showed, and a Tab step still redrew exactly two cards. Dismissal left zero streams and no retained pixels or frames, and cached snapshots painted synchronously on reopen. The Overview reported only cards in its viewport. In the surface bench on one host (five launches, synthetic warm snapshots on every card), the median warm Command–Tab call with 20 cards went from 2.4–2.5 ms to 3.8 ms, and a Tab step call from 0.24–0.28 ms to 0.48 ms. These figures exclude ScreenCaptureKit work and real windows.
+## Pending
 
-Earlier host checks confirmed Command–Left/Right/Up placement and release-to-focus on the selected window. A later build passed two swipe-up/Escape regressions and post-sleep/wake/unlock Up, arrow, and Escape checks. Those results do not establish that Escape is resolved globally or on the final bundle.
+- Owner hands-on acceptance of the final bundle: three-finger up and down, Escape across input contexts, tiling (including across displays), search and Return, previews on real windows, Desktop entry.
+- Milestone 0.8 hardening (see the changelog for what has landed).
+- Break-testing: permission revocation, protected and minimized windows, cache stress, multi-display recovery, input methods, VoiceOver.
+- Repeatable memory, CPU, energy and latency measurements, including against other tools. No comparative performance claim is made until those exist.
 
-Earlier native checks rendered upright selected-live and unselected-static previews and confirmed preview/cache release after explicit dismissal. All three saved enable controls were checked in Settings on a preceding build. Normal two-finger scrolling remained usable.
+## Known limits
 
-Three-finger down dismissal is a reported failure under investigation. The current recognizer changes have not yet established a physical fix. The unchanged packaged app now has verified Accessibility, Input Monitoring, and Screen Recording grants on this host; it launched without Settings, reported active gestures, and discovered 10 real windows. Physical swipe, Escape, tiling, and search/Return acceptance on this bundle remains pending. Results apply to one host and do not certify broader OS, hardware, or lifecycle behavior.
-
-## Remaining limits
-
-- Previews on real windows, including first-time Screen Recording grant without relaunch, live-frame latency, minimized/other-Space/hidden-app labels, and memory-pressure degradation, still need hands-on validation on the final bundle.
-- Final-bundle physical acceptance of down dismissal, Escape across input contexts, in-place search/Return, and broader gesture/lifecycle cases.
-- Final-bundle app-hide capture cleanup, permission revocation, protected/minimized windows, cache stress, multi-display recovery, broader input-method behavior, and VoiceOver coverage.
-- Durable window matching across relaunches and settings migration.
-- Pointer-edge snapping, coordinated multi-window layouts, native Spaces/fullscreen modification, and Mission Control internals.
-- Shortcut precedence and immediate emergency recovery across supported systems and competing tools.
-- While a Paneflo surface is visible but another app has keyboard focus, an Escape meant to end input-method composition in that app is taken by Paneflo (accepted; the picker shows only while ⌘ is held).
-- A supported OS/architecture matrix, project license, distribution identity, and notarization. Local app assembly uses an ad-hoc signature.
-- Repeatable app/system memory, CPU, energy, latency, and correctness measurements. No comparative performance claim is established.
+- Windows on other Spaces and full-screen windows are not reliably discovered or focused; Paneflo does not modify native Spaces or Mission Control.
+- Show Desktop hides apps; Finder windows are not hidden. Apps that decline to hide stay visible.
+- The gesture uses an unsupported macOS interface, so a system update can break it. The system three-finger Mission Control / App Exposé swipes must be turned off separately. It is a built-in-trackpad feature only.
+- Not notarized: first launch needs Open Anyway. Locally built copies signed ad hoc cannot verify updates and lose permissions on rebuild.
+- Shortcut precedence over other tools that also hook ⌘Tab is not guaranteed; Disable global shortcuts is the recovery path.
+- While a Paneflo surface is visible and another app has keyboard focus, an Escape meant to end input-method composition in that app is taken by Paneflo.
+- Window matching does not yet survive app relaunches. Pointer-edge snapping and multi-window layouts are out of scope.
+- Results apply to the hosts tested; the supported matrix is macOS 26+ on Apple silicon.
 
 Product acceptance criteria are in [000-product.md](specs/000-product.md), with architecture and capability gates in [001-engineering.md](specs/001-engineering.md).

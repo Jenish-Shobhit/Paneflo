@@ -9,7 +9,10 @@ final class SwitcherPanelController: SurfacePanelController {
     private(set) var mode = DesktopMode.switcher
     private(set) var shortcutSession = false
     private var session = SwitcherSession(snapshot: WindowSnapshot(records: []))
-    private(set) var displayed: [WindowIdentity] = []
+    /// Cards in display order: windows and, in a switching session, the Desktop entry.
+    private(set) var targets: [SwitchTarget] = []
+    /// The displayed windows (the Desktop entry excluded).
+    var displayed: [WindowIdentity] { targets.compactMap(\.windowID) }
     private var records: [WindowIdentity: WindowRecord] = [:]
     private var appliedQuery = ""
 
@@ -36,29 +39,34 @@ final class SwitcherPanelController: SurfacePanelController {
         if search.isHidden != shortcutSession { search.isHidden = shortcutSession }
         if !search.stringValue.isEmpty { search.stringValue = "" }
         let snapshot = service.snapshot
-        session = SwitcherSession(snapshot: snapshot, direction: backwards ? .backward : .forward)
-        if mode == .switcher { setSelectedID(session.selectedID) }
+        let screen = NSScreen.pointerScreen
+        // Arrange lists windows only; switching sessions may include the Desktop entry.
+        session = SwitcherSession(snapshot: snapshot, direction: backwards ? .backward : .forward,
+                                  desktop: mode == .switcher ? host?.desktopLoopMode ?? .hidden : .hidden)
+        if mode == .switcher { setSelectedTarget(session.selectedTarget) }
         else { setSelectedID(service.focusedID ?? snapshot.orderedRecords.first?.id) }
-        rebuild(snapshot: snapshot)
-        fit()
+        rebuild(snapshot: snapshot, screen: screen)
+        fit(on: screen)
         // The held picker receives every key through the event tap, so it never takes key focus
         // from the frontmost app. Manual Switch/Arrange sessions need the search field.
         if shortcutSession { orderFrontWithoutKey() } else { orderFront(searchFocused: true) }
-        if let id = selectedID, let card = cardsByWindow[id] { revealCard(card) }
+        if let target = selectedTarget, let card = card(for: target) { revealCard(card) }
+        showDesktopWallpaper()
     }
 
     /// One-time launch preparation: builds cards for the current registry while hidden and
     /// draws them once, so the first ⌘Tab pays neither card construction nor first display.
-    func prepareHidden() {
+    func prepareHidden(on preferredScreen: NSScreen? = nil) {
         guard !isShown, let service else { return }
         let snapshot = service.snapshot
         mode = .switcher
         shortcutSession = true
         search.isHidden = true
-        session = SwitcherSession(snapshot: snapshot)
-        setSelectedID(session.selectedID)
-        rebuild(snapshot: snapshot)
-        fit()
+        session = SwitcherSession(snapshot: snapshot, desktop: host?.desktopLoopMode ?? .hidden)
+        setSelectedTarget(session.selectedTarget)
+        let screen = preferredScreen ?? NSScreen.pointerScreen
+        rebuild(snapshot: snapshot, screen: screen)
+        fit(on: screen)
         session.cancel()
         shortcutSession = false
         prewarm()
@@ -66,7 +74,7 @@ final class SwitcherPanelController: SurfacePanelController {
 
     func step(backwards: Bool) {
         session.advance(backwards ? .backward : .forward)
-        select(session.selectedID)
+        select(target: session.selectedTarget)
     }
 
     func cancelSession() { session.cancel(); shortcutSession = false }
@@ -85,10 +93,22 @@ final class SwitcherPanelController: SurfacePanelController {
             } else {
                 session.refresh(snapshot: snapshot)
             }
-            setSelectedID(session.selectedID)
+            setSelectedTarget(session.selectedTarget)
         }
         rebuild(snapshot: snapshot)
         fit()
+        showDesktopWallpaper()
+    }
+
+    override func screenParametersChanged(to screen: NSScreen) {
+        guard let service else { return }
+        if isShown {
+            rebuild(snapshot: service.snapshot, screen: screen)
+            fit(on: screen)
+        } else {
+            // Re-lay out the pre-warmed panel for the new display so the next ⌘Tab is warm there.
+            prepareHidden(on: screen)
+        }
     }
 
     override func hide() {
@@ -98,17 +118,19 @@ final class SwitcherPanelController: SurfacePanelController {
 
     // MARK: Content
 
-    private func rebuild(snapshot: WindowSnapshot) {
+    private func rebuild(snapshot: WindowSnapshot, screen: NSScreen? = nil) {
         records = Dictionary(snapshot.records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        displayed = mode == .switcher ? session.filteredIDs : snapshot.orderedRecords.map(\.id)
+        targets = mode == .switcher ? session.filteredTargets : snapshot.orderedRecords.map { .window($0.id) }
         appliedQuery = search.stringValue
-        let screenWidth = (panel.screen ?? NSScreen.main)?.visibleFrame.width ?? 1000
-        grid.metrics = .init(columns: Self.columns(for: displayed.count, screenWidth: screenWidth), cardHeight: Self.cardHeight)
+        let screenWidth = (screen ?? layoutScreen)?.visibleFrame.width ?? 1000
+        grid.metrics = .init(columns: Self.columns(for: targets.count, screenWidth: screenWidth), cardHeight: Self.cardHeight)
         let query = search.stringValue
         let selected = selectedID
-        grid.apply(keys: displayed.map(AnyHashable.init)) { card, index in
-            let id = displayed[index]
+        let targets = targets
+        grid.apply(keys: targets.map(AnyHashable.init)) { card, index in
+            guard case .window(let id) = targets[index] else { configureDesktopCard(card); return }
             let record = records[id]
+            card.isDesktopEntry = false
             card.record = record
             card.icon = record.flatMap { host?.icon(for: $0) }
             card.isVacancyPinned = false
@@ -120,8 +142,8 @@ final class SwitcherPanelController: SurfacePanelController {
             card.matches = matches
             card.setEnabledIfChanged(matches)
         }
-        indexCards(displayed)
-        if displayed.isEmpty {
+        indexCards(targets.map(\.windowID), desktopIndex: targets.firstIndex(of: .desktop))
+        if targets.allSatisfy({ $0 == .desktop }), query.isEmpty || targets.isEmpty {
             let accessible = service?.hasAccessibility ?? false
             grid.showEmpty(!query.isEmpty ? "No windows match this search."
                 : accessible ? "No eligible windows found. Open a normal application window, then refresh."
@@ -129,13 +151,15 @@ final class SwitcherPanelController: SurfacePanelController {
         } else { grid.showEmpty(nil) }
     }
 
-    private func fit() {
-        guard let screen = panel.screen ?? NSScreen.main else { return }
+    private func fit(on target: NSScreen? = nil) {
+        guard let screen = target ?? layoutScreen else { return }
         let usable = screen.visibleFrame.insetBy(dx: 16, dy: 16)
         let columns = grid.metrics.columns
-        let rows = max(1, (displayed.count + columns - 1) / columns)
+        let rows = max(1, (targets.count + columns - 1) / columns)
         let visibleRows = CGFloat(min(rows, 2))
-        let viewport = min(visibleRows * Self.cardHeight + (visibleRows - 1) * 10,
+        // A lone Desktop card leaves room for the empty-state text under it.
+        let note: CGFloat = targets == [.desktop] && search.stringValue.isEmpty ? 94 : 0
+        let viewport = min(visibleRows * Self.cardHeight + (visibleRows - 1) * 10 + note,
                            max(80, usable.height - (search.isHidden ? 110 : 145)))
         let size = NSSize(width: min(CGFloat(columns) * 208 + 36, usable.width),
                           height: min(viewport + (search.isHidden ? 94 : 128) + (failureFeedback.isHidden ? 0 : 30), usable.height))
@@ -145,6 +169,8 @@ final class SwitcherPanelController: SurfacePanelController {
     override func failureFeedbackChanged() { if isShown { fit() } }
 
     // MARK: Navigation
+
+    override var isDesktopEligible: Bool { mode == .switcher && session.filteredTargets.contains(.desktop) }
 
     override func eligibleSelectionIDs() -> [WindowIdentity] {
         if mode == .switcher { return session.filteredIDs }
@@ -157,7 +183,7 @@ final class SwitcherPanelController: SurfacePanelController {
 
     override func navigate(_ direction: CycleDirection) {
         guard isShown else { return }
-        if mode == .switcher { session.advance(direction); select(session.selectedID); return }
+        if mode == .switcher { session.advance(direction); select(target: session.selectedTarget); return }
         let eligible = eligibleSelectionIDs()
         guard !eligible.isEmpty else { select(nil); return }
         if let current = selectedID, let index = eligible.firstIndex(of: current) {
@@ -170,30 +196,31 @@ final class SwitcherPanelController: SurfacePanelController {
     override func navigateRows(_ delta: Int) {
         guard isShown else { return }
         let columns = grid.metrics.columns
-        let current = selectedID.flatMap { displayed.firstIndex(of: $0) }
+        let current = selectedTarget.flatMap { targets.firstIndex(of: $0) }
         if mode == .switcher {
             // Rows exist only when the picker wraps; a single row has nothing above or below.
-            if let next = GridNavigation.vertical(from: current, columns: columns, count: displayed.count,
-                                                   eligible: Array(displayed.indices), direction: delta),
-               session.select(displayed[next]) {
-                select(session.selectedID)
+            if let next = GridNavigation.vertical(from: current, columns: columns, count: targets.count,
+                                                   eligible: Array(targets.indices), direction: delta),
+               session.select(targets[next]) {
+                select(target: session.selectedTarget)
             }
             return
         }
         let eligible = Set(eligibleSelectionIDs())
-        let indices = displayed.indices.filter { eligible.contains(displayed[$0]) }
-        if let next = GridNavigation.vertical(from: current, columns: columns, count: displayed.count, eligible: indices, direction: delta) {
-            select(displayed[next])
+        let indices = targets.indices.filter { targets[$0].windowID.map(eligible.contains) ?? false }
+        if let next = GridNavigation.vertical(from: current, columns: columns, count: targets.count, eligible: indices, direction: delta) {
+            select(target: targets[next])
         }
     }
 
     override func searchChanged() {
         if mode == .switcher {
             session.setSearchQuery(search.stringValue)
-            setSelectedID(session.selectedID)
+            setSelectedTarget(session.selectedTarget)
             if let service { rebuild(snapshot: service.snapshot) }
             fit()
-            select(selectedID)
+            select(target: selectedTarget)
+            showDesktopWallpaper()
             return
         }
         let eligible = eligibleSelectionIDs()
@@ -203,17 +230,21 @@ final class SwitcherPanelController: SurfacePanelController {
     }
 
     override func cardSelected(_ card: CardView) {
-        guard let id = card.record?.id else { return }
-        if mode == .switcher { _ = session.select(id) }
-        select(id)
+        guard let target = card.switchTarget else { return }
+        if mode == .switcher { _ = session.select(target) }
+        select(target: target)
     }
 
     override func activateSelected() {
-        guard let id = selectedID, isEligible(id) else {
+        guard let target = selectedTarget, isEligible(target) else {
             if shortcutSession { host?.surfaceDismiss(self) }
             return
         }
-        if mode == .switcher { _ = session.commit() }
-        host?.surfaceActivate(id)
+        if mode == .switcher { _ = session.commitTarget() }
+        activate(target)
     }
+
+    #if PANEFLO_NATIVE_CHECK
+    var nativeCheckTargets: [SwitchTarget] { targets }
+    #endif
 }

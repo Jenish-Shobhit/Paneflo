@@ -20,7 +20,8 @@ import PanefloCore
 /// - Stage Manager: hiding works, but apps leave their stage groups and the restored layout is the system's choice.
 ///   `isStageManagerEnabled` lets the UI warn; behaviour is not changed.
 /// - Every change to the hidden set is journaled to UserDefaults (`DesktopRestoreJournal`). Quitting Paneflo
-///   restores all; after a crash or kill the next launch does (`restoreJournaledApps`).
+///   restores them (`restoreForTermination`, called by the app delegate); after a crash or kill the next launch
+///   does (`restoreJournaledApps`). Both read the journal, so there is one restore path.
 @MainActor
 final class DesktopService {
     enum ShowOutcome: Equatable {
@@ -40,7 +41,8 @@ final class DesktopService {
     private let workspace: NSWorkspace
     private let defaults: UserDefaults
     private var observers: [NSObjectProtocol] = []
-    private var terminationObserver: NSObjectProtocol?
+    /// Set once the terminate-time restore ran: later session changes are not journaled again.
+    private var terminating = false
 
     static let journalKey = "desktop.session.v1"
 
@@ -52,13 +54,13 @@ final class DesktopService {
 
     isolated deinit {
         for observer in observers { workspace.notificationCenter.removeObserver(observer) }
-        if let terminationObserver { NotificationCenter.default.removeObserver(terminationObserver) }
     }
 
     // MARK: Journal
 
     /// Writes the hidden set (with launch dates, so a reused PID is never touched) or clears the journal.
     private func persist() {
+        guard !terminating else { return }
         guard let session, !session.hiddenPIDs.isEmpty else {
             defaults.removeObject(forKey: Self.journalKey); return
         }
@@ -68,6 +70,16 @@ final class DesktopService {
         }
         guard let data = try? DesktopRestoreJournal(generation: session.generation, entries: entries).encoded() else { return }
         defaults.set(data, forKey: Self.journalKey)
+    }
+
+    /// Paneflo is quitting: the journal (which mirrors the hidden set) is the single restore path, used here and at
+    /// the next launch. The journal is cleared before unhiding, and nothing is journaled afterwards, so a second call
+    /// or a late workspace notification cannot restore twice.
+    @discardableResult
+    func restoreForTermination() -> Int {
+        terminating = true
+        session = nil
+        return Self.restoreJournaledApps(defaults: defaults, workspace: workspace)
     }
 
     /// Unhides the apps a previous Show Desktop hid and never restored (Paneflo quit, crashed or was killed), if they
@@ -109,10 +121,6 @@ final class DesktopService {
     /// Starts watching the user's own app activity. Idempotent.
     func start() {
         guard observers.isEmpty else { return }
-        terminationObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification,
-                                                                     object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.restoreAll() }
-        }
         let center = workspace.notificationCenter
         func observe(_ name: Notification.Name, _ signal: @escaping @Sendable (Int32) -> DesktopSignal) {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in

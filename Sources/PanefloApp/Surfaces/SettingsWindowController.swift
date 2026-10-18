@@ -15,6 +15,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let gestureConflictSection = NSStackView()
     private let threeFingerDragNote = NSTextField(wrappingLabelWithString: GestureGuidance.threeFingerDragNote)
     let previewButton = NSButton(checkboxWithTitle: "Live previews", target: nil, action: nil)
+    let desktopEntryButton = NSButton(checkboxWithTitle: "Show Desktop in ⌘Tab and Overview", target: nil, action: nil)
+    let systemShowDesktopButton = NSButton(checkboxWithTitle: "Use macOS Show Desktop (experimental)", target: nil, action: nil)
     /// Screen Recording guidance next to the previews toggle; hidden when nothing is needed.
     let previewPermissionStatus = NSTextField(wrappingLabelWithString: "")
     private let previewPermissionSection = NSStackView()
@@ -25,6 +27,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     var onToggleShortcuts: ((Bool) -> Void)?
     var onToggleGesture: ((Bool) -> Void)?
     var onTogglePreviews: ((Bool) -> Void)?
+    var onToggleDesktopEntry: ((Bool) -> Void)?
+    var onToggleSystemShowDesktop: ((Bool) -> Void)?
     /// Settings became key: a pending Screen Recording grant may have landed in System Settings.
     var onRefreshScreenRecording: (() -> Void)?
     /// The window the last surface had selected, if it is still eligible.
@@ -82,7 +86,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
 
     private func configure() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 650),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 760),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Paneflo Settings"; window.isReleasedWhenClosed = false
         window.delegate = self
@@ -107,6 +111,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         previewPermissionSection.addArrangedSubview(previewPermissionStatus)
         button("Open Screen Recording Settings", #selector(openScreenRecordingSettings), previewPermissionSection)
         stack.addArrangedSubview(previewPermissionSection)
+        desktopEntryButton.target = self; desktopEntryButton.action = #selector(toggleDesktopEntry)
+        desktopEntryButton.setAccessibilityLabel("Show Desktop in Command-Tab and Overview")
+        stack.addArrangedSubview(desktopEntryButton)
+        systemShowDesktopButton.target = self; systemShowDesktopButton.action = #selector(toggleSystemShowDesktop)
+        systemShowDesktopButton.setAccessibilityLabel("Use macOS Show Desktop, experimental")
+        stack.addArrangedSubview(systemShowDesktopButton)
+        let desktopHint = NSTextField(wrappingLabelWithString: "Desktop hides other apps (Finder stays) and choosing a window brings back only its app. The experimental option sends your macOS Show Desktop shortcut instead; it needs permission to post keys and is untested on most setups.")
+        desktopHint.font = .systemFont(ofSize: 11); desktopHint.textColor = .secondaryLabelColor
+        desktopHint.widthAnchor.constraint(equalToConstant: 572).isActive = true
+        stack.addArrangedSubview(desktopHint)
         gestureButton.target = self; gestureButton.action = #selector(toggleGesture)
         stack.addArrangedSubview(gestureButton)
         let gestureHint = NSTextField(wrappingLabelWithString: GestureGuidance.requirements)
@@ -166,6 +180,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     @objc private func toggleShortcuts() { onToggleShortcuts?(shortcutButton.state == .on) }
     @objc private func toggleGesture() { onToggleGesture?(gestureButton.state == .on) }
     @objc private func togglePreviews() { onTogglePreviews?(previewButton.state == .on) }
+    @objc private func toggleDesktopEntry() { onToggleDesktopEntry?(desktopEntryButton.state == .on) }
+    @objc private func toggleSystemShowDesktop() { onToggleSystemShowDesktop?(systemShowDesktopButton.state == .on) }
     @objc private func openScreenRecordingSettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"),
            NSWorkspace.shared.open(url) { return }
