@@ -183,7 +183,7 @@ final class WindowService {
     func requestAccessibility() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
-        onStatus?("Enable Paneflo in Privacy & Security → Accessibility, then click Refresh.")
+        onStatus?("Switch Paneflo on in Privacy & Security › Accessibility. Paneflo picks it up by itself.")
     }
 
     func openAccessibilitySettings() {

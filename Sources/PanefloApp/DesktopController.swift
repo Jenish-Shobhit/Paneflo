@@ -87,15 +87,11 @@ final class DesktopController: NSObject, SurfaceHost {
 
     init(service: WindowService) {
         self.service = service
-        settings = SettingsWindowController(service: service)
+        settings = SettingsWindowController()
         super.init()
         switcher.host = self
         overview.host = self
         overview.onFirstCards = { [weak self] in self?.switcher.prepareHidden() }
-        settings.selectedWindow = { [weak self] in
-            guard let surface = self?.lastSurface, let id = surface.selectedID, surface.isEligible(id) else { return nil }
-            return id
-        }
         observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didHideNotification, object: NSApp, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.dismiss(restorePreviousApplication: false) }
         })
@@ -318,7 +314,6 @@ final class DesktopController: NSObject, SurfaceHost {
     func updateSnapshot() {
         switcher.snapshotChanged()
         overview.snapshotChanged()
-        settings.snapshotChanged()
         if let surface = visibleSurface { surfaceSelectionChanged(surface) }
     }
 
@@ -417,6 +412,9 @@ final class DesktopController: NSObject, SurfaceHost {
         dismiss(restorePreviousApplication: false)
         settings.show()
     }
+
+    /// The Settings controls that are not routed through the surfaces (permissions, updates, menu bar).
+    var settingsController: SettingsWindowController { settings }
 
     // MARK: SurfaceHost
 

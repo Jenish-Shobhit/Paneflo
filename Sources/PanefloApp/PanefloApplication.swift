@@ -1,5 +1,6 @@
 import AppKit
 import PanefloCore
+import ServiceManagement
 
 @main
 struct PanefloApplication {
@@ -17,7 +18,6 @@ struct PanefloApplication {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var statusItem: NSStatusItem?
     private let windows = WindowService()
     private let shortcuts = GlobalShortcutService()
     private let capture = CaptureController()
@@ -26,18 +26,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let desktopService = DesktopService()
     private var desktopEntry: DesktopEntryController?
     private let preferences = UserDefaults.standard
-    private var startupShortcutRestorePending = false
-    private var startupGestureRestorePending = false
-    /// The user's previews choice. Capture runs only while this is on and Screen Recording is usable.
+    private let setupPreferences = SetupPreferences()
+    private let setup = SetupWindowController()
+    private lazy var statusMenu = StatusMenuController(preferences: setupPreferences)
+    /// The user's previews choice combined with Screen Recording. Capture runs only while this is on.
     private var previewsEnabled = false
     /// The user asked for previews in this process, so re-probing Screen Recording is expected.
     private var previewPermissionRequested = false
     private var desktop: DesktopController?
     private var sample: PreviewController?
 
+    // Setup state for this process (see `SetupModel`).
+    private var requestedPermissions: Set<SetupPermission> = []
+    private var serviceNeedsRestart: Set<SetupPermission> = []
+    private var missingBeforeRelaunch: Set<SetupPermission> = []
+    private var awaitingReturnFromSettings = false
+    private var returnedFromSettings = false
+    private var lastPermissions: PermissionState?
+    /// One automatic start attempt per permission reading; a change in permissions allows another.
+    private var shortcutAutoStartBlocked = false
+    private var gestureAutoStartBlocked = false
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         RuntimeDiagnostics.mark("delegate launched")
         StartupRecovery.launch(defaults: preferences)
+        missingBeforeRelaunch = setupPreferences.takeMissingBeforeRelaunch()
         let controller = DesktopController(service: windows)
         desktop = controller
         let entry = DesktopEntryController(service: desktopService, settings: DesktopSettings())
@@ -57,8 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windows.onChange = { [weak self, weak controller] in
             if let self, self.previewsEnabled { self.capture.windowsChanged(alive: Set(self.windows.snapshot.records.map(\.id))) }
             controller?.updateSnapshot()
-            self?.restoreStartupShortcutsIfReady()
-            self?.restoreStartupGesturesIfReady()
+            self?.startFeaturesAfterRegistryChange()
         }
         windows.onStatus = { [weak controller] in controller?.setStatus($0) }
         controller.enablePreviewControl()
@@ -66,35 +78,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         capture.onScreenRecordingStatusChange = { [weak self] status in
             guard let self else { return }
             RuntimeDiagnostics.mark("previews screenRecording=\(status) enabled=\(self.previewsEnabled)")
-            self.updatePreviewState()
+            self.reconcile()
             if status == .granted, self.previewsEnabled { self.capture.prewarm() }
         }
         controller.onRefreshScreenRecording = { [weak self] in
-            guard let self, self.previewsEnabled, self.previewPermissionRequested,
-                  self.capture.screenRecordingStatus != .granted else { return }
-            self.capture.refreshScreenRecordingStatus()
+            guard let self else { return }
+            if self.previewPermissionRequested, self.setupPreferences.previewsEnabled,
+               self.capture.screenRecordingStatus != .granted { self.capture.refreshScreenRecordingStatus() }
+            self.reconcile()
         }
         controller.onCompositionChanged = { [weak self] in self?.shortcuts.compositionActive = $0 }
         controller.onVisibilityChanged = { [weak self] in self?.shortcuts.selectionContextActive = $0 }
         controller.onSurfaceVisibilityChanged = { [weak self] in self?.shortcuts.surfaceVisible = $0 }
         controller.onToggleGesture = { [weak self] in self?.setGestures($0) }
         controller.onToggleShortcuts = { [weak self] in self?.setShortcuts($0) }
+        configureSettings(controller.settingsController)
+        configureSetup()
         shortcuts.onAction = { [weak self] in self?.handle($0) }
         shortcuts.onWindowCommand = { [weak self] command in
             guard let self, let id = self.desktop?.switcherSelection else { return }
             self.windows.perform(command, on: id)
         }
-        shortcuts.onStateChange = { [weak self, weak controller] state in
-            controller?.setShortcutsEnabled(state == .active)
-            if state == .active, let description = self?.shortcuts.installedTapDescription { controller?.setStatus("Shortcuts installed: \(description). ⌘Tab and ⌃⌥ controls are enabled.") }
-            if state == .active { self?.preferences.set(true, forKey: "shortcuts.enabled.v1") }
-            if case .failed(let message) = state {
-                self?.preferences.set(false, forKey: "shortcuts.enabled.v1")
-                controller?.setStatus(message)
-            }
-            // An interrupted tap keeps the saved intent; the service retries on its own.
-            if case .interrupted(let message) = state { controller?.setStatus(message) }
-        }
+        shortcuts.onStateChange = { [weak self] state in self?.shortcutStateChanged(state) }
         gestures.onGestureEvent = { [weak self] event in
             guard let self else { return }
             switch event.direction {
@@ -110,27 +115,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             RuntimeDiagnostics.mark("gesture frames=\(counts.frames) contacts=\(counts.contacts) rejectedFrames=\(counts.rejectedFrames) gestures=\(counts.gestures) up=\(counts.upGestures) down=\(counts.downGestures) palmOrRimContacts=\(counts.palmOrRimContacts)")
         }
         installApplicationMenu()
-        installMenu()
-        startupShortcutRestorePending = preferences.bool(forKey: "shortcuts.enabled.v1")
-        startupGestureRestorePending = preferences.bool(forKey: "gesture.enabled.v1")
-        let savedPreviews = preferences.bool(forKey: "previews.enabled.v1")
-        let accessibilityReady = windows.hasAccessibility
-        let inputMonitoringReady = CGPreflightListenEventAccess()
-        let screenRecordingReady = capture.hasPermission
-        RuntimeDiagnostics.mark("permissions accessibility=\(accessibilityReady) inputMonitoring=\(inputMonitoringReady) screenRecording=\(screenRecordingReady)")
-        previewsEnabled = savedPreviews && screenRecordingReady
+        installStatusMenu()
+        let permissions = readPermissions()
+        RuntimeDiagnostics.mark("permissions accessibility=\(permissions.accessibility) inputMonitoring=\(permissions.inputMonitoring) screenRecording=\(permissions.screenRecording)")
+        previewsEnabled = setupPreferences.previewsEnabled && permissions.screenRecording
         updatePreviewState()
-        if savedPreviews && !screenRecordingReady {
-            // Never prompt at launch: the user turns previews back on once access is granted.
-            controller.setPreviewPermissionMessage("Screen Recording access is off. Allow Paneflo under Privacy & Security › Screen Recording, then turn on Live previews.")
-        }
-        let missingPermission = !accessibilityReady
-            || ((startupShortcutRestorePending || startupGestureRestorePending) && !inputMonitoringReady)
-            || (savedPreviews && !screenRecordingReady)
-        let firstLaunch = !preferences.bool(forKey: "startup.completed.v1")
-        preferences.set(true, forKey: "startup.completed.v1")
+        if !setupPreferences.gestureEnabled { desktop?.setGestureState(enabled: false, description: "Off") }
         windows.start()
-        if missingPermission || firstLaunch { controller.showPreferences() }
+        let model = reconcile(permissions)
+        // Never Settings at launch. Setup only while something required is missing, and once per launch.
+        let showsSetup = model.showsAtLaunch(alreadyShownThisLaunch: false)
+        if showsSetup { showSetup() }
         // Pay both panels' first-display cost now, so the first ⌘Tab and Overview are warm.
         DispatchQueue.main.async { [weak controller] in controller?.prewarm() }
         // Warm ScreenCaptureKit (first request ~1 s) after startup, off the launch and input paths.
@@ -141,7 +136,243 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // updates hook: isBusy defers automatic checks and offers while a switcher or overview session is showing.
         UpdateController.shared.start(isBusy: { [weak self] in self?.desktop?.isVisible == true },
                                       report: { [weak self] in self?.desktop?.setStatus($0) })
-        RuntimeDiagnostics.mark("startup menuReady=true settingsShown=\(missingPermission || firstLaunch)")
+        RuntimeDiagnostics.mark("startup menuReady=true settingsShown=false setupShown=\(showsSetup) staleHint=\(model.showsStaleHint)")
+    }
+
+    // MARK: Setup and permissions
+
+    private func readPermissions() -> PermissionState {
+        PermissionState(accessibility: windows.hasAccessibility, inputMonitoring: CGPreflightListenEventAccess(),
+                        screenRecording: capture.hasPermission)
+    }
+
+    private func setupModel(_ permissions: PermissionState) -> SetupModel {
+        SetupModel(permissions: permissions, intent: setupPreferences.intent, requested: requestedPermissions,
+                   serviceNeedsRestart: serviceNeedsRestart, missingBeforeRelaunch: missingBeforeRelaunch,
+                   returnedFromSettings: returnedFromSettings)
+    }
+
+    /// Reads permissions, starts whatever the saved choices and permissions now allow, and refreshes the setup window,
+    /// the Settings permission lines and the menu badge. Called at launch, once a second while setup is visible, when
+    /// Paneflo or Settings becomes active, and after any permission action. Never on the input path.
+    @discardableResult
+    private func reconcile(_ reading: PermissionState? = nil) -> SetupModel {
+        let permissions = reading ?? readPermissions()
+        if permissions != lastPermissions {
+            shortcutAutoStartBlocked = false
+            gestureAutoStartBlocked = false
+            if let lastPermissions {
+                RuntimeDiagnostics.mark("permissions changed accessibility=\(permissions.accessibility) inputMonitoring=\(permissions.inputMonitoring) screenRecording=\(permissions.screenRecording)")
+                if permissions.accessibility, !lastPermissions.accessibility { windows.refresh() }
+                if permissions.inputMonitoring { serviceNeedsRestart.remove(.inputMonitoring) }
+            }
+            lastPermissions = permissions
+        }
+        if setupPreferences.noteSetup(setupModel(permissions)) { RuntimeDiagnostics.mark("setup complete shortcuts=on") }
+        startShortcutsIfReady(setupModel(permissions))
+        startGestureIfReady(setupModel(permissions))
+        startPreviewsIfReady(permissions)
+        return publishSetup(permissions)
+    }
+
+    /// Pushes the current model to the setup window, Settings and the menu, without reading permissions again.
+    @discardableResult
+    private func publishSetup(_ permissions: PermissionState? = nil) -> SetupModel {
+        let model = setupModel(permissions ?? lastPermissions ?? readPermissions())
+        setup.update(model)
+        desktop?.settingsController.setPermissionRows(model.rows)
+        statusMenu.setupNeeded = !model.isComplete
+        return model
+    }
+
+    private func showSetup() {
+        reconcile()
+        setup.show()
+    }
+
+    private func configureSetup() {
+        setup.onPoll = { [weak self] in self?.reconcile() }
+        setup.onGrant = { [weak self] in self?.grant($0) }
+        setup.onRestart = { [weak self] in self?.restartForPermissions() }
+        setup.onReset = { [weak self] in self?.resetPermissions() }
+    }
+
+    /// Grant…: the system request, plus the exact System Settings pane, for one permission.
+    private func grant(_ permission: SetupPermission) {
+        requestedPermissions.insert(permission)
+        awaitingReturnFromSettings = true
+        RuntimeDiagnostics.mark("setup grant \(permission.rawValue)")
+        switch permission {
+        case .accessibility:
+            windows.requestAccessibility()
+        case .inputMonitoring:
+            _ = CGRequestListenEventAccess()
+        case .screenRecording:
+            previewPermissionRequested = true
+            setupPreferences.previewsEnabled = true
+            previewsEnabled = true
+            _ = capture.requestPermission()
+        }
+        if let url = URL(string: permission.settingsURL) { NSWorkspace.shared.open(url) }
+        reconcile()
+    }
+
+    /// Restart Paneflo: records what is still off (so the next launch can spot a stuck permission), starts a helper
+    /// that reopens Paneflo once this process has exited, and quits.
+    private func restartForPermissions() {
+        let model = setupModel(readPermissions())
+        setupPreferences.missingBeforeRelaunch = model.missingForRelaunch
+        RuntimeDiagnostics.mark("setup restart missing=\(model.missingForRelaunch.map(\.rawValue).sorted())")
+        guard let arguments = RelaunchHelper.arguments(bundlePath: Bundle.main.bundlePath,
+                                                       pid: ProcessInfo.processInfo.processIdentifier) else {
+            showAlert("Quit and open Paneflo again", "This copy of Paneflo is not running from an app bundle, so it can’t reopen itself.")
+            return
+        }
+        let helper = Process()
+        helper.executableURL = URL(fileURLWithPath: "/bin/sh")
+        helper.arguments = arguments
+        do {
+            try helper.run()
+        } catch {
+            showAlert("Couldn’t restart Paneflo", "Quit Paneflo from its menu and open it again.")
+            return
+        }
+        quit()
+    }
+
+    /// "Permissions stuck? Reset and grant again": clears Paneflo's own TCC entries (never another app's), then starts
+    /// the Grant flow again from the first permission.
+    private func resetPermissions() {
+        let invocations = PermissionReset.invocations(bundleID: Bundle.main.bundleIdentifier)
+        guard !invocations.isEmpty else {
+            showAlert("Can’t reset permissions", "This copy of Paneflo has no bundle identifier. Run the app from /Applications.")
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Reset Paneflo’s permissions?"
+        alert.informativeText = PermissionReset.explanation + " You’ll switch Paneflo on again in each pane, and restart it when asked."
+        alert.addButton(withTitle: "Reset and Grant Again")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        RuntimeDiagnostics.mark("setup reset services=\(invocations.count)")
+        let tool = PermissionReset.tool
+        Task.detached(priority: .userInitiated) {
+            var failures = 0
+            for arguments in invocations {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: tool)
+                process.arguments = arguments
+                process.standardOutput = FileHandle.nullDevice
+                process.standardError = FileHandle.nullDevice
+                do { try process.run(); process.waitUntilExit(); if process.terminationStatus != 0 { failures += 1 } }
+                catch { failures += 1 }
+            }
+            let failed = failures
+            await MainActor.run { [weak self] in self?.permissionsReset(failures: failed) }
+        }
+    }
+
+    private func permissionsReset(failures: Int) {
+        RuntimeDiagnostics.mark("setup reset failures=\(failures)")
+        requestedPermissions = []
+        serviceNeedsRestart = []
+        missingBeforeRelaunch = []
+        returnedFromSettings = false
+        awaitingReturnFromSettings = false
+        if failures > 0 {
+            showAlert("Some permissions couldn’t be reset", "Remove Paneflo from the lists in System Settings › Privacy & Security with the minus button, then grant it again.")
+        }
+        let model = reconcile()
+        let next = model.missingRequired.first ?? .accessibility
+        grant(next)
+        if !setup.isVisible { setup.show() }
+    }
+
+    private func showAlert(_ title: String, _ text: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = text
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+    }
+
+    /// Registry changes are frequent: they read no permissions and only retry a start the last reading allowed (the
+    /// shortcuts wait for the first window list).
+    private func startFeaturesAfterRegistryChange() {
+        guard let permissions = lastPermissions else { return }
+        let model = setupModel(permissions)
+        if model.startsShortcuts, !shortcutAutoStartBlocked, shortcuts.state == .disabled { startShortcutsIfReady(model) }
+    }
+
+    private func startShortcutsIfReady(_ model: SetupModel) {
+        guard model.startsShortcuts, !shortcutAutoStartBlocked else { return }
+        switch shortcuts.state {
+        case .disabled, .failed: break
+        case .arming, .active, .releasing, .interrupted: return
+        }
+        guard !windows.snapshot.records.isEmpty else { return } // the first window list retries this
+        setShortcuts(true, automatic: true)
+        if case .failed = shortcuts.state { shortcutAutoStartBlocked = true }
+    }
+
+    private func startGestureIfReady(_ model: SetupModel) {
+        if model.intent.gesture, !model.startsGesture, !gestures.isEnabled {
+            desktop?.setGestureState(enabled: false, description: "Starts once Accessibility and Input Monitoring are on. Finish setup to grant them.")
+            return
+        }
+        guard model.startsGesture, !gestureAutoStartBlocked, !gestures.isEnabled else { return }
+        gestureAutoStartBlocked = true
+        _ = gestures.start()
+        showGestureState(gestures.state)
+    }
+
+    private func startPreviewsIfReady(_ permissions: PermissionState) {
+        let wanted = setupPreferences.previewsEnabled
+        if wanted, permissions.screenRecording, !previewsEnabled {
+            previewsEnabled = true
+            capture.prewarm()
+        }
+        if wanted, capture.screenRecordingStatus == .restartRequired { serviceNeedsRestart.insert(.screenRecording) }
+        else { serviceNeedsRestart.remove(.screenRecording) }
+        updatePreviewState()
+    }
+
+    private func configureSettings(_ settings: SettingsWindowController) {
+        settings.onOpenSetup = { [weak self] in self?.showSetup() }
+        settings.onGrantScreenRecording = { [weak self] in self?.grant(.screenRecording) }
+        settings.automaticUpdatesButton.state = UpdateController.shared.checksAutomatically ? .on : .off
+        settings.onToggleAutomaticUpdates = { UpdateController.shared.checksAutomatically = $0 }
+        settings.onCheckForUpdates = { UpdateController.shared.checkForUpdates() }
+        settings.menuBarIconButton.state = statusMenu.isIconVisible ? .on : .off
+        settings.onToggleMenuBarIcon = { [weak self] visible in
+            guard let self else { return }
+            if visible { self.statusMenu.setIconVisible(true) } else { self.statusMenu.requestHide() }
+        }
+        settings.onToggleLaunchAtLogin = { [weak self] in self?.setLaunchAtLogin($0) }
+        showLaunchAtLoginState()
+    }
+
+    // MARK: Launch at login
+
+    private func setLaunchAtLogin(_ enabled: Bool) {
+        let service = SMAppService.mainApp
+        do {
+            if enabled { if service.status != .enabled { try service.register() } }
+            else if service.status == .enabled || service.status == .requiresApproval { try service.unregister() }
+            showLaunchAtLoginState()
+        } catch {
+            showLaunchAtLoginState(error: "Couldn’t change it: \(error.localizedDescription)")
+        }
+    }
+
+    private func showLaunchAtLoginState(error: String? = nil) {
+        guard let settings = desktop?.settingsController else { return }
+        let status = SMAppService.mainApp.status
+        settings.launchAtLoginButton.state = status == .enabled || status == .requiresApproval ? .on : .off
+        if let error { settings.setLaunchAtLoginNote(error) }
+        else if status == .requiresApproval { settings.setLaunchAtLoginNote("Allow Paneflo in System Settings › General › Login Items.") }
+        else { settings.setLaunchAtLoginNote(nil) }
     }
 
     private func installApplicationMenu() {
@@ -167,43 +398,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = main
     }
 
-    private func installMenu() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.image = NSImage(systemSymbolName: "rectangle.3.group", accessibilityDescription: "Paneflo")
-        item.button?.title = ""; item.button?.toolTip = "Paneflo"
-        item.button?.setAccessibilityLabel("Paneflo menu")
-        let menu = NSMenu()
-        for (index, title) in ["Switch windows", "Arrange windows", "Organized overview"].enumerated() {
-            let entry = NSMenuItem(title: title, action: #selector(openDesktop(_:)), keyEquivalent: "")
-            entry.target = self; entry.tag = index; menu.addItem(entry)
+    private func installStatusMenu() {
+        let menu = statusMenu
+        menu.showsDeveloperFixtures = RuntimeDiagnostics.isEnabled
+        menu.addUpdateItems = { UpdateMenu.shared.addItems(to: $0) } // updates hook
+        menu.onOpen = { [weak self] in self?.desktop?.present(mode: $0) }
+        menu.onSettings = { [weak self] in self?.showSettings() }
+        menu.onFinishSetup = { [weak self] in self?.showSetup() }
+        menu.onToggleShortcuts = { [weak self] in self?.setShortcuts($0) }
+        menu.onRefreshWindows = { [weak self] in self?.windows.refresh() }
+        menu.onDeveloperFixtures = { [weak self] in self?.showSample() }
+        menu.onQuit = { [weak self] in self?.quit() }
+        menu.onIconVisibilityChanged = { [weak self] visible in
+            self?.desktop?.settingsController.menuBarIconButton.state = visible ? .on : .off
         }
-        menu.addItem(.separator())
-        let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
-        settings.target = self; menu.addItem(settings)
-        UpdateMenu.shared.addItems(to: menu) // updates hook
-        let disable = NSMenuItem(title: "Disable global shortcuts", action: #selector(disableShortcuts), keyEquivalent: "")
-        disable.target = self; menu.addItem(disable)
-        let refresh = NSMenuItem(title: "Refresh windows", action: #selector(refreshWindows), keyEquivalent: "")
-        refresh.target = self; menu.addItem(refresh)
-        let preview = NSMenuItem(title: "Synthetic developer fixtures", action: #selector(showSample), keyEquivalent: "")
-        preview.target = self; menu.addItem(preview)
-        menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Quit Paneflo", action: #selector(quit), keyEquivalent: "q")
-        quit.target = self; menu.addItem(quit)
-        item.menu = menu; statusItem = item
+        menu.install()
     }
 
-    /// Previews toggle. First-time access: the system request is shown, the toggle stays on with
-    /// guidance, and previews start once Screen Recording is confirmed (re-checked when Paneflo or
-    /// its Settings window becomes active), or Settings says a restart is needed.
+    /// Previews toggle. Turning it on without Screen Recording runs the Grant flow (system request and the
+    /// Screen Recording pane); previews start once access is confirmed, or setup offers a restart.
     private func setPreviews(_ enabled: Bool) {
+        setupPreferences.previewsEnabled = enabled
         previewsEnabled = enabled
-        preferences.set(enabled, forKey: "previews.enabled.v1")
         if enabled {
-            if !capture.hasPermission {
-                previewPermissionRequested = true
-                _ = capture.requestPermission()
-            }
+            if !capture.hasPermission { grant(.screenRecording); return }
             capture.prewarm()
         } else {
             capture.stop()
@@ -218,41 +436,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let ready = capture.hasPermission && status != .restartRequired
         desktop.previews = previewsEnabled && ready ? capture : nil
         desktop.setPreviewsEnabled(previewsEnabled)
-        desktop.setPreviewPermissionMessage(previewsEnabled && !ready
-            ? status.settingsMessage ?? ScreenRecordingStatus.unknown.settingsMessage : nil)
-    }
-
-    private func restoreStartupShortcutsIfReady() {
-        guard startupShortcutRestorePending, !windows.snapshot.records.isEmpty else { return }
-        startupShortcutRestorePending = false
-        guard windows.hasAccessibility, CGPreflightListenEventAccess() else {
-            desktop?.setStatus("Saved shortcuts need Accessibility and Input Monitoring. Enable them in Settings when ready.")
-            return
-        }
-        setShortcuts(true, allowPermissionRequest: false)
-    }
-
-    private func restoreStartupGesturesIfReady() {
-        guard startupGestureRestorePending, !windows.snapshot.records.isEmpty else { return }
-        startupGestureRestorePending = false
-        guard windows.hasAccessibility, CGPreflightListenEventAccess() else {
-            desktop?.setGestureState(enabled: false, description: "Saved gesture needs Accessibility and Input Monitoring. Enable it in Settings when ready.")
-            return
-        }
-        if !gestures.start() { preferences.set(false, forKey: "gesture.enabled.v1") }
-        showGestureState(gestures.state)
+        let message: String?
+        if ready { message = nil }
+        else if previewsEnabled || status == .restartRequired { message = status.settingsMessage ?? ScreenRecordingStatus.unknown.settingsMessage }
+        else { message = "Previews need Screen Recording (optional). Without it the switcher works without window pictures." }
+        desktop.setPreviewPermissionMessage(message)
     }
 
     private func setGestures(_ enabled: Bool) {
-        startupGestureRestorePending = false
-        preferences.set(enabled, forKey: "gesture.enabled.v1")
-        if !enabled { gestures.stop(); return }
-        if !CGPreflightListenEventAccess(), !CGRequestListenEventAccess() {
-            preferences.set(false, forKey: "gesture.enabled.v1")
-            desktop?.setGestureState(enabled: false, description: "Enable Input Monitoring in Privacy & Security, then try again.")
-            return
-        }
-        if !gestures.start() { preferences.set(false, forKey: "gesture.enabled.v1") }
+        setupPreferences.gestureEnabled = enabled
+        gestureAutoStartBlocked = false
+        if !enabled { gestures.stop(); publishSetup(); return }
+        let model = reconcile()
+        guard model.startsGesture else { showSetup(); return }
+        if !gestures.isEnabled, !gestures.start() { setupPreferences.gestureEnabled = false }
         showGestureState(gestures.state)
     }
 
@@ -264,37 +461,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .starting: message = "Starting…"; diagnostic = "starting"
         case .active:
             // Also after an automatic retry of a transient failure, which had cleared the saved intent.
-            preferences.set(true, forKey: "gesture.enabled.v1")
+            setupPreferences.gestureEnabled = true
             message = "Ready · swipe up for Overview, down to dismiss it."; diagnostic = "active"
         case .stopping: message = "Stopping…"; diagnostic = "stopping"
         case .paused: message = "Paused while the display or session is inactive."; diagnostic = "paused"
         case .unavailable(let reason):
-            preferences.set(false, forKey: "gesture.enabled.v1")
+            setupPreferences.gestureEnabled = false
             message = reason; diagnostic = "unavailable"
         case .failed(let reason):
-            preferences.set(false, forKey: "gesture.enabled.v1")
+            setupPreferences.gestureEnabled = false
             message = reason; diagnostic = "failed"
         }
         desktop?.setGestureState(enabled: gestures.isEnabled, description: message)
         RuntimeDiagnostics.mark("gesture state=\(diagnostic) enabled=\(gestures.isEnabled)")
     }
 
-    private func setShortcuts(_ enabled: Bool, allowPermissionRequest: Bool = true) {
-        startupShortcutRestorePending = false
+    /// `automatic`: started by `reconcile` from the saved choice, so the choice is not rewritten and nothing prompts.
+    private func setShortcuts(_ enabled: Bool, automatic: Bool = false) {
         guard enabled else {
-            preferences.set(false, forKey: "shortcuts.enabled.v1")
-            shortcuts.stop(); return
+            setupPreferences.shortcutsEnabled = false
+            shortcuts.stop()
+            publishSetup()
+            return
         }
-        guard windows.hasAccessibility else {
-            desktop?.setShortcutsEnabled(false); if allowPermissionRequest { windows.requestAccessibility() }; return
+        if !automatic {
+            setupPreferences.shortcutsEnabled = true
+            shortcutAutoStartBlocked = false
         }
-        if !CGPreflightListenEventAccess(), (!allowPermissionRequest || !CGRequestListenEventAccess()) {
+        guard windows.hasAccessibility, CGPreflightListenEventAccess() else {
             desktop?.setShortcutsEnabled(false)
-            desktop?.setStatus("Enable Paneflo in Privacy & Security → Input Monitoring, then enable shortcuts again.")
+            desktop?.setStatus("Shortcuts start as soon as Accessibility and Input Monitoring are on.")
+            if !automatic { showSetup() }
             return
         }
         guard !windows.snapshot.records.isEmpty else {
-            desktop?.setShortcutsEnabled(false); desktop?.setStatus("Open a normal window and refresh before enabling shortcuts."); return
+            desktop?.setShortcutsEnabled(false)
+            desktop?.setStatus("Paneflo is still reading your windows. Shortcuts start as soon as it finishes.")
+            return
         }
         var tiling: [ShortcutChord: ShortcutAction] = [:]
         let modifiers: ShortcutModifiers = [.control, .option]
@@ -303,6 +506,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         tiling[ShortcutChord(keyCode: 6, modifiers: modifiers)] = .restore
         _ = shortcuts.start(configuration: .init(switcherEnabled: true, overview: ShortcutChord(keyCode: 49, modifiers: modifiers), tiling: tiling))
+    }
+
+    private func shortcutStateChanged(_ state: GlobalShortcutService.State) {
+        desktop?.setShortcutsEnabled(state == .active)
+        statusMenu.shortcutsActive = state == .active
+        RuntimeDiagnostics.mark("shortcuts state=\(state == .active ? "active" : state == .disabled ? "disabled" : "other")")
+        switch state {
+        case .active:
+            serviceNeedsRestart.remove(.inputMonitoring)
+            if let description = shortcuts.installedTapDescription {
+                desktop?.setStatus("Shortcuts installed: \(description). ⌘Tab and ⌃⌥ controls are enabled.")
+            }
+            publishSetup()
+        case .failed(let message):
+            // The saved choice stays on: a failed start is retried when permissions change or at the next launch.
+            // With Input Monitoring reading on, the tap usually needs a relaunch to apply it.
+            if CGPreflightListenEventAccess() {
+                serviceNeedsRestart.insert(.inputMonitoring)
+                desktop?.setStatus(message + " Restart Paneflo to finish enabling Input Monitoring.")
+            } else {
+                desktop?.setStatus(message)
+            }
+            publishSetup()
+        case .interrupted(let message):
+            // An interrupted tap keeps the saved intent; the service retries on its own.
+            desktop?.setStatus(message)
+        case .disabled, .arming, .releasing:
+            break
+        }
     }
 
     /// Queued actions never expire. One is dropped only when the surface it targets is gone;
@@ -325,19 +557,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func applicationDidBecomeActive(_ notification: Notification) { desktop?.updateKeyboardOwnership() }
+    func applicationDidBecomeActive(_ notification: Notification) {
+        desktop?.updateKeyboardOwnership()
+        // Coming back from System Settings after a Grant button: read permissions again.
+        if awaitingReturnFromSettings { returnedFromSettings = true }
+        reconcile()
+    }
     func applicationDidResignActive(_ notification: Notification) { desktop?.updateKeyboardOwnership() }
 
+    /// Opening Paneflo again (Finder, Spotlight, Launchpad, the Dock) shows setup while something required is missing,
+    /// otherwise Settings. This is the way back to a hidden menu-bar icon.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if desktop?.isVisible != true { desktop?.present(mode: .switcher) }
-        return true
+        let model = reconcile()
+        if model.isComplete { showSettings() } else { setup.show() }
+        return false
     }
 
-    @objc private func openDesktop(_ sender: NSMenuItem) { desktop?.present(mode: DesktopMode(rawValue: sender.tag) ?? .switcher) }
-    @objc private func showSettings() { desktop?.showPreferences() }
-    @objc private func disableShortcuts() { setShortcuts(false) }
-    @objc private func refreshWindows() { windows.refresh() }
-    @objc private func showSample() { if sample == nil { sample = PreviewController() }; sample?.present(mode: 0) }
+    @objc private func showSettings() { reconcile(); desktop?.showPreferences() }
+    private func showSample() { if sample == nil { sample = PreviewController() }; sample?.present(mode: 0) }
     @objc private func quit() { gestures.stop(); shortcuts.stop(); capture.stop(); desktop?.dismiss(); NSApp.terminate(nil) }
     func applicationWillTerminate(_ notification: Notification) {
         gestures.stop(); shortcuts.stop(); capture.stop()
