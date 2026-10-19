@@ -120,6 +120,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     func windowDidBecomeKey(_ notification: Notification) {
         refreshGestureGuidance()
+        refreshSystemEdgeTiling()
         onRefreshScreenRecording?()
     }
 
@@ -130,8 +131,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         if model.pane == .overviewGesture { refreshGestureGuidance() }
     }
 
+    /// Reads macOS's own drag-to-edge tiling options (read only).
+    private func refreshSystemEdgeTiling() {
+        let enabled = SystemEdgeTiling.isEnabled(UserDefaults(suiteName: SystemEdgeTiling.domain))
+        if model.systemEdgeTiling != enabled { model.systemEdgeTiling = enabled }
+    }
+
     private func refreshOnOpen() {
         refreshGestureGuidance()
+        refreshSystemEdgeTiling()
         let surface = SurfacePreferences(defaults: defaults)
         if model.surface != surface { model.surface = surface }
         model.slotNote = nil

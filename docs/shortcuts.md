@@ -34,6 +34,8 @@ Everything here is also listed, searchable, in **Settings › Shortcuts & Help**
 | ⌘⌥↑ | Fill the display |
 | ⌘⌥↓ | Undo for the selected window |
 
+Without keys: drag a window by its title bar to the top edge to fill the display, a side edge for that half, or a corner for a quarter (Settings › Tiling).
+
 ## Tile pairs
 
 | Keys | Action |

@@ -79,11 +79,13 @@ final class TilePairController {
     /// 3. The landing is resolved against the registry; follow-ups (displaced member home, swap partner, the rest of
     ///    the display beside a size-limited window) are issued only after `id` landed, so the half never shows the
     ///    desktop. Every placement joins one undo operation, which also re-forms the pairs this tile ended.
-    func tile(_ id: WindowIdentity, zone: LayoutZone, service: WindowService, snapAssist: Bool,
+    /// `display`: tile on this display (index in `WindowService.displayAreas()` order) rather than the window's own,
+    /// for a window dropped on a screen edge.
+    func tile(_ id: WindowIdentity, zone: LayoutZone, service: WindowService, snapAssist: Bool, display: Int? = nil,
               completion: (@MainActor (TileOutcome?, TileResolution?) -> Void)? = nil) {
         let displays = WindowService.displayAreas()
         let operation = service.beginOperation()
-        var explicitDisplay: Int?
+        var explicitDisplay = display
         var token: UInt64 = 0
         if snapAssist {
             let (request, requestToken) = willTile(id, zone: zone)

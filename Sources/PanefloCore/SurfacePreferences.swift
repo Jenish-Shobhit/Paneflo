@@ -12,6 +12,8 @@ public struct SurfacePreferences: Equatable, Sendable {
         public static let raiseTogether = "tilePairs.raiseTogether"
         public static let snapAssist = "pairs.snapAssist"
         public static let sideBySide = "pairs.sideBySide"
+        /// Settings › Tiling › Snap windows by dragging to screen edges.
+        public static let dragToSnap = "tiling.dragToSnap"
     }
 
     /// The on/off preferences, each with its key. Every option defaults to on.
@@ -19,6 +21,8 @@ public struct SurfacePreferences: Equatable, Sendable {
         /// The selected window's full title on one line under the switcher's cards.
         case showsSelectedTitle
         case raiseTogether, snapAssist, sideBySide
+        /// Dragging a window to an outer screen edge or corner tiles it there.
+        case dragToSnap
 
         public var key: String {
             switch self {
@@ -26,6 +30,7 @@ public struct SurfacePreferences: Equatable, Sendable {
             case .raiseTogether: Key.raiseTogether
             case .snapAssist: Key.snapAssist
             case .sideBySide: Key.sideBySide
+            case .dragToSnap: Key.dragToSnap
             }
         }
     }
@@ -37,6 +42,7 @@ public struct SurfacePreferences: Equatable, Sendable {
     public var raiseTogether = true
     public var snapAssist = true
     public var sideBySide = true
+    public var dragToSnap = true
 
     public init() {}
 
@@ -55,6 +61,7 @@ public struct SurfacePreferences: Equatable, Sendable {
             case .raiseTogether: raiseTogether
             case .snapAssist: snapAssist
             case .sideBySide: sideBySide
+            case .dragToSnap: dragToSnap
             }
         }
         set {
@@ -63,6 +70,7 @@ public struct SurfacePreferences: Equatable, Sendable {
             case .raiseTogether: raiseTogether = newValue
             case .snapAssist: snapAssist = newValue
             case .sideBySide: sideBySide = newValue
+            case .dragToSnap: dragToSnap = newValue
             }
         }
     }

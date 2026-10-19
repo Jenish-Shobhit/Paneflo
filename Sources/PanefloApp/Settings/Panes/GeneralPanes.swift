@@ -79,6 +79,21 @@ struct TilingPane: View {
     var body: some View {
         PaneForm(pane: .tiling) {
             Section {
+                SubtitledToggle("Snap windows by dragging to screen edges",
+                                subtitle: "Drag a window by its title bar to the top edge to fill the screen, to a side for half, or into a corner for a quarter. An outline shows where it will go; release to place it. Drag it away again to get its size back.",
+                                isOn: model.surfaceToggle(.dragToSnap))
+                if model.surface.dragToSnap, model.systemEdgeTiling, let url = URL(string: SystemEdgeTiling.settingsURL) {
+                    StatusRow(tone: .attention, title: "macOS also tiles dragged windows",
+                              detail: "Turn off “Drag windows to screen edges to tile” and “Drag windows to menu bar to fill screen” in Desktop & Dock, so only one of them acts.") {
+                        Button("Open Desktop & Dock…") { model.perform(.openURL(url)) }
+                    }
+                }
+            } header: {
+                Text("Snap Areas")
+            } footer: {
+                Footnote("Only the outer edges of your displays count; an edge shared with another display doesn’t. Needs Accessibility.")
+            }
+            Section {
                 SubtitledToggle("Raise tile pairs together",
                                 subtitle: "When you switch to a tiled window, bring its pair forward too.",
                                 isOn: model.surfaceToggle(.raiseTogether))

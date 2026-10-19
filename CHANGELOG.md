@@ -2,6 +2,12 @@
 
 All notable changes to Paneflo are listed here. Versions follow [Semantic Versioning](https://semver.org); releases before 1.0.0 are 0.x milestones.
 
+## Unreleased
+
+### Tiling
+
+- Snap areas: drag a window by its title bar to the top edge of a display to fill it, to the left or right edge for that half, or into a corner for a quarter. A translucent outline shows where it will land; release to place it. The bottom edge does nothing. Edges shared between displays don't count, and the menu bar counts as the top edge. A window Paneflo tiled gets its previous size back when you drag it away. Snapped windows pair and undo like any other tile. On by default: Settings › Tiling › Snap windows by dragging to screen edges.
+
 ## 1.1.0 — 2026-10-19
 
 ### Switcher

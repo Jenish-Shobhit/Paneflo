@@ -45,6 +45,7 @@ enum HelpContent {
             HelpEntry(["⌃⌥↩"], "Fill its display"),
             HelpEntry(["⌃⌥Z"], "Undo"),
             HelpEntry([], "The menu bar’s Tile Front Window has the same arrangements for the frontmost window."),
+            HelpEntry([], "Drag a window by its title bar to the top edge to fill the display, a side edge for half, or a corner for a quarter. Drag it away to get its size back."),
             HelpEntry([], "⌃⌥ acts on the window that is frontmost when you press it (a sheet or dialog arranges its window). If nothing can be arranged — a full-screen window, Accessibility off — a short note says why."),
             HelpEntry([], "macOS’s own tiling keys (fn⌃ with the arrows) don’t overlap with ⌃⌥, so both work."),
         ]),

@@ -148,6 +148,9 @@ final class WindowService {
     /// A placement could not be made (window gone, refused, full screen, Accessibility off): the reason, for visible
     /// feedback. Superseded placements are not failures.
     var onPlacementFailed: ((WindowIdentity?, String) -> Void)?
+    /// A tile landed (not superseded): the window, its frame before and after. Drag-to-edge snapping uses it to give
+    /// a tiled window its own size back when it is dragged away.
+    var onTiled: ((WindowIdentity, _ before: WindowRect, _ after: WindowRect) -> Void)?
     var hasAccessibility: Bool { AXIsProcessTrusted() }
 
     #if PANEFLO_NATIVE_CHECK
@@ -231,6 +234,12 @@ final class WindowService {
     func openAccessibilitySettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") { NSWorkspace.shared.open(url) }
     }
+
+    /// O(1): the registry window with this window-server number, if it has been scanned.
+    func identity(forWindowNumber number: UInt32) -> WindowIdentity? { identityByNumber[number] }
+
+    /// O(1): the window-server number of a registry window, whatever its visibility.
+    func windowNumber(for id: WindowIdentity) -> UInt32? { captureNumbers[id] }
 
     /// O(1): dictionary lookups only, no window-server or process queries.
     func captureWindowNumber(for id: WindowIdentity) -> UInt32? {
@@ -549,16 +558,21 @@ final class WindowService {
 
     /// Moves a window to an exact frame (a pair follow-up: a displaced member's home, the rest of the display beside
     /// a size-limited partner). A frame that left every display is clamped into the nearest one.
-    func place(_ id: WindowIdentity, frame: WindowRect, operation: UInt64? = nil,
+    /// `recordsUndo` false: the move is not an arrangement the user would undo (a tiled window getting its own size
+    /// back while it is dragged away).
+    func place(_ id: WindowIdentity, frame: WindowRect, operation: UInt64? = nil, recordsUndo: Bool = true,
                completion: (@MainActor @Sendable (TileOutcome?) -> Void)? = nil) {
         guard hasAccessibility, validLifetime(id), recordIndex[id] != nil, let target = targets[id] else { completion?(nil); return }
         let displays = Self.displayAreas()
         guard !displays.isEmpty else { completion?(nil); return }
-        run(.restore(frame, displays: displays), for: id, target: target, operation: operation, completion: completion)
+        run(.restore(frame, displays: displays), for: id, target: target, operation: operation, recordsUndo: recordsUndo,
+            completion: completion)
     }
 
     private func run(_ request: PlacementRequest, for id: WindowIdentity, target: AXWindowTarget, operation: UInt64?,
-                     completion: (@MainActor @Sendable (TileOutcome?) -> Void)?) {
+                     recordsUndo: Bool = true, completion: (@MainActor @Sendable (TileOutcome?) -> Void)?) {
+        let isTile: Bool
+        if case .tile = request { isTile = true } else { isTile = false }
         let token = worker.beginPlacement(for: id)
         placementsInFlight[id] = token
         worker.place(target, request: request, token: token) { [weak self] report in
@@ -567,9 +581,10 @@ final class WindowService {
                     guard let self else { completion?(nil); return }
                     let superseded = !self.worker.isCurrentPlacement(token, for: id)
                     if self.placementsInFlight[id] == token { self.placementsInFlight.removeValue(forKey: id) }
-                    if let before = report.before, let after = report.after {
+                    if recordsUndo, let before = report.before, let after = report.after {
                         self.undoHistory.record([GeometryChange(id: id, before: before, after: after)], operation: operation)
                     }
+                    if isTile, !superseded, let before = report.before, let after = report.after { self.onTiled?(id, before, after) }
                     if !superseded { self.onStatus?(report.message) }
                     if report.after == nil, !superseded, !report.message.hasPrefix("Layout superseded") {
                         RuntimeDiagnostics.mark("tile placement failed")
