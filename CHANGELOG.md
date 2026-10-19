@@ -2,7 +2,7 @@
 
 All notable changes to Paneflo are listed here. Versions follow [Semantic Versioning](https://semver.org); releases before 1.0.0 are 0.x milestones.
 
-## Unreleased
+## 1.2.0 — 2026-10-19
 
 ### Tiling
 
@@ -122,5 +122,6 @@ First release. Paneflo is a menu-bar app for macOS 26 or later on Apple silicon,
 - The trackpad gesture recovers from a missing built-in trackpad (for example a closed lid) without restarting Paneflo.
 - Unreadable or newer Overview arrangement data is kept as a backup instead of being overwritten.
 
+[1.2.0]: https://github.com/Jenish-Shobhit/Paneflo/releases/tag/v1.2.0
 [1.1.0]: https://github.com/Jenish-Shobhit/Paneflo/releases/tag/v1.1.0
 [1.0.0]: https://github.com/Jenish-Shobhit/Paneflo/releases/tag/v1.1.0
