@@ -21,6 +21,8 @@ final class DragSnapService {
     /// Samples the pressed window on time while it has not been seen moving (`SnapDragTracker.awaitsMovement`).
     private var sampleTimer: Timer?
     private var observers: [NSObjectProtocol] = []
+    private var workspaceObservers: [NSObjectProtocol] = []
+    private var distributedObservers: [NSObjectProtocol] = []
     /// Displays in `WindowService.displayAreas()` order, and the primary display's height; nil after a display change.
     private var displayCache: (areas: [DisplayArea], primaryHeight: Double)?
     private var wanted = SurfacePreferences(defaults: .standard).dragToSnap
@@ -50,10 +52,25 @@ final class DragSnapService {
                 self?.cancel()
             }
         })
+        // Lock, display or system sleep and a session switch end the drag: the release that follows is not seen (the
+        // release check would infer it after unlock and snap a window the user no longer meant to move).
+        let workspace = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.screensDidSleepNotification, NSWorkspace.willSleepNotification,
+                     NSWorkspace.sessionDidResignActiveNotification] {
+            workspaceObservers.append(workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.cancel() }
+            })
+        }
+        distributedObservers.append(DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.cancel() }
+        })
     }
 
     isolated deinit {
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        for observer in workspaceObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
+        for observer in distributedObservers { DistributedNotificationCenter.default().removeObserver(observer) }
         if let monitor { NSEvent.removeMonitor(monitor) }
         releaseCheck?.invalidate()
         sampleTimer?.invalidate()
