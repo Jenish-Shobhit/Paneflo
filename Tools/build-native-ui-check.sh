@@ -23,6 +23,7 @@ xcrun swiftc -target "$TARGET_TRIPLE" -swift-version 6 -D PANEFLO_NATIVE_CHECK \
     "$PROJECT_ROOT"/Sources/PanefloApp/Settings/Panes/*.swift \
     "$PROJECT_ROOT"/Sources/PanefloApp/Setup/*.swift \
     "$PROJECT_ROOT/Sources/PanefloApp/Input/GlobalShortcutService.swift" \
+    "$PROJECT_ROOT/Sources/PanefloApp/Input/ShortcutKeyNames.swift" \
     "$PROJECT_ROOT/Tools/NativeUICheck.swift" -o "$OUTPUT_DIR/native-ui-check"
 APP="$OUTPUT_DIR/NativeUICheck.app"
 mkdir -p "$APP/Contents/MacOS"
