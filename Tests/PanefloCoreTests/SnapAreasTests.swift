@@ -213,6 +213,18 @@ struct SnapAreasTests {
         #expect(tracker.mouseUp() == [.hidePreview, .snap(window: 42, target: SnapTarget(zone: .maximize, display: 0))])
     }
 
+    /// The caller's timer fires at `nextSampleAt` exactly; that tick must take the sample, not schedule another wait.
+    @Test
+    func aTickAtTheDueTimeSamples() {
+        var tracker = SnapDragTracker()
+        _ = tracker.mouseDown(at: SnapPoint(x: 700, y: 210), displays: [Self.primary])
+        _ = tracker.windowResolved(Self.window, press: tracker.press, now: 100.0)
+        _ = tracker.mouseDragged(to: SnapPoint(x: 690, y: 210), now: 100.003)
+        _ = tracker.frameSampled(Self.window.frame, press: tracker.press, now: 100.004)
+        let due = tracker.nextSampleAt ?? 0
+        #expect(tracker.tick(now: due) == [.sampleFrame(window: 42, press: tracker.press)])
+    }
+
     @Test
     func ticksDoNothingOutsideAPendingDrag() {
         var tracker = SnapDragTracker()

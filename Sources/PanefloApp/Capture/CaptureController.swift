@@ -144,7 +144,8 @@ final class CaptureController {
     private var liveFirstFrameSeen = false
     private var sessionLiveKey: LiveKey?
     private var gate = StableSelectionGate<LiveKey>(delay: CaptureController.selectionStableDelay)
-    private var gateTask: Task<Void, Never>?
+    /// Fires the stable-selection gate on time: a coalesced sleep started the stream up to ~10 ms late.
+    private let gateTimer = PreciseTimer()
     private var pressure: PreviewPressurePolicy
     private var sleeping = false
     private var sessionInactive = false
@@ -263,7 +264,7 @@ final class CaptureController {
 
     isolated deinit {
         memoryPressureSource?.cancel()
-        gateTask?.cancel()
+        gateTimer.cancel()
         liveRetryTask?.cancel()
         liveWatchdog?.cancel()
         for (center, token) in observers { center.removeObserver(token) }
@@ -647,7 +648,7 @@ final class CaptureController {
     private func pauseWork() {
         convertLastLiveFrame()
         scheduler.endSession()
-        gateTask?.cancel(); gate.reset()
+        gateTimer.cancel(); gate.reset()
         stopLive()
         if sessionVisible { for card in sessionCards { emitState(card.id) } }
     }
@@ -665,7 +666,7 @@ final class CaptureController {
     /// Privacy or memory purge: stop live, drop queued work, discard in-flight results, empty the cache.
     func purge(reason: String) {
         lastLiveFrame = nil
-        gateTask?.cancel(); gate.reset()
+        gateTimer.cancel(); gate.reset()
         stopLive()
         scheduler.purge()
         if sessionVisible { scheduler.beginSession() }
@@ -692,17 +693,19 @@ final class CaptureController {
         }
         if let id, desired?.id == nil, desired?.key == key { desired?.id = id }
         if let fireAt = decision.fireAt {
-            gateTask?.cancel()
             liveRequestedAt = liveRequestedAt ?? now
-            gateTask = Task { @MainActor [weak self] in
-                let delay = fireAt - ProcessInfo.processInfo.systemUptime
-                if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
-                guard !Task.isCancelled, let self else { return }
-                if let key = self.gate.fire(now: ProcessInfo.processInfo.systemUptime) { self.startLive(key) }
-            }
+            gateTimer.schedule(after: fireAt - ProcessInfo.processInfo.systemUptime) { [weak self] in self?.fireGate() }
         } else if key == nil || !allowed {
-            gateTask?.cancel(); gateTask = nil
+            gateTimer.cancel()
         }
+    }
+
+    private func fireGate() {
+        if let key = gate.fire(now: ProcessInfo.processInfo.systemUptime) { startLive(key); return }
+        // Fired a hair before the deadline (clock rounding): wait out the remainder.
+        guard let pending = gate.pending,
+              let fireAt = gate.update(pending, now: ProcessInfo.processInfo.systemUptime).fireAt else { return }
+        gateTimer.schedule(after: fireAt - ProcessInfo.processInfo.systemUptime) { [weak self] in self?.fireGate() }
     }
 
     /// After a live-start failure backoff, retry the current selection if the surface is still up.

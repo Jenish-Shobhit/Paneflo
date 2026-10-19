@@ -18,8 +18,9 @@ final class DragSnapService {
     private var tracker = SnapDragTracker()
     private var monitor: Any?
     private var releaseCheck: Timer?
-    /// Samples the pressed window on time while it has not been seen moving (`SnapDragTracker.nextSampleAt`).
-    private var sampleTimer: Timer?
+    /// Samples the pressed window on time while it has not been seen moving (`SnapDragTracker.nextSampleAt`). A
+    /// coalesced 16 ms `Timer` fired about 6 ms late; this one fires on its deadline.
+    private let sampleTimer = PreciseTimer()
     private var sampleDue: Double?
     private var observers: [NSObjectProtocol] = []
     private var workspaceObservers: [NSObjectProtocol] = []
@@ -74,7 +75,7 @@ final class DragSnapService {
         for observer in distributedObservers { DistributedNotificationCenter.default().removeObserver(observer) }
         if let monitor { NSEvent.removeMonitor(monitor) }
         releaseCheck?.invalidate()
-        sampleTimer?.invalidate()
+        sampleTimer.cancel()
     }
 
     /// The latest Accessibility reading (from the app's permission reconcile, never from the input path).
@@ -164,25 +165,18 @@ final class DragSnapService {
     /// the next check is due (`SnapDragTracker.nextSampleAt`).
     private func updateSampleTimer() {
         guard let due = tracker.nextSampleAt else {
-            sampleTimer?.invalidate()
-            sampleTimer = nil
+            sampleTimer.cancel()
             sampleDue = nil
             return
         }
-        guard due != sampleDue else { return }
-        sampleTimer?.invalidate()
+        guard due != sampleDue || !sampleTimer.isScheduled else { return }
         sampleDue = due
-        let timer = Timer(timeInterval: max(0, due - ProcessInfo.processInfo.systemUptime), repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.sampleTimer = nil
-                self.sampleDue = nil
-                guard NSEvent.pressedMouseButtons & 1 != 0 else { return }
-                self.apply(self.tracker.tick(now: ProcessInfo.processInfo.systemUptime))
-            }
+        sampleTimer.schedule(after: due - ProcessInfo.processInfo.systemUptime) { [weak self] in
+            guard let self else { return }
+            self.sampleDue = nil
+            guard NSEvent.pressedMouseButtons & 1 != 0 else { return }
+            self.apply(self.tracker.tick(now: ProcessInfo.processInfo.systemUptime))
         }
-        RunLoop.main.add(timer, forMode: .common)
-        sampleTimer = timer
     }
 
     // MARK: Window-server reads (background queue)

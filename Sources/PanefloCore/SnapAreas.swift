@@ -378,7 +378,7 @@ public struct SnapDragTracker: Sendable {
 
     private mutating func sampleIfDue(_ window: DragWindow, now: Double) -> [Effect] {
         guard !sampleOutstanding, pressPoint.distance(to: lastPoint) >= settings.dragThreshold,
-              now - lastSample >= settings.sampleInterval else { return [] }
+              now - lastSample >= settings.sampleInterval - 1e-6 else { return [] } // a timer set for `nextSampleAt` is due
         sampleOutstanding = true
         lastSample = now
         return [.sampleFrame(window: window.number, press: press)]
