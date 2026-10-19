@@ -4,307 +4,847 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<title>Paneflo — A better ⌘Tab for macOS</title>
-<meta name="description" content="Paneflo is a free, open-source menu bar app for macOS: a ⌘Tab window switcher with a live preview, keyboard tiling with tile pairs, and an Overview of every window.">
+<title>Paneflo: every window, in its place</title>
+<meta name="description" content="Paneflo is a free, open-source menu bar app for macOS: a ⌘Tab switcher for windows with a live preview, drag-to-edge snap areas and keyboard tiling, tile pairs, and an organized Overview.">
 <link rel="canonical" href="https://jenish-shobhit.github.io/Paneflo/">
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="apple-touch-icon" href="assets/icon-256.png">
 <meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0b0b0c" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Paneflo">
 <meta property="og:url" content="https://jenish-shobhit.github.io/Paneflo/">
-<meta property="og:title" content="Paneflo — A better ⌘Tab for macOS">
-<meta property="og:description" content="Switch windows with a live preview, tile them from the keyboard, and see them all in one Overview. Free and open source.">
+<meta property="og:title" content="Paneflo: every window, in its place">
+<meta property="og:description" content="A ⌘Tab switcher for windows, snap areas and keyboard tiling, tile pairs and an organized Overview. A free, open-source menu bar app for macOS.">
 <meta property="og:image" content="https://jenish-shobhit.github.io/Paneflo/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="The Paneflo icon and the words A better ⌘Tab for your Mac., above a glass window switcher of window cards.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Paneflo — A better ⌘Tab for macOS">
-<meta name="twitter:description" content="Switch windows with a live preview, tile them from the keyboard, and see them all in one Overview. Free and open source.">
+<meta name="twitter:title" content="Paneflo: every window, in its place">
+<meta name="twitter:description" content="A ⌘Tab switcher for windows, snap areas and keyboard tiling, tile pairs and an organized Overview. Free and open source.">
 <meta name="twitter:image" content="https://jenish-shobhit.github.io/Paneflo/og.png">
+<script>document.documentElement.classList.add("js")</script>
 <style>
 :root{
-  --bg:#fbfbfd;--bg2:#f3f3f6;--card:#fff;--ink:#1d1d1f;--ink2:#424245;--mute:#6e6e73;--line:rgba(0,0,0,.08);
-  --acc:#4f46e5;--btn:#1d1d1f;--btn-ink:#fff;--btn-hi:#000;--kbd:#fff;--kbd-line:rgba(0,0,0,.13);
-  --wall:radial-gradient(70% 90% at 12% 0%,#fafafb 0,rgba(250,250,251,0) 60%),radial-gradient(80% 90% at 100% 100%,#c4c4cb 0,rgba(196,196,203,0) 65%),linear-gradient(160deg,#e7e7eb,#d3d3d9);
-  --glass:rgba(255,255,255,.44);--glass-edge:rgba(255,255,255,.75);--well:rgba(0,0,0,.07);--win:#fff;--bar:rgba(255,255,255,.4);
-  --shadow:0 1px 2px rgba(0,0,0,.04),0 24px 60px -24px rgba(0,0,0,.22);
+  --bg:#fbfbfd;--band:#f5f5f7;--surface:#fff;--ink:#1d1d1f;--ink2:#424245;--mute:#6e6e73;
+  --line:rgba(0,0,0,.1);--hair:rgba(0,0,0,.06);
+  --acc:#0b7563;--acc-ink:#fff;--acc-hi:#086253;--acc-soft:rgba(11,117,99,.12);
+  --nav:rgba(251,251,253,.74);
+  --key:linear-gradient(#fff,#f4f4f6);--key-edge:rgba(0,0,0,.14);--key-ink:#1d1d1f;
+  --wall:radial-gradient(90% 80% at 18% 8%,#a9e3d5 0,rgba(169,227,213,0) 60%),radial-gradient(70% 90% at 100% 100%,#0e5a4e 0,rgba(14,90,78,0) 70%),linear-gradient(150deg,#5cc2ac,#1e8a77 55%,#13705f);
+  --win:#fff;--win-bar:#f6f6f8;--win-line:rgba(0,0,0,.08);--skel:rgba(0,0,0,.08);--skel2:rgba(0,0,0,.05);
+  --glass:rgba(255,255,255,.52);--glass-edge:rgba(255,255,255,.8);--well:rgba(0,0,0,.08);
+  --coral:#ef7a58;--outline:rgba(255,255,255,.34);--outline-edge:rgba(255,255,255,.85);
+  --depth:0 2px 4px rgba(0,0,0,.04),0 30px 70px -30px rgba(0,40,34,.42);
   --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro",system-ui,"Helvetica Neue",Arial,sans-serif;
   --disp:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro",system-ui,"Helvetica Neue",Arial,sans-serif;
+  --ease:cubic-bezier(.22,.7,.2,1);
 }
 @media (prefers-color-scheme:dark){:root{
-  --bg:#0b0b0c;--bg2:#141416;--card:#161618;--ink:#f5f5f7;--ink2:#d2d2d7;--mute:#a1a1a6;--line:rgba(255,255,255,.09);
-  --acc:#9a9cff;--btn:#f5f5f7;--btn-ink:#0b0b0c;--btn-hi:#fff;--kbd:#232326;--kbd-line:rgba(255,255,255,.14);
-  --wall:radial-gradient(70% 90% at 12% 0%,#3b3b41 0,rgba(59,59,65,0) 60%),radial-gradient(80% 90% at 100% 100%,#060607 0,rgba(6,6,7,0) 65%),linear-gradient(160deg,#28282d,#151518);
-  --glass:rgba(44,44,50,.55);--glass-edge:rgba(255,255,255,.14);--well:rgba(0,0,0,.32);--win:#2a2a2e;--bar:rgba(0,0,0,.25);
-  --shadow:0 1px 2px rgba(0,0,0,.4),0 30px 70px -24px rgba(0,0,0,.8);
+  --bg:#000;--band:#0f0f11;--surface:#1c1c1e;--ink:#f5f5f7;--ink2:#c7c7cc;--mute:#9a9aa0;
+  --line:rgba(255,255,255,.13);--hair:rgba(255,255,255,.08);
+  --acc:#43d1b6;--acc-ink:#00261f;--acc-hi:#6fe0ca;--acc-soft:rgba(67,209,182,.14);
+  --nav:rgba(10,10,12,.72);
+  --key:linear-gradient(#3a3a3e,#2c2c30);--key-edge:rgba(255,255,255,.12);--key-ink:#f5f5f7;
+  --wall:radial-gradient(90% 80% at 18% 8%,#1f6e60 0,rgba(31,110,96,0) 60%),radial-gradient(70% 90% at 100% 100%,#021714 0,rgba(2,23,20,0) 70%),linear-gradient(150deg,#14574c,#0b3b33 55%,#072b25);
+  --win:#2a2a2d;--win-bar:#323236;--win-line:rgba(255,255,255,.08);--skel:rgba(255,255,255,.12);--skel2:rgba(255,255,255,.07);
+  --glass:rgba(40,40,44,.58);--glass-edge:rgba(255,255,255,.16);--well:rgba(0,0,0,.34);
+  --outline:rgba(255,255,255,.16);--outline-edge:rgba(255,255,255,.55);
+  --depth:0 2px 4px rgba(0,0,0,.5),0 30px 70px -30px rgba(0,0,0,.9);
 }}
-*{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
-body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.5 var(--sans);-webkit-font-smoothing:antialiased;overflow-x:hidden}
-a{color:inherit}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;scroll-padding-top:64px}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.47 var(--sans);letter-spacing:-.022em;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+img,svg{display:block}
+a{color:var(--acc);text-decoration:none}
+a:hover{text-decoration:underline}
 :focus-visible{outline:3px solid var(--acc);outline-offset:3px;border-radius:6px}
-.skip{position:absolute;left:16px;top:-60px;background:var(--btn);color:var(--btn-ink);padding:8px 14px;border-radius:8px;z-index:9}
-.skip:focus{top:12px}
-.wrap{max-width:1080px;margin:0 auto;padding:0 clamp(16px,4vw,32px)}
-header .wrap{display:flex;align-items:center;justify-content:space-between;height:64px}
-.brand{display:flex;align-items:center;gap:10px;font-weight:600;text-decoration:none;letter-spacing:-.01em}
-.brand img{width:26px;height:26px}
-.nav{display:flex;gap:22px;font-size:14px}
-.nav a{color:var(--ink2);text-decoration:none}
-.nav a:hover{color:var(--ink)}
-.hero{text-align:center;padding-top:48px}
-.hero .icon{width:112px;height:112px;display:block;margin:0 auto 26px;filter:drop-shadow(0 10px 22px rgba(0,0,0,.18))}
-h1,h2,h3{font-family:var(--disp);margin:0;letter-spacing:-.025em;text-wrap:balance}
-h1{font-size:clamp(40px,7.2vw,76px);line-height:1.03;font-weight:700;letter-spacing:-.04em}
-.lede{text-wrap:pretty;font-size:clamp(18px,2.2vw,21px);color:var(--ink2);max-width:31em;margin:20px auto 0;line-height:1.45}
-.cta{display:flex;flex-wrap:wrap;justify-content:center;gap:12px;margin-top:34px}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:9px;min-height:48px;padding:0 24px;border-radius:999px;font-size:16px;font-weight:600;text-decoration:none;transition:background .2s,transform .2s}
-.btn svg{width:17px;height:17px;flex:none}
-.btn-p{background:var(--btn);color:var(--btn-ink)}
-.btn-p:hover{background:var(--btn-hi)}
-.btn-s{background:var(--bg2);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line)}
-.btn-s:hover{background:var(--line)}
-.btn:active{transform:scale(.98)}
-.meta{margin:16px 0 0;font-size:13px;color:var(--mute)}
-.meta span+span::before{content:"·";margin:0 .55em 0 .3em}
-.meta span{white-space:nowrap}
-/* stage */
-.stage{position:relative;margin:64px auto 0;border-radius:22px;overflow:hidden;background:var(--wall);box-shadow:var(--shadow),inset 0 0 0 1px var(--line);display:grid;grid-template-columns:minmax(0,1fr);place-items:center;min-height:540px;padding:76px 24px 60px;isolation:isolate}
-.stage::before{content:"";position:absolute;inset:0;background:radial-gradient(50% 40% at 28% 78%,rgba(255,255,255,.35),transparent 70%),radial-gradient(40% 35% at 78% 22%,rgba(255,255,255,.18),transparent 70%);z-index:-1}
-.mbar{position:absolute;top:0;left:0;right:0;height:28px;background:var(--bar);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);display:flex;align-items:center;justify-content:space-between;padding:0 14px}
-.mbar i{display:inline-block;height:6px;border-radius:3px;background:currentColor;opacity:.28;margin-right:10px;width:28px}
-.mbar i:first-child{width:12px;height:12px;border-radius:50%}
-.mbar span{display:flex;align-items:center;color:var(--ink)}
-.mbar svg{width:15px;height:15px;opacity:.75}
-.bw{position:absolute;border-radius:12px;background:var(--win);box-shadow:0 18px 40px -16px rgba(0,0,0,.35),0 0 0 1px var(--line);z-index:-1;overflow:hidden}
-.bw::before{content:"";display:block;height:26px;border-bottom:1px solid var(--line);background:radial-gradient(circle 5px at 16px 13px,#c7c7cc 98%,transparent),radial-gradient(circle 5px at 34px 13px,#c7c7cc 98%,transparent),radial-gradient(circle 5px at 52px 13px,#c7c7cc 98%,transparent)}
-.bw::after{content:"";position:absolute;inset:44px 24px 24px;background:repeating-linear-gradient(180deg,var(--line) 0 9px,transparent 9px 22px)}
-.bw1{left:5%;top:12%;width:46%;height:66%}
-.bw2{right:6%;top:22%;width:38%;height:60%}
-.shelf{position:relative;padding:12px;border-radius:26px;background:var(--glass);backdrop-filter:blur(28px) saturate(1.5);-webkit-backdrop-filter:blur(28px) saturate(1.5);box-shadow:inset 0 0 0 1px var(--glass-edge),0 30px 60px -20px rgba(0,0,0,.35);max-width:100%;text-align:left}
-.cards{display:grid;grid-template-columns:repeat(6,144px);gap:8px}
-.pair{grid-column:span 2;display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.card{position:relative;padding:7px;border-radius:15px;min-width:0;transition:box-shadow .25s,background .25s}
-.card.sel{background:rgba(255,255,255,.18);box-shadow:inset 0 0 0 2.5px var(--acc)}
-.card.mate{box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--acc) 45%,transparent)}
-.pw{position:relative}
-.pv{position:relative;aspect-ratio:16/10;border-radius:9px;background:var(--well);overflow:hidden;box-shadow:inset 0 1px 3px rgba(0,0,0,.14)}
-.pv b{position:absolute;inset:11% 9%;border-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,.18);overflow:hidden}
+h1,h2,h3{font-family:var(--disp);margin:0;text-wrap:balance}
+p{margin:0;text-wrap:pretty}
+.nw{white-space:nowrap}
+.sr{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+.skip{position:absolute;left:16px;top:-80px;z-index:20;background:var(--acc);color:var(--acc-ink);padding:10px 16px;border-radius:10px;font-weight:600}
+.skip:focus{top:10px;text-decoration:none}
+.wrap{width:100%;max-width:1024px;margin:0 auto;padding:0 max(16px,env(safe-area-inset-left))}
+
+/* nav */
+.nav{position:sticky;top:0;z-index:10;background:var(--nav);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);border-bottom:1px solid var(--hair)}
+.nav .wrap{display:flex;align-items:center;gap:24px;height:52px}
+.brand{display:flex;align-items:center;gap:9px;color:var(--ink);font-weight:600;font-size:17px;letter-spacing:-.02em}
+.brand:hover{text-decoration:none}
+.brand img{width:24px;height:24px}
+.nav nav{margin-left:auto}
+.nav ul{display:flex;gap:22px;list-style:none;margin:0;padding:0;font-size:13px}
+.nav li a{color:var(--ink2)}
+.nav li a:hover{color:var(--ink);text-decoration:none}
+.pill{display:inline-flex;align-items:center;min-height:30px;padding:0 14px;border-radius:999px;background:var(--acc);color:var(--acc-ink);font-size:13px;font-weight:600;letter-spacing:-.01em}
+.pill:hover{background:var(--acc-hi);text-decoration:none}
+
+/* hero */
+.hero{text-align:center;padding:72px 0 0}
+.hero .icon{width:128px;height:128px;margin:0 auto;filter:drop-shadow(0 14px 26px rgba(8,80,68,.28))}
+.hero h1{margin-top:22px;font-size:clamp(56px,9.4vw,96px);line-height:1;font-weight:700;letter-spacing:-.045em}
+.tagline{margin-top:10px;font-family:var(--disp);font-size:clamp(28px,4.6vw,48px);line-height:1.08;font-weight:600;letter-spacing:-.035em;color:var(--ink2)}
+.lede{max-width:32em;margin:22px auto 0;font-size:clamp(19px,2.2vw,21px);line-height:1.42;color:var(--ink2)}
+.cta{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:14px 26px;margin-top:34px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:52px;padding:0 28px;border-radius:999px;background:var(--acc);color:var(--acc-ink);font-size:17px;font-weight:600;letter-spacing:-.015em;transition:background .2s,transform .2s var(--ease)}
+.btn:hover{background:var(--acc-hi);text-decoration:none}
+.btn:active{transform:scale(.97)}
+.btn svg{width:18px;height:18px;flex:none}
+.textlink{font-size:17px;font-weight:500}
+.meta{margin-top:16px;font-size:14px;color:var(--mute)}
+.meta strong{font-weight:500;color:var(--ink2)}
+
+/* shared screen (a synthetic display) */
+.screen{position:relative;aspect-ratio:16/10;border-radius:clamp(10px,1.8vw,20px);overflow:hidden;background:var(--wall);box-shadow:var(--depth),inset 0 0 0 1px var(--hair);isolation:isolate;contain:paint}
+.mbar{position:absolute;left:0;right:0;top:0;height:5%;min-height:12px;background:rgba(255,255,255,.28);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);z-index:3}
+.mbar::before{content:"";position:absolute;left:1.6%;top:50%;width:min(14%,120px);height:28%;margin-top:-.8%;border-radius:4px;background:linear-gradient(90deg,rgba(0,0,0,.42) 0 12%,transparent 12% 20%,rgba(0,0,0,.24) 20% 44%,transparent 44% 52%,rgba(0,0,0,.24) 52% 74%,transparent 74% 82%,rgba(0,0,0,.24) 82%)}
+@media (prefers-color-scheme:dark){.mbar{background:rgba(0,0,0,.28)}.mbar::before{filter:invert(1)}}
+.mbar::after{content:"";position:absolute;right:1.6%;top:50%;width:min(9%,80px);height:28%;margin-top:-.8%;border-radius:4px;background:linear-gradient(90deg,var(--coral) 0 16%,transparent 16% 30%,rgba(0,0,0,.24) 30%)}
+.win{position:absolute;border-radius:clamp(5px,.9vw,10px);background:var(--win);box-shadow:0 0 0 .5px rgba(0,0,0,.2),0 12px 34px -12px rgba(0,0,0,.45);overflow:hidden}
+.win::before{content:"";position:absolute;left:0;right:0;top:0;height:max(10px,9%);max-height:28px;background:radial-gradient(circle at 10px 50%,#ff5f57 3.5px,transparent 4px),radial-gradient(circle at 22px 50%,#febc2e 3.5px,transparent 4px),radial-gradient(circle at 34px 50%,#28c840 3.5px,transparent 4px),var(--win-bar);border-bottom:1px solid var(--win-line)}
+.win::after{content:"";position:absolute;inset:max(16px,14%) 8% 10%;background:linear-gradient(var(--skel),var(--skel)) 0 0/58% 9% no-repeat,linear-gradient(var(--skel2),var(--skel2)) 0 22%/92% 6% no-repeat,linear-gradient(var(--skel2),var(--skel2)) 0 36%/84% 6% no-repeat,linear-gradient(var(--skel2),var(--skel2)) 0 50%/88% 6% no-repeat,linear-gradient(var(--skel2),var(--skel2)) 0 64%/62% 6% no-repeat}
+.win.dark{background:#1e1f24}
+.win.dark::before{background:radial-gradient(circle at 10px 50%,#ff5f57 3.5px,transparent 4px),radial-gradient(circle at 22px 50%,#febc2e 3.5px,transparent 4px),radial-gradient(circle at 34px 50%,#28c840 3.5px,transparent 4px),#2a2b31;border-color:rgba(255,255,255,.06)}
+.win.dark::after{background:linear-gradient(#ef8a5f,#ef8a5f) 0 0/26% 7% no-repeat,linear-gradient(#8fa2f7,#8fa2f7) 8% 16%/46% 7% no-repeat,linear-gradient(#5d5f6b,#5d5f6b) 8% 32%/38% 7% no-repeat,linear-gradient(#ddb253,#ddb253) 16% 48%/22% 7% no-repeat,linear-gradient(#5d5f6b,#5d5f6b) 8% 64%/54% 7% no-repeat,linear-gradient(#8fa2f7,#8fa2f7) 0 80%/30% 7% no-repeat}
+.win.side::after{inset:max(10px,9%) 0 0 0;background:linear-gradient(var(--skel2),var(--skel2)) 0 0/26% 100% no-repeat,linear-gradient(var(--skel),var(--skel)) 34% 12%/40% 7% no-repeat,linear-gradient(var(--skel2),var(--skel2)) 34% 26%/58% 5% no-repeat,linear-gradient(var(--skel2),var(--skel2)) 34% 36%/52% 5% no-repeat,linear-gradient(135deg,rgba(94,190,170,.55),rgba(30,138,119,.45)) 92% 74%/62% 30% no-repeat}
+
+/* sections */
+.sec{padding:clamp(88px,11vw,136px) 0}
+.band{background:var(--band)}
+.head{max-width:44rem;margin:0 auto;text-align:center}
+.head h2,.split h2{font-size:clamp(36px,5.6vw,60px);line-height:1.05;font-weight:700;letter-spacing:-.036em}
+.head p,.split .intro{margin-top:18px;font-size:clamp(19px,2.1vw,21px);line-height:1.45;color:var(--ink2)}
+.head .keys{justify-content:center;margin-top:22px}
+.visual{margin:clamp(44px,6vw,64px) auto 0}
+.points{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:40px;margin-top:clamp(44px,6vw,64px)}
+.points h3{font-size:19px;line-height:1.25;font-weight:600;letter-spacing:-.022em}
+.points p{margin-top:8px;color:var(--ink2);font-size:16px;line-height:1.5}
+.points .keys{margin-top:14px}
+.note{margin:28px auto 0;max-width:44rem;text-align:center;font-size:14px;color:var(--mute)}
+
+/* keycaps */
+.keys{display:flex;flex-wrap:wrap;align-items:center;gap:5px}
+kbd,.key{display:inline-grid;place-items:center;min-width:30px;height:30px;padding:0 8px;border-radius:7px;background:var(--key);box-shadow:inset 0 0 0 1px var(--key-edge),0 1.5px 0 var(--key-edge);font:500 14px/1 var(--sans);letter-spacing:0;color:var(--key-ink);white-space:nowrap}
+.keys .or{margin:0 6px;font-size:13px;color:var(--mute)}
+
+/* hero switcher stage */
+.stage{position:relative;margin:64px auto 0;max-width:1024px}
+.stage .screen{display:grid;place-items:center;aspect-ratio:16/9.4;padding:6% 4% 4%}
+.stage .w1{left:5%;top:13%;width:47%;height:64%}
+.stage .w2{right:6%;top:20%;width:40%;height:62%}
+.shelf{position:relative;z-index:2;padding:12px 12px 10px;border-radius:26px;background:var(--glass);-webkit-backdrop-filter:blur(30px) saturate(1.6);backdrop-filter:blur(30px) saturate(1.6);box-shadow:inset 0 0 0 1px var(--glass-edge),0 30px 70px -24px rgba(0,30,26,.55);max-width:100%;text-align:left}
+.cards{display:grid;grid-template-columns:repeat(6,minmax(0,136px));gap:6px}
+.pair{grid-column:span 2;display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.card{position:relative;padding:7px;border-radius:15px;min-width:0;transition:box-shadow .3s,background .3s}
+.card.sel{background:rgba(255,255,255,.22);box-shadow:inset 0 0 0 2.5px var(--acc)}
+.card.mate{box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--acc) 50%,transparent)}
+.pv{position:relative;aspect-ratio:16/10;border-radius:9px;background:var(--well);box-shadow:inset 0 1px 3px rgba(0,0,0,.16)}
+.pv b{position:absolute;inset:11% 9%;border-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,.2);overflow:hidden}
 .pv i{position:absolute;opacity:0}
 .sel .pv i{animation:blink 1.06s steps(1) infinite}
 @keyframes blink{0%{opacity:1}50%{opacity:0}}
-.notes b{background:linear-gradient(#d6ad3e 0 0) 12% 14%/42% 9% no-repeat,repeating-linear-gradient(180deg,transparent 0 22%,#ebe5d3 22% 26%) 50% 92%/78% 64% no-repeat,#fffcf3}
-.notes i{left:44%;top:68%;width:1.5px;height:12%;background:#1d1d1f}
-.editor b{background:linear-gradient(#ef8a5f 0 0) 12% 16%/26% 8% no-repeat,linear-gradient(#a3a6f5 0 0) 12% 36%/52% 8% no-repeat,linear-gradient(#5d5d69 0 0) 24% 56%/40% 8% no-repeat,linear-gradient(#ddb253 0 0) 24% 76%/22% 8% no-repeat,#1e1e23}
-.editor i{left:48%;top:73%;width:1.5px;height:13%;background:#f5f5f7}
-.web b{background:linear-gradient(#ececf0 0 0) 0 0/100% 15% no-repeat,linear-gradient(135deg,#d0d1d8,#a3a5b1) 50% 34%/84% 36% no-repeat,linear-gradient(#d4d4da 0 0) 9% 78%/62% 7% no-repeat,linear-gradient(#e2e2e6 0 0) 9% 92%/42% 7% no-repeat,#fff}
-.mail b{background:linear-gradient(#efeff2 0 0) 0 0/28% 100% no-repeat,linear-gradient(#5b7cf0 0 0) 37% 16%/5% 8% no-repeat,linear-gradient(#5b7cf0 0 0) 37% 50%/5% 8% no-repeat,repeating-linear-gradient(180deg,transparent 0 6%,#d9d9de 6% 14%,transparent 14% 33.3%) 100% 0/56% 100% no-repeat,#fff}
-.term b{background:linear-gradient(#e5e5ea 0 0) 10% 18%/52% 8% no-repeat,linear-gradient(#7c7c82 0 0) 10% 38%/34% 8% no-repeat,linear-gradient(#e5e5ea 0 0) 10% 58%/60% 8% no-repeat,#141416}
-.term i{left:10%;top:72%;width:6%;height:12%;background:#e5e5ea}
-.desk .pv{background:radial-gradient(70% 90% at 15% 0%,#f4f4f6,transparent 60%),linear-gradient(160deg,#cfcfd6,#9d9da6)}
-.link{position:absolute;right:-19px;top:50%;width:22px;height:22px;margin-top:-11px;border-radius:50%;background:var(--card);box-shadow:0 1px 3px rgba(0,0,0,.2),0 0 0 1px var(--line);display:grid;place-items:center;z-index:2;color:var(--ink2)}
+.c-notes b{background:linear-gradient(#d6ad3e,#d6ad3e) 12% 14%/42% 9% no-repeat,repeating-linear-gradient(180deg,transparent 0 22%,#ebe5d3 22% 26%) 50% 92%/78% 64% no-repeat,#fffcf3}
+.c-notes i{left:44%;top:68%;width:1.5px;height:12%;background:#1d1d1f}
+.c-editor b{background:linear-gradient(#ef8a5f,#ef8a5f) 12% 16%/26% 8% no-repeat,linear-gradient(#a3a6f5,#a3a6f5) 12% 36%/52% 8% no-repeat,linear-gradient(#5d5d69,#5d5d69) 24% 56%/40% 8% no-repeat,linear-gradient(#ddb253,#ddb253) 24% 76%/22% 8% no-repeat,#1e1e23}
+.c-editor i{left:48%;top:73%;width:1.5px;height:13%;background:#f5f5f7}
+.c-web b{background:linear-gradient(#ececf0,#ececf0) 0 0/100% 15% no-repeat,linear-gradient(135deg,#9fd8cb,#3a9c89) 50% 34%/84% 36% no-repeat,linear-gradient(#d4d4da,#d4d4da) 9% 78%/62% 7% no-repeat,linear-gradient(#e2e2e6,#e2e2e6) 9% 92%/42% 7% no-repeat,#fff}
+.c-mail b{background:linear-gradient(#efeff2,#efeff2) 0 0/28% 100% no-repeat,linear-gradient(#5b7cf0,#5b7cf0) 37% 16%/5% 8% no-repeat,linear-gradient(#5b7cf0,#5b7cf0) 37% 50%/5% 8% no-repeat,repeating-linear-gradient(180deg,transparent 0 6%,#d9d9de 6% 14%,transparent 14% 33.3%) 100% 0/56% 100% no-repeat,#fff}
+.c-term b{background:linear-gradient(#e5e5ea,#e5e5ea) 10% 18%/52% 8% no-repeat,linear-gradient(#7c7c82,#7c7c82) 10% 38%/34% 8% no-repeat,linear-gradient(#e5e5ea,#e5e5ea) 10% 58%/60% 8% no-repeat,#141416}
+.c-term i{left:10%;top:72%;width:6%;height:12%;background:#e5e5ea}
+.c-desk .pv{background:var(--wall)}
+.link{position:absolute;right:-17px;top:50%;width:22px;height:22px;margin-top:-11px;border-radius:50%;background:var(--surface);box-shadow:0 1px 3px rgba(0,0,0,.25),0 0 0 .5px var(--line);display:grid;place-items:center;z-index:2;color:var(--ink2)}
 .link svg{width:12px;height:12px}
 .lb{display:flex;gap:6px;align-items:center;margin-top:7px;min-width:0}
-.ic{width:15px;height:15px;border-radius:4px;flex:none;background:var(--c);box-shadow:inset 0 0 0 1px var(--line)}
+.ic{width:15px;height:15px;border-radius:4px;flex:none;background:var(--c);box-shadow:inset 0 0 0 .5px rgba(0,0,0,.2)}
 .lb span{min-width:0;line-height:1.2}
-.lb strong,.lb small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.lb strong{font-size:12px;font-weight:600}
-.lb small{font-size:11px;color:var(--ink2);opacity:.8}
-.cap{margin:10px 0 2px;text-align:center;font-size:13px;font-weight:600;min-height:1.5em}
-/* sections */
-section{padding:112px 0 0}
-.head{text-align:center;max-width:36em;margin:0 auto 44px}
-h2{font-size:clamp(30px,4.4vw,44px);line-height:1.08;font-weight:700}
-.head p{margin:12px 0 0;color:var(--mute);font-size:18px}
-.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
-.tile{background:var(--card);border-radius:22px;padding:30px 28px 28px;box-shadow:inset 0 0 0 1px var(--line);display:flex;flex-direction:column}
-.tile h3{font-size:22px;font-weight:650;margin-top:26px}
-.tile p{margin:8px 0 22px;color:var(--ink2);font-size:16px;line-height:1.45}
-.keys{margin-top:auto;display:flex;flex-wrap:wrap;align-items:center;gap:5px;font-size:13px;color:var(--mute)}
-.keys .alt{flex-basis:100%;margin-top:6px}
-kbd{display:inline-grid;place-items:center;min-width:28px;height:28px;padding:0 7px;border-radius:7px;background:var(--kbd);box-shadow:inset 0 0 0 1px var(--kbd-line),0 1px 0 var(--kbd-line);font:500 14px/1 var(--sans);color:var(--ink)}
-.art{height:88px;border-radius:14px;background:var(--bg2);box-shadow:inset 0 0 0 1px var(--line);position:relative;overflow:hidden}
-.art i{position:absolute;border-radius:5px;background:var(--card);box-shadow:0 1px 2px rgba(0,0,0,.1),inset 0 0 0 1px var(--line)}
-.a1 i{top:30px;width:20%;height:28px}.a1 i:nth-child(1){left:16%}.a1 i:nth-child(2){left:40%;box-shadow:0 0 0 2.5px var(--acc)}.a1 i:nth-child(3){left:64%}
-.a2 i{top:16px;bottom:16px}.a2 i:nth-child(1){left:16%;right:51%;background:color-mix(in srgb,var(--acc) 16%,var(--card))}.a2 i:nth-child(2){left:51%;right:16%}
-.a2 i:nth-child(3){left:50%;top:50%;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;background:var(--card)}
-.a3 i{width:17%;height:22px}.a3 i:nth-child(-n+3){top:18px}.a3 i:nth-child(n+4){top:48px}
-.a3 i:nth-child(3n+1){left:20%}.a3 i:nth-child(3n+2){left:41.5%}.a3 i:nth-child(3n){left:63%}.a3 i:nth-child(5){box-shadow:0 0 0 2.5px var(--acc)}
-.sc{display:grid;grid-template-columns:1fr 1fr;gap:0 48px;margin:0;max-width:880px;margin:0 auto}
-.sc div{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 0;border-bottom:1px solid var(--line)}
-.sc dt{color:var(--ink2);font-size:16px}
-.sc dd{margin:0;display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:4px;font-size:13px;color:var(--mute)}
-.sc dd em{font-style:normal;margin:0 5px}
-.more{text-align:center;margin:26px 0 0;font-size:15px}
-.more a,.steps a{color:var(--acc);text-decoration:none;font-weight:500}
-.more a:hover,.steps a:hover{text-decoration:underline}
-.steps{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(3,1fr);gap:20px;counter-reset:s}
-.steps li{counter-increment:s;padding:28px;border-radius:22px;background:var(--card);box-shadow:inset 0 0 0 1px var(--line)}
-.steps li::before{content:counter(s);display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--btn);color:var(--btn-ink);font-weight:600;font-size:14px;margin-bottom:18px}
-.steps h3{font-size:19px;font-weight:650}
-.steps p{margin:6px 0 0;color:var(--ink2);font-size:15px;line-height:1.45}
-.note{text-align:center;color:var(--mute);font-size:14px;margin:26px 0 0}
-footer{margin-top:120px;border-top:1px solid var(--line);padding:30px 0 40px;font-size:14px;color:var(--mute)}
-footer .wrap{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px 28px}
-footer nav{display:flex;flex-wrap:wrap;gap:8px 22px}
-footer a{text-decoration:none;color:var(--ink2)}
-footer a:hover{color:var(--ink)}
-.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.lb strong,.lb small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.01em}
+.lb strong{font-size:12px;font-weight:600;color:var(--ink)}
+.lb small{font-size:11px;color:var(--ink2)}
+.cap{margin:9px 0 1px;text-align:center;font-size:13px;font-weight:600;color:var(--ink);min-height:1.5em}
+.stage figcaption{margin-top:18px;text-align:center;font-size:14px;color:var(--mute)}
+
+/* switcher detail */
+.trio{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(10px,2vw,22px);align-items:end;max-width:820px;margin-left:auto;margin-right:auto}
+.trio .tc{padding:clamp(8px,1.2vw,12px);border-radius:clamp(14px,2vw,22px);background:var(--surface);box-shadow:0 0 0 1px var(--hair),0 20px 40px -26px rgba(0,0,0,.35)}
+.trio .tc.sel{box-shadow:0 0 0 3px var(--acc),0 26px 50px -24px rgba(0,60,50,.45)}
+.trio .pv{aspect-ratio:4/3;border-radius:clamp(8px,1.2vw,12px);background:var(--wall);overflow:hidden}
+.trio .pv .win{left:9%;top:11%;right:9%;bottom:0;border-radius:6px 6px 0 0}
+.trio .tc:not(.sel) .pv{filter:saturate(.6)}
+.trio .lb{margin-top:10px}
+.trio .lb strong{font-size:clamp(12px,1.4vw,15px)}
+.trio .lb small{font-size:clamp(11px,1.2vw,13px)}
+.trio .ic{width:clamp(14px,1.8vw,20px);height:clamp(14px,1.8vw,20px)}
+.state{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:var(--mute)}
+.state::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--mute);opacity:.6}
+.sel .state{color:var(--acc)}
+.sel .state::before{background:var(--acc);opacity:1;box-shadow:0 0 0 3px var(--acc-soft)}
+.trio .sel .win::after{animation:scrollc 6s ease-in-out infinite alternate}
+@keyframes scrollc{to{background-position:0 -6%,0 14%,0 30%,0 44%,0 58%}}
+
+/* snap areas demo */
+.snap .screen{max-width:880px;margin:0 auto}
+.snap .bg1{left:5%;top:56%;width:30%;height:34%;opacity:.9}
+.snap .sw{left:28%;top:26%;width:44%;height:50%;z-index:2;animation:sw 13s var(--ease) infinite}
+.snap .sw::before{background:radial-gradient(circle at 10px 50%,#ff5f57 3.5px,transparent 4px),radial-gradient(circle at 22px 50%,#febc2e 3.5px,transparent 4px),radial-gradient(circle at 34px 50%,#28c840 3.5px,transparent 4px),var(--win-bar)}
+.ol{position:absolute;left:.6%;top:5.6%;width:98.8%;height:93.8%;z-index:1;border-radius:clamp(6px,1vw,12px);background:var(--outline);box-shadow:inset 0 0 0 1.5px var(--outline-edge),0 10px 30px -10px rgba(0,0,0,.25);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);opacity:0;animation:ol 13s var(--ease) infinite}
+.ptr{position:absolute;left:50%;top:28.5%;width:clamp(14px,2.2vw,22px);z-index:4;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4));animation:ptr 13s var(--ease) infinite}
+@keyframes sw{
+  0%,5%{left:28%;top:26%;width:44%;height:50%}
+  15%,22.5%{left:28%;top:5%;width:44%;height:50%}
+  26.5%,33.3%{left:0;top:5%;width:100%;height:95%}
+  35.5%{left:28%;top:4.5%;width:44%;height:50%}
+  43.3%,50%{left:-21%;top:42.5%;width:44%;height:50%}
+  53.5%,58.3%{left:0;top:5%;width:50%;height:95%}
+  60.5%{left:3%;top:4.5%;width:44%;height:50%}
+  68.3%,75%{left:76.5%;top:5%;width:44%;height:50%}
+  78.5%,82.5%{left:50%;top:5%;width:50%;height:47.5%}
+  84.5%{left:53%;top:4.5%;width:44%;height:50%}
+  95%,100%{left:28%;top:26%;width:44%;height:50%}
+}
+@keyframes ptr{
+  0%,5%{left:50%;top:28.5%}
+  15%,26.5%{left:50%;top:2.2%}
+  31%,35.5%{left:50%;top:7%}
+  43.3%,53.5%{left:1%;top:45%}
+  57%,60.5%{left:25%;top:7%}
+  68.3%,78.5%{left:98.5%;top:2.2%}
+  82%,84.5%{left:75%;top:7%}
+  95%,100%{left:50%;top:28.5%}
+}
+@keyframes ol{
+  0%,15%{opacity:0;left:.6%;top:5.6%;width:98.8%;height:93.8%;transform:scale(.94)}
+  18.5%,22.5%{opacity:1;left:.6%;top:5.6%;width:98.8%;height:93.8%;transform:none}
+  26.5%{opacity:0;left:.6%;top:5.6%;width:98.8%;height:93.8%;transform:none}
+  26.6%,43.3%{opacity:0;left:.6%;top:5.6%;width:48.8%;height:93.8%;transform:scale(.94)}
+  46.8%,50%{opacity:1;left:.6%;top:5.6%;width:48.8%;height:93.8%;transform:none}
+  53.5%{opacity:0;left:.6%;top:5.6%;width:48.8%;height:93.8%;transform:none}
+  53.6%,68.3%{opacity:0;left:50.6%;top:5.6%;width:48.8%;height:46.3%;transform:scale(.94)}
+  71.8%,75%{opacity:1;left:50.6%;top:5.6%;width:48.8%;height:46.3%;transform:none}
+  78.5%,100%{opacity:0;left:50.6%;top:5.6%;width:48.8%;height:46.3%;transform:none}
+}
+.legend{list-style:none;padding:0;margin:32px auto 0;max-width:880px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px}
+.legend li{position:relative;padding-top:18px;color:var(--ink2);font-size:16px;line-height:1.45}
+.legend li::before{content:"";position:absolute;left:0;right:0;top:0;height:3px;border-radius:2px;background:var(--line);overflow:hidden}
+.legend li::after{content:"";position:absolute;left:0;top:0;height:3px;width:100%;border-radius:2px;background:var(--acc);transform-origin:left;transform:scaleX(0)}
+.legend strong{display:block;color:var(--ink);font-size:19px;font-weight:600;letter-spacing:-.022em;margin-bottom:4px}
+.legend .z{display:block;width:44px;height:28px;margin-bottom:12px;border-radius:5px;box-shadow:inset 0 0 0 1.5px var(--line);background:linear-gradient(var(--acc),var(--acc)) var(--p)/var(--s) no-repeat;background-origin:content-box;padding:3px}
+.legend li:nth-child(1)::after{animation:lg1 13s linear infinite}
+.legend li:nth-child(2)::after{animation:lg2 13s linear infinite}
+.legend li:nth-child(3)::after{animation:lg3 13s linear infinite}
+@keyframes lg1{0%{transform:scaleX(0)}26.5%{transform:scaleX(1);opacity:1}33%,100%{transform:scaleX(1);opacity:0}}
+@keyframes lg2{0%,33%{transform:scaleX(0);opacity:1}53.5%{transform:scaleX(1);opacity:1}58.3%,100%{transform:scaleX(1);opacity:0}}
+@keyframes lg3{0%,58.3%{transform:scaleX(0);opacity:1}78.5%{transform:scaleX(1);opacity:1}84.5%,100%{transform:scaleX(1);opacity:0}}
+.snap.paused *,.snap.paused *::after{animation-play-state:paused!important}
+
+/* keyboard tiling */
+.kb{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:clamp(28px,5vw,64px);align-items:center}
+.pad{display:flex;flex-direction:column;align-items:center;gap:22px}
+.pad .row{display:flex;align-items:flex-end;justify-content:center;gap:10px}
+.held{min-width:64px;height:58px;font-size:20px;border-radius:12px;color:var(--acc);box-shadow:inset 0 0 0 2px var(--acc),0 2px 0 var(--key-edge)}
+.plus{font-size:22px;color:var(--mute);padding:0 2px 16px}
+.arrows{display:grid;grid-template-columns:repeat(3,58px);grid-template-rows:repeat(2,44px);gap:6px}
+.arrows button:nth-child(1){grid-column:2;grid-row:1}
+.arrows button:nth-child(2){grid-column:1;grid-row:2}
+.arrows button:nth-child(3){grid-column:2;grid-row:2}
+.arrows button:nth-child(4){grid-column:3;grid-row:2}
+.tk{appearance:none;border:0;margin:0;cursor:pointer;display:grid;place-items:center;min-width:58px;height:44px;padding:0 12px;border-radius:9px;background:var(--key);box-shadow:inset 0 0 0 1px var(--key-edge),0 2px 0 var(--key-edge);font:500 17px/1 var(--sans);color:var(--key-ink);transition:transform .12s,box-shadow .12s}
+.tk:hover{box-shadow:inset 0 0 0 1px var(--acc),0 2px 0 var(--key-edge)}
+.tk:active{transform:translateY(2px);box-shadow:inset 0 0 0 1px var(--key-edge),0 0 0 var(--key-edge)}
+.tk[aria-pressed="true"]{background:var(--acc);color:var(--acc-ink);box-shadow:0 2px 0 var(--acc-hi)}
+.tk small{font-size:12px;font-weight:500;margin-left:4px}
+.pad .hint{font-size:14px;color:var(--mute);text-align:center;min-height:1.5em}
+.pad .hint strong{color:var(--ink);font-weight:600}
+.mini .screen{aspect-ratio:16/10}
+.mini .mw{z-index:2;transition:left .45s var(--ease),top .45s var(--ease),width .45s var(--ease),height .45s var(--ease)}
+.recorder{margin:clamp(44px,6vw,64px) auto 0;max-width:620px;padding:8px 20px;border-radius:18px;background:var(--surface);box-shadow:0 0 0 1px var(--hair),0 20px 50px -30px rgba(0,0,0,.4)}
+.recorder h3{font-size:13px;font-weight:600;color:var(--mute);padding:12px 0 6px;letter-spacing:-.005em}
+.recorder dl{margin:0}
+.recorder div{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:11px 0;border-top:1px solid var(--hair)}
+.recorder dt{font-size:15px}
+.recorder dd{margin:0;display:flex;gap:4px}
+.recorder dd kbd{min-width:26px;height:26px;font-size:13px;border-radius:6px}
+.recorder .empty{display:inline-flex;align-items:center;height:26px;padding:0 12px;border-radius:6px;font-size:13px;color:var(--mute);box-shadow:inset 0 0 0 1px var(--line)}
+.recorder .empty.rec{color:var(--acc);box-shadow:inset 0 0 0 1.5px var(--acc);background:var(--acc-soft)}
+
+/* tile pairs */
+.split{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:clamp(32px,6vw,80px);align-items:center}
+.split h2{font-size:clamp(36px,5vw,52px)}
+.split .intro{margin-top:16px}
+.facts{list-style:none;padding:0;margin:28px 0 0}
+.facts li{padding:14px 0;border-top:1px solid var(--line);font-size:16px;color:var(--ink2);line-height:1.45}
+.facts li strong{color:var(--ink);font-weight:600}
+.facts .keys{display:inline-flex;vertical-align:middle;margin:0 2px}
+.facts kbd{min-width:24px;height:24px;font-size:12px;padding:0 6px;border-radius:6px}
+.pairvis .screen{overflow:hidden}
+.pairvis .pl{left:0;top:5%;width:50%;height:95%;border-radius:0}
+.pairvis .pr{left:50%;top:5%;width:50%;height:95%;border-radius:0;box-shadow:-1px 0 0 rgba(0,0,0,.25)}
+.seam{position:absolute;left:50%;top:30%;z-index:3;width:clamp(26px,3.4vw,36px);height:clamp(26px,3.4vw,36px);transform:translate(-50%,-50%);border-radius:50%;background:var(--surface);color:var(--acc);display:grid;place-items:center;box-shadow:0 2px 8px rgba(0,0,0,.25),0 0 0 3px var(--acc)}
+.seam svg{width:50%;height:50%}
+.pairvis .mshelf{position:absolute;left:50%;bottom:6%;transform:translateX(-50%);z-index:4;width:62%;padding:2.2% 2.2% 1.6%;border-radius:clamp(12px,2vw,20px)}
+.mshelf .pair{gap:6%}
+.mshelf .card{padding:4%}
+.mshelf .lb small{display:none}
+
+/* overview */
+.ov .screen{max-width:1024px;margin:0 auto}
+.ov .screen::before{content:"";position:absolute;inset:0;z-index:2;background:rgba(236,244,242,.62);-webkit-backdrop-filter:blur(18px) saturate(1.3);backdrop-filter:blur(18px) saturate(1.3)}
+@media (prefers-color-scheme:dark){.ov .screen::before{background:rgba(8,14,13,.62)}}
+.ov .layer{position:absolute;inset:7% 6% 6%;z-index:3;display:flex;flex-direction:column;align-items:center}
+.search{display:flex;align-items:center;gap:8px;width:min(44%,360px);height:clamp(22px,3.6vw,36px);padding:0 2.2%;border-radius:999px;background:var(--glass);box-shadow:inset 0 0 0 1px var(--glass-edge);font-size:clamp(9px,1.3vw,14px);color:var(--ink2)}
+.search svg{width:1.1em;height:1.1em;flex:none;opacity:.8}
+.search span:last-child{margin-left:auto;font-size:.9em;color:var(--mute)}
+.slots{flex:1;width:100%;margin-top:4%;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:3.2% 2.6%}
+.slot{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0}
+.slot .pv{flex:1;aspect-ratio:auto;border-radius:clamp(5px,1vw,12px);overflow:hidden;background:var(--well);box-shadow:inset 0 1px 3px rgba(0,0,0,.12)}
+.slot .pv .win{left:7%;top:8%;right:7%;bottom:8%;box-shadow:0 4px 14px -6px rgba(0,0,0,.4)}
+.slot .lb{margin-top:5%}
+.slot .lb strong{font-size:clamp(8px,1.15vw,13px)}
+.slot .lb small{font-size:clamp(7px,1vw,11px)}
+.slot .ic{width:clamp(9px,1.4vw,15px);height:clamp(9px,1.4vw,15px)}
+.slot.sel .pv{box-shadow:0 0 0 clamp(2px,.3vw,3px) var(--acc)}
+.slot.free .pv{background:var(--well);box-shadow:inset 0 1px 5px rgba(0,0,0,.18)}
+.slot.pin .pv{background:none;box-shadow:inset 0 0 0 1.5px rgba(0,0,0,.18);display:grid;place-items:center;font-size:clamp(8px,1.15vw,13px);color:var(--ink2)}
+@media (prefers-color-scheme:dark){.slot.pin .pv{box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.25)}}
+.slot.desk .pv{background:var(--wall)}
+
+/* privacy */
+.privacy{text-align:center}
+.privacy .shield{width:56px;height:56px;margin:0 auto 22px;color:var(--acc)}
+.plist{list-style:none;padding:0;margin:clamp(40px,5vw,56px) auto 0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:40px;text-align:left}
+.plist strong{display:block;font-size:19px;font-weight:600;letter-spacing:-.022em;margin-bottom:6px}
+.plist span{color:var(--ink2);font-size:16px}
+
+/* install */
+.steps{list-style:none;padding:0;margin:clamp(44px,6vw,64px) 0 0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;counter-reset:s}
+.steps li{counter-increment:s;padding:28px 26px 30px;border-radius:22px;background:var(--surface);box-shadow:0 0 0 1px var(--hair)}
+.steps li::before{content:counter(s);display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:var(--acc-soft);color:var(--acc);font-weight:700;font-size:15px;margin-bottom:20px}
+.steps h3{font-size:21px;font-weight:600;letter-spacing:-.025em}
+.steps p{margin-top:8px;color:var(--ink2);font-size:16px}
+.steps p+p{margin-top:8px}
+.perm{margin:56px auto 0;max-width:820px}
+.perm h3{font-size:24px;font-weight:600;letter-spacing:-.03em;text-align:center}
+.perm>p{margin:10px auto 0;text-align:center;color:var(--ink2);max-width:36em}
+.tbl{width:100%;border-collapse:collapse;margin-top:26px;font-size:16px}
+.tbl th,.tbl td{text-align:left;padding:14px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+.tbl thead th{font-size:13px;font-weight:600;color:var(--mute);padding-top:0}
+.tbl tbody th{font-weight:600;white-space:nowrap}
+.tbl td{color:var(--ink2)}
+.tag{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap;background:var(--acc-soft);color:var(--acc)}
+.tag.opt{background:transparent;color:var(--mute);box-shadow:inset 0 0 0 1px var(--line)}
+
+/* shortcuts */
+.sc{max-width:820px;margin:clamp(44px,6vw,64px) auto 0}
+.sc .tbl{margin-top:0}
+.sc .tbl tbody th[scope=rowgroup]{padding-top:34px;font-size:13px;color:var(--mute);font-weight:600;border-bottom:1px solid var(--line)}
+.sc .tbl tbody:first-child th[scope=rowgroup]{padding-top:0}
+.sc .tbl td{color:var(--ink)}
+.sc .tbl td:first-child{width:46%}
+.sc .tbl td:last-child{color:var(--ink2)}
+.sc kbd{min-width:28px;height:28px;font-size:13px}
+.more{text-align:center;margin-top:28px;font-size:17px}
+
+/* faq */
+.faq{max-width:820px;margin:clamp(44px,6vw,64px) auto 0}
+.faq details{border-bottom:1px solid var(--line)}
+.faq details:first-child{border-top:1px solid var(--line)}
+.faq summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:20px;padding:22px 4px;font-size:19px;font-weight:600;letter-spacing:-.022em}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{content:"";flex:none;width:11px;height:11px;margin-right:6px;border-right:2px solid var(--mute);border-bottom:2px solid var(--mute);transform:translateY(-3px) rotate(45deg);transition:transform .3s var(--ease)}
+.faq details[open] summary::after{transform:translateY(3px) rotate(-135deg)}
+.faq summary:hover{color:var(--acc)}
+.faq .ans{padding:0 4px 24px;color:var(--ink2);max-width:42em}
+.faq .ans p+p{margin-top:10px}
+.faq code{font:14px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;padding:2px 6px;border-radius:5px;background:var(--band);color:var(--ink);overflow-wrap:anywhere}
+
+/* closing + footer */
+.closing{text-align:center;padding-top:0}
+.closing .icon{width:96px;height:96px;margin:0 auto 26px}
+footer{border-top:1px solid var(--hair);background:var(--band);padding:28px 0 40px;font-size:13px;color:var(--mute)}
+footer .wrap{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px 32px}
+footer nav ul{display:flex;flex-wrap:wrap;gap:8px 22px;list-style:none;margin:0;padding:0}
+footer nav a{color:var(--ink2)}
+footer .legal{flex-basis:100%;padding-top:16px;border-top:1px solid var(--hair);line-height:1.6}
+
+/* reveal: only visuals, once, and only with JS and motion allowed */
+@media (prefers-reduced-motion:no-preference){
+  .js .reveal{opacity:0;transform:translateY(36px) scale(.985);transition:opacity 1s var(--ease),transform 1.1s var(--ease)}
+  .js .reveal.in{opacity:1;transform:none}
+}
+.static{display:none}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+  .snap .live{display:none}
+  .static{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;max-width:880px;margin:0 auto}
+  .static .screen{aspect-ratio:16/10;align-self:start;margin:0}
+  .legend li::after{display:none}
+}
+
+/* responsive */
 @media (max-width:900px){
+  .points,.plist{grid-template-columns:1fr;gap:28px;max-width:560px;margin-left:auto;margin-right:auto}
+  .kb,.split{grid-template-columns:1fr}
+  .split .text{max-width:560px;margin:0 auto;text-align:center}
+  .split .facts{text-align:left}
+  .steps{grid-template-columns:1fr;max-width:560px;margin-left:auto;margin-right:auto}
   .cards{grid-template-columns:repeat(6,minmax(0,1fr))}
-  .stage{padding:64px 16px 44px}
-  .tiles,.steps{grid-template-columns:1fr;max-width:560px;margin:0 auto}
-  .sc{grid-template-columns:1fr}
 }
-@media (max-width:720px){
+@media (max-width:760px){
+  .nav ul{display:none}
+  .nav .pill{margin-left:auto}
+  .hero{padding-top:48px}
+  .hero .icon{width:104px;height:104px}
+  .stage{margin-top:44px}
+  .stage .screen{aspect-ratio:auto;padding:22% 3% 10%}
   .cards{grid-template-columns:repeat(3,minmax(0,1fr))}
-  .stage{min-height:0;border-radius:18px;margin-top:48px;padding:56px 12px 36px}
-  .shelf{padding:9px;border-radius:22px;width:100%}
-  .bw1{width:70%}.bw2{width:60%}
-  section{padding-top:88px}
-  .nav a.opt{display:none}
+  .shelf{padding:8px;border-radius:20px;width:100%}
+  .legend{grid-template-columns:1fr;gap:18px;max-width:420px}
+  .static{grid-template-columns:1fr;max-width:420px}
+  .trio .lb small,.trio .state{display:none}
+  .pairvis .mshelf{width:78%}
+  .ov .slots{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .ov .slot:nth-child(n+7){display:none}
+  .tbl{font-size:15px}
+  .sc .tbl td:first-child{width:auto}
 }
-@media (max-width:520px){.meta .dl-meta{display:block;margin-bottom:3px}.meta .dl-meta+span::before{content:none}}
-@media (max-width:420px){
+@media (max-width:480px){
   .lb small{display:none}
-  .mbar i:nth-child(n+3){display:none}
-  .sc div{flex-direction:column;align-items:flex-start;gap:8px}
-  .sc dd{justify-content:flex-start}
+  .arrows{grid-template-columns:repeat(3,52px)}
+  .tk{min-width:52px}
+  .held{min-width:54px;height:52px}
+  .sc .tbl tr{display:grid;grid-template-columns:1fr;padding:12px 0;border-bottom:1px solid var(--line)}
+  .sc .tbl td{border:0;padding:3px 4px}
+  .sc .tbl tbody th[scope=rowgroup]{display:block;padding-left:4px}
+  .sc .tbl tr:first-child{border-bottom:0;padding-bottom:0}
+  .perm .tbl thead{display:none}
+  .perm .tbl tr{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;padding:14px 0;border-bottom:1px solid var(--line)}
+  .perm .tbl th,.perm .tbl td{border:0;padding:0 4px}
+  .perm .tbl td:last-child{grid-column:1/-1}
 }
-@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
-<header>
+
+<header class="nav">
   <div class="wrap">
-    <a class="brand" href="./" aria-label="Paneflo home"><img src="assets/icon-64.png" alt="" width="26" height="26">Paneflo</a>
-    <nav class="nav" aria-label="Primary">
-      <a class="opt" href="#features">Features</a>
-      <a class="opt" href="#install">Install</a>
-      <a href="https://github.com/Jenish-Shobhit/Paneflo">GitHub</a>
+    <a class="brand" href="./"><img src="assets/icon-64.png" alt="" width="24" height="24">Paneflo</a>
+    <nav aria-label="Sections">
+      <ul>
+        <li><a href="#switcher">Switcher</a></li>
+        <li><a href="#tiling">Tiling</a></li>
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#install">Install</a></li>
+        <li><a href="#faq">FAQ</a></li>
+      </ul>
     </nav>
+    <a class="pill" data-download href="https://github.com/Jenish-Shobhit/Paneflo/releases/latest">Download</a>
   </div>
 </header>
 
 <main id="main">
-  <div class="wrap hero">
-    <picture>
-      <source srcset="assets/icon-256.webp" type="image/webp">
-      <img class="icon" src="assets/icon-256.png" width="112" height="112" alt="Paneflo app icon">
-    </picture>
-    <h1>A better ⌘Tab<br>for your Mac.</h1>
-    <p class="lede">Switch between windows with a live preview, tile them from the keyboard, and see them all in one Overview.</p>
-    <div class="cta">
-      <a class="btn btn-p" data-download href="https://github.com/Jenish-Shobhit/Paneflo/releases/latest">
-        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10m-4-4 4 4 4-4M4 16.5h12"/></svg><span class="dl-label">Download Paneflo</span>
-      </a>
-      <a class="btn btn-s" href="https://github.com/Jenish-Shobhit/Paneflo">View on GitHub</a>
-    </div>
-    <p class="meta"><span class="dl-meta">Latest release</span> <span>macOS 26+</span> <span>Apple silicon</span> <span>Free &amp; open source</span></p>
-
-    <figure class="stage" id="stage" role="img" aria-label="Illustration of the Paneflo switcher: a glass shelf of window cards over the desktop, with the selected window ringed and a tiled pair linked side by side.">
-      <div class="mbar" aria-hidden="true">
-        <span><i></i><i></i><i></i><i></i></span>
-        <span><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="2.5" width="5.5" height="11" rx="1.5"/><rect x="9" y="2.5" width="5.5" height="5" rx="1.5"/><rect x="9" y="9.5" width="5.5" height="4" rx="1.5"/></svg><i style="margin:0 0 0 12px;width:34px"></i></span>
+  <section class="hero" aria-labelledby="top-h">
+    <div class="wrap">
+      <picture>
+        <source srcset="assets/icon-256.webp" type="image/webp">
+        <img class="icon" src="assets/icon-256.png" width="128" height="128" alt="Paneflo app icon: three tiled glass panes on teal, one in coral" fetchpriority="high">
+      </picture>
+      <h1 id="top-h">Paneflo</h1>
+      <p class="tagline">Every window. In its place.</p>
+      <p class="lede">Switch between windows, not apps. Snap them to the edges of the screen, arrange them from the keyboard, and see them all in an Overview that stays in order. One small menu bar app.</p>
+      <div class="cta">
+        <a class="btn" data-download href="https://github.com/Jenish-Shobhit/Paneflo/releases/latest">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10m-4.2-4.2L10 13l4.2-4.2M4 16.5h12"/></svg>Download for Mac
+        </a>
+        <a class="textlink" href="https://github.com/Jenish-Shobhit/Paneflo">View the source on GitHub</a>
       </div>
-      <div class="bw bw1" aria-hidden="true"></div>
-      <div class="bw bw2" aria-hidden="true"></div>
-      <div class="shelf" aria-hidden="true">
-        <div class="cards">
-          <div class="card notes" data-t="Ideas — Notes"><div class="pw"><div class="pv"><b><i></i></b></div></div><div class="lb"><span class="ic" style="--c:#e3b341"></span><span><strong>Ideas</strong><small>Notes</small></span></div></div>
-          <div class="pair">
-            <div class="card editor" data-t="main.swift — Editor"><div class="pw"><div class="pv"><b><i></i></b></div><span class="link"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6.5 9.5l3-3M7 4.5l1-1a2.5 2.5 0 0 1 3.5 3.5l-1 1M9 11.5l-1 1A2.5 2.5 0 0 1 4.5 9l1-1"/></svg></span></div><div class="lb"><span class="ic" style="--c:#ef8a5f"></span><span><strong>main.swift</strong><small>Editor</small></span></div></div>
-            <div class="card web" data-t="Reading list — Browser"><div class="pw"><div class="pv"><b></b></div></div><div class="lb"><span class="ic" style="--c:#5b8def"></span><span><strong>Reading list</strong><small>Browser</small></span></div></div>
+      <p class="meta"><strong class="dl-meta">Latest release</strong>. Free and open source. Requires macOS 26 or later on Apple silicon.</p>
+
+      <figure class="stage" id="stage">
+        <div class="screen" role="img" aria-label="Illustration of the Paneflo switcher: a glass shelf of window cards over the desktop. The selected window is ringed and two tiled windows sit side by side as a pair.">
+          <div class="mbar"></div>
+          <div class="win w1" aria-hidden="true"></div>
+          <div class="win dark w2" aria-hidden="true"></div>
+          <div class="shelf" aria-hidden="true">
+            <div class="cards">
+              <div class="card c-notes" data-t="Ideas"><div class="pv"><b><i></i></b></div><div class="lb"><span class="ic" style="--c:#e3b341"></span><span><strong>Ideas</strong><small>Notes</small></span></div></div>
+              <div class="pair">
+                <div class="card c-editor" data-t="main.swift"><div class="pv"><b><i></i></b><span class="link"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6.5 9.5l3-3M7 4.5l1-1a2.5 2.5 0 0 1 3.5 3.5l-1 1M9 11.5l-1 1A2.5 2.5 0 0 1 4.5 9l1-1"/></svg></span></div><div class="lb"><span class="ic" style="--c:#ef8a5f"></span><span><strong>main.swift</strong><small>Editor</small></span></div></div>
+                <div class="card c-web" data-t="Reading list"><div class="pv"><b></b></div><div class="lb"><span class="ic" style="--c:#3a9c89"></span><span><strong>Reading list</strong><small>Browser</small></span></div></div>
+              </div>
+              <div class="card c-mail" data-t="Inbox"><div class="pv"><b></b></div><div class="lb"><span class="ic" style="--c:#4b74e6"></span><span><strong>Inbox</strong><small>Mail</small></span></div></div>
+              <div class="card c-term" data-t="~/projects"><div class="pv"><b><i></i></b></div><div class="lb"><span class="ic" style="--c:#3a3a3c"></span><span><strong>~/projects</strong><small>Terminal</small></span></div></div>
+              <div class="card c-desk" data-t="Desktop"><div class="pv"></div><div class="lb"><span class="ic" style="--c:#a1a1a6"></span><span><strong>Desktop</strong><small>Show desktop</small></span></div></div>
+            </div>
+            <p class="cap" id="cap">main.swift</p>
           </div>
-          <div class="card mail" data-t="Inbox — Mail"><div class="pw"><div class="pv"><b></b></div></div><div class="lb"><span class="ic" style="--c:#4b74e6"></span><span><strong>Inbox</strong><small>Mail</small></span></div></div>
-          <div class="card term" data-t="~/projects — Terminal"><div class="pw"><div class="pv"><b><i></i></b></div></div><div class="lb"><span class="ic" style="--c:#3a3a3c"></span><span><strong>~/projects</strong><small>Terminal</small></span></div></div>
-          <div class="card desk" data-t="Desktop"><div class="pw"><div class="pv"></div></div><div class="lb"><span class="ic" style="--c:#a1a1a6"></span><span><strong>Desktop</strong><small>Show desktop</small></span></div></div>
         </div>
-        <p class="cap" id="cap">main.swift — Editor</p>
-      </div>
-    </figure>
-  </div>
+        <figcaption>Hold ⌘ and press Tab. Release ⌘ to bring the selected window forward.</figcaption>
+      </figure>
+    </div>
+  </section>
 
-  <section id="features" aria-labelledby="f-h">
+  <section class="sec" id="switcher" aria-labelledby="sw-h">
     <div class="wrap">
-      <div class="head"><h2 id="f-h">Three tools. One menu bar app.</h2></div>
-      <div class="tiles">
-        <article class="tile">
-          <div class="art a1" aria-hidden="true"><i></i><i></i><i></i></div>
-          <h3>Switch</h3>
-          <p>Every window, not just every app, with a live preview of the one you pick.</p>
-          <div class="keys"><kbd>⌘</kbd><kbd>Tab</kbd></div>
-        </article>
-        <article class="tile">
-          <div class="art a2" aria-hidden="true"><i></i><i></i><i></i></div>
-          <h3>Tile</h3>
-          <p>Snap windows to halves from inside ⌘Tab or anywhere. Paired halves come forward together.</p>
-          <div class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>←</kbd><kbd>→</kbd></div>
-        </article>
-        <article class="tile">
-          <div class="art a3" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
-          <h3>Overview</h3>
-          <p>All your windows in stable places. Search, drag, and nothing reshuffles.</p>
-          <div class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd><span class="alt">or swipe up with three fingers</span></div>
-        </article>
+      <div class="head">
+        <h2 id="sw-h">Windows, not apps.</h2>
+        <p>Every open window gets its own card, so two browser windows are two choices. The one you pick plays live while you decide.</p>
+        <div class="keys"><kbd>⌘</kbd><kbd>Tab</kbd></div>
+      </div>
+      <figure class="visual reveal">
+        <div class="trio" role="img" aria-label="Three window cards from the same app. The middle one is selected and shows a live preview; the others show recent snapshots.">
+          <div class="tc" aria-hidden="true"><div class="pv"><div class="win"></div></div><div class="lb"><span class="ic" style="--c:#e3b341"></span><span><strong>Proposal</strong><small>Writer</small></span></div><p class="state">Snapshot</p></div>
+          <div class="tc sel" aria-hidden="true"><div class="pv"><div class="win side"></div></div><div class="lb"><span class="ic" style="--c:#e3b341"></span><span><strong>Trip plans</strong><small>Writer</small></span></div><p class="state">Live preview</p></div>
+          <div class="tc" aria-hidden="true"><div class="pv"><div class="win"></div></div><div class="lb"><span class="ic" style="--c:#e3b341"></span><span><strong>Budget</strong><small>Writer</small></span></div><p class="state">Snapshot</p></div>
+        </div>
+      </figure>
+      <div class="points">
+        <div>
+          <h3>Pick one window</h3>
+          <p>Tab steps forward and Shift-Tab steps back. The arrow keys work too. Release ⌘ to focus, or press Escape to cancel.</p>
+        </div>
+        <div>
+          <h3>See it before you go</h3>
+          <p>Only the selected window plays live. The rest show recent snapshots, kept in memory and never saved. Without Screen Recording, cards show app icons.</p>
+        </div>
+        <div>
+          <h3>Act without leaving</h3>
+          <p>With ⌘ still held, close, minimize or hide the selected window, or quit its app. The switcher stays open.</p>
+          <div class="keys"><kbd>W</kbd><kbd>M</kbd><kbd>H</kbd><kbd>Q</kbd></div>
+        </div>
       </div>
     </div>
   </section>
 
-  <section id="shortcuts" aria-labelledby="s-h">
+  <section class="band sec" id="tiling" aria-labelledby="snap-h">
     <div class="wrap">
-      <div class="head"><h2 id="s-h">The shortcuts that matter</h2></div>
-      <dl class="sc">
-        <div><dt>Switch windows</dt><dd><kbd>⌘</kbd><kbd>Tab</kbd></dd></div>
-        <div><dt>Overview</dt><dd><kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd></dd></div>
-        <div><dt>Tile while switching</dt><dd><kbd>⌘</kbd><kbd>⌥</kbd><kbd>←</kbd><kbd>→</kbd></dd></div>
-        <div><dt>Tile front window</dt><dd><kbd>⌃</kbd><kbd>⌥</kbd><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd></dd></div>
-        <div><dt>Fill the display</dt><dd><kbd>⌃</kbd><kbd>⌥</kbd><kbd>↩</kbd></dd></div>
-        <div><dt>Undo arrangement</dt><dd><kbd>⌃</kbd><kbd>⌥</kbd><kbd>Z</kbd></dd></div>
-      </dl>
-      <p class="more"><a href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/docs/shortcuts.md">All shortcuts</a></p>
+      <div class="head">
+        <h2 id="snap-h">Drag to an edge. It snaps.</h2>
+        <p>Drag a window by its title bar to the edge of the screen. An outline shows where it will land, and it fills that space when you let go. Drag it away and it gets its old size back.</p>
+      </div>
+      <figure class="visual snap reveal" id="snap">
+        <div class="live">
+          <div class="screen" role="img" aria-label="Animation: a window dragged to the top edge fills the display, dragged to the left edge fills the left half, and dragged into the top-right corner fills that quarter. A translucent outline previews each place before release.">
+            <div class="mbar"></div>
+            <div class="win dark bg1" aria-hidden="true"></div>
+            <div class="ol" aria-hidden="true"></div>
+            <div class="win side sw" aria-hidden="true"></div>
+            <svg class="ptr" viewBox="0 0 22 30" aria-hidden="true"><path d="M2 2v22.5l6-5.6 3.8 8.8 4-1.7-3.8-8.6h8.2z" fill="#000" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/></svg>
+          </div>
+        </div>
+        <div class="static" aria-hidden="true">
+          <div class="screen"><div class="mbar"></div><div class="win side" style="left:0;top:5%;width:100%;height:95%"></div></div>
+          <div class="screen"><div class="mbar"></div><div class="win side" style="left:0;top:5%;width:50%;height:95%"></div></div>
+          <div class="screen"><div class="mbar"></div><div class="win side" style="left:50%;top:5%;width:50%;height:47.5%"></div></div>
+        </div>
+        <ol class="legend">
+          <li><span class="z" style="--p:0 0;--s:100% 100%" aria-hidden="true"></span><strong>Top edge</strong>Fills the display. The menu bar counts as the top edge.</li>
+          <li><span class="z" style="--p:0 0;--s:50% 100%" aria-hidden="true"></span><strong>Left or right edge</strong>Takes that half of the display.</li>
+          <li><span class="z" style="--p:100% 0;--s:50% 50%" aria-hidden="true"></span><strong>Corner</strong>Takes that quarter, including the two bottom corners.</li>
+        </ol>
+      </figure>
+      <p class="note">The bottom edge does nothing, so dragging past the Dock never resizes a window. Edges shared between displays let a window cross over. Turn snap areas off in <span class="nw">Settings › Tiling</span>.</p>
     </div>
   </section>
 
-  <section id="install" aria-labelledby="i-h">
+  <section class="sec" id="keyboard" aria-labelledby="kb-h">
     <div class="wrap">
-      <div class="head"><h2 id="i-h">Install</h2></div>
+      <div class="head">
+        <h2 id="kb-h">Or keep your hands on the keys.</h2>
+        <p>Control-Option with an arrow tiles the front window to a half, Return fills the display, and Z restores it. Inside the switcher, ⌘⌥ with an arrow tiles the selected window.</p>
+      </div>
+      <div class="kb visual">
+        <div class="pad" role="group" aria-labelledby="pad-l">
+          <p class="sr" id="pad-l">Try the default tiling shortcuts</p>
+          <div class="row">
+            <span class="key held" aria-hidden="true">⌃</span>
+            <span class="key held" aria-hidden="true">⌥</span>
+            <span class="plus" aria-hidden="true">+</span>
+            <div class="arrows">
+              <button type="button" class="tk" data-z="top" aria-pressed="false" aria-label="Control Option Up: top half">↑</button>
+              <button type="button" class="tk" data-z="left" aria-pressed="true" aria-label="Control Option Left: left half">←</button>
+              <button type="button" class="tk" data-z="bottom" aria-pressed="false" aria-label="Control Option Down: bottom half">↓</button>
+              <button type="button" class="tk" data-z="right" aria-pressed="false" aria-label="Control Option Right: right half">→</button>
+            </div>
+          </div>
+          <div class="row">
+            <button type="button" class="tk" data-z="fill" aria-pressed="false" aria-label="Control Option Return: fill the display">↩<small>Return</small></button>
+            <button type="button" class="tk" data-z="restore" aria-pressed="false" aria-label="Control Option Z: restore">Z<small>Restore</small></button>
+          </div>
+          <p class="hint" aria-live="polite">⌃⌥← <strong>Left half</strong></p>
+        </div>
+        <div class="mini reveal">
+          <div class="screen" role="img" aria-label="A display showing where the front window goes for the chosen shortcut.">
+            <div class="mbar"></div>
+            <div class="win dark" style="left:58%;top:30%;width:34%;height:52%" aria-hidden="true"></div>
+            <div class="win side mw" id="mw" style="left:0;top:5%;width:50%;height:95%" aria-hidden="true"></div>
+          </div>
+        </div>
+      </div>
+      <div class="recorder">
+        <h3 id="rec-h">Settings › Tiling › Keyboard Shortcuts</h3>
+        <dl aria-labelledby="rec-h">
+          <div><dt>Left Half</dt><dd><kbd>⌃</kbd><kbd>⌥</kbd><kbd>←</kbd></dd></div>
+          <div><dt>Top Left Quarter</dt><dd><span class="empty rec">Type shortcut…</span></dd></div>
+          <div><dt>First Third</dt><dd><span class="empty">Record Shortcut</span></dd></div>
+          <div><dt>Fill</dt><dd><kbd>⌃</kbd><kbd>⌥</kbd><kbd>↩</kbd></dd></div>
+          <div><dt>Center</dt><dd><span class="empty">Record Shortcut</span></dd></div>
+          <div><dt>Restore</dt><dd><kbd>⌃</kbd><kbd>⌥</kbd><kbd>Z</kbd></dd></div>
+        </dl>
+      </div>
+      <p class="note">Record your own keys for halves, quarters, thirds, Fill, Center and Restore. Changes apply at once, and a key another action already uses moves rather than doubling up.</p>
+    </div>
+  </section>
+
+  <section class="band sec" id="pairs" aria-labelledby="pair-h">
+    <div class="wrap split">
+      <div class="text">
+        <h2 id="pair-h">Two halves. One pair.</h2>
+        <p class="intro">Two windows side by side on one display become a tile pair, whether Paneflo put them there or you did.</p>
+        <ul class="facts">
+          <li><strong>Together.</strong> Open either window and its partner comes forward too.</li>
+          <li><strong>Or alone.</strong> <span class="keys"><kbd>⌘</kbd><kbd>⌥</kbd><kbd>↩</kbd></span> opens the pair, <span class="keys"><kbd>⌘</kbd><kbd>A</kbd></span> just the one you picked.</li>
+          <li><strong>Swap a half.</strong> Tile a third window into one side and it pairs with the other.</li>
+          <li><strong>One undo.</strong> Restores every window an arrangement moved, and the pair with them.</li>
+        </ul>
+      </div>
+      <figure class="pairvis reveal">
+        <div class="screen" role="img" aria-label="Two windows filling the left and right halves of a display, joined by a link at the seam. Below, the switcher shows them as two linked cards.">
+          <div class="mbar"></div>
+          <div class="win dark pl" aria-hidden="true"></div>
+          <div class="win side pr" aria-hidden="true"></div>
+          <span class="seam" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6.5 9.5l3-3M7 4.5l1-1a2.5 2.5 0 0 1 3.5 3.5l-1 1M9 11.5l-1 1A2.5 2.5 0 0 1 4.5 9l1-1"/></svg></span>
+          <div class="shelf mshelf" aria-hidden="true">
+            <div class="pair">
+              <div class="card c-editor sel"><div class="pv"><b><i></i></b><span class="link"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6.5 9.5l3-3M7 4.5l1-1a2.5 2.5 0 0 1 3.5 3.5l-1 1M9 11.5l-1 1A2.5 2.5 0 0 1 4.5 9l1-1"/></svg></span></div><div class="lb"><span class="ic" style="--c:#ef8a5f"></span><span><strong>main.swift</strong></span></div></div>
+              <div class="card c-web mate"><div class="pv"><b></b></div><div class="lb"><span class="ic" style="--c:#3a9c89"></span><span><strong>Reading list</strong></span></div></div>
+            </div>
+          </div>
+        </div>
+      </figure>
+    </div>
+  </section>
+
+  <section class="sec ov" id="overview" aria-labelledby="ov-h">
+    <div class="wrap">
+      <div class="head">
+        <h2 id="ov-h">Every window, in a place that stays.</h2>
+        <p>The Overview lays out all your windows in slots you control. Search without reshuffling, drag to swap, and keep a place for an app that isn't open yet.</p>
+        <div class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd><span class="or">or swipe up with three fingers</span></div>
+      </div>
+      <figure class="visual reveal">
+        <div class="screen" role="img" aria-label="Illustration of the Overview: a translucent overlay with a search field and a window count above a grid of slots. A Desktop tile comes first, one window is selected, one slot is free and one is pinned, waiting for its app.">
+          <div class="mbar"></div>
+          <div class="win" style="left:6%;top:12%;width:50%;height:60%" aria-hidden="true"></div>
+          <div class="win dark" style="left:44%;top:30%;width:48%;height:58%" aria-hidden="true"></div>
+          <div class="layer" aria-hidden="true">
+            <div class="search"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="7" cy="7" r="4.6"/><path d="m10.5 10.5 3.5 3.5"/></svg><span>Search</span><span>6 windows</span></div>
+            <div class="slots">
+              <div class="slot desk"><div class="pv"></div><div class="lb"><span class="ic" style="--c:#a1a1a6"></span><span><strong>Desktop</strong></span></div></div>
+              <div class="slot"><div class="pv"><div class="win dark"></div></div><div class="lb"><span class="ic" style="--c:#ef8a5f"></span><span><strong>main.swift</strong><small>Editor</small></span></div></div>
+              <div class="slot sel"><div class="pv"><div class="win side"></div></div><div class="lb"><span class="ic" style="--c:#3a9c89"></span><span><strong>Reading list</strong><small>Browser</small></span></div></div>
+              <div class="slot"><div class="pv"><div class="win"></div></div><div class="lb"><span class="ic" style="--c:#e3b341"></span><span><strong>Ideas</strong><small>Notes</small></span></div></div>
+              <div class="slot"><div class="pv"><div class="win"></div></div><div class="lb"><span class="ic" style="--c:#4b74e6"></span><span><strong>Inbox</strong><small>Mail</small></span></div></div>
+              <div class="slot"><div class="pv"><div class="win dark"></div></div><div class="lb"><span class="ic" style="--c:#3a3a3c"></span><span><strong>~/projects</strong><small>Terminal</small></span></div></div>
+              <div class="slot free"><div class="pv"></div><div class="lb"><span><small>Free slot</small></span></div></div>
+              <div class="slot pin"><div class="pv">Waiting for Chat</div><div class="lb"><span><small>Pinned</small></span></div></div>
+            </div>
+          </div>
+        </div>
+      </figure>
+      <div class="points">
+        <div>
+          <h3>Nothing reshuffles</h3>
+          <p>Slots never move while the Overview is open. Arrow keys move around the grid the way it looks.</p>
+        </div>
+        <div>
+          <h3>Arranged by you</h3>
+          <p>Drag a window onto a free slot to move it, or onto another window to swap. Pinned slots wait for their app.</p>
+        </div>
+        <div>
+          <h3>A Desktop tile</h3>
+          <p>Shows the desktop by hiding other apps, and brings them back when you pick it again. The switcher has one too.</p>
+        </div>
+      </div>
+      <p class="note">The Overview is Paneflo's own overlay; it doesn't change Mission Control or Spaces. The three-finger swipe is optional and experimental.</p>
+    </div>
+  </section>
+
+  <section class="band sec privacy" id="privacy" aria-labelledby="pv-h">
+    <div class="wrap">
+      <svg class="shield" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M24 4 8 10v12c0 10.5 6.8 18.6 16 22 9.2-3.4 16-11.5 16-22V10z"/><path d="m17 24 5 5 9-10"/></svg>
+      <div class="head">
+        <h2 id="pv-h">Your windows stay on your Mac.</h2>
+        <p>Paneflo sees your windows so it can arrange them. It doesn't send them anywhere.</p>
+      </div>
+      <ul class="plist">
+        <li><strong>No analytics</strong><span>No telemetry, no accounts and no tracking of any kind.</span></li>
+        <li><strong>Online only for updates</strong><span>Paneflo talks to GitHub only to check for and download a new release. Turn off the daily check in <span class="nw">Settings › Updates</span>.</span></li>
+        <li><strong>Pictures in memory only</strong><span>Snapshots are never written to disk, and they're cleared when you lock the screen.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="sec" id="install" aria-labelledby="in-h">
+    <div class="wrap">
+      <div class="head">
+        <h2 id="in-h">Up and running in a minute.</h2>
+        <p>Paneflo is free and open source under the MIT License.</p>
+      </div>
       <ol class="steps">
-        <li><h3>Download</h3><p>Get <a data-download class="zip-name" href="https://github.com/Jenish-Shobhit/Paneflo/releases/latest">the latest zip</a> and unzip it.</p></li>
-        <li><h3>Move to Applications</h3><p>Open it there. The first time, choose Open Anyway in Privacy &amp; Security.</p></li>
-        <li><h3>Grant access</h3><p>Allow Accessibility and Input Monitoring. Screen Recording adds window previews.</p></li>
+        <li><h3>Download</h3><p>Get <a data-download class="zip-name" href="https://github.com/Jenish-Shobhit/Paneflo/releases/latest">the latest zip</a>, unzip it, and move Paneflo to your Applications folder.</p></li>
+        <li><h3>Choose Open Anyway</h3><p>Paneflo isn't notarized yet, so macOS stops the first launch. Click Done, then open System Settings › Privacy &amp; Security and choose Open Anyway next to Paneflo.</p></li>
+        <li><h3>Grant access</h3><p>Set up Paneflo opens on its own. Click Grant… on each row and switch Paneflo on; the row turns green. Then hold ⌘ and press Tab.</p></li>
       </ol>
-      <p class="note">Updates install from the menu bar: Check for Updates…</p>
+      <div class="perm">
+        <h3>What Paneflo asks for</h3>
+        <p>Three permissions, and nothing else. If a row says Restart Paneflo to apply, restart it once.</p>
+        <table class="tbl">
+          <thead><tr><th scope="col">Permission</th><th scope="col"><span class="sr">Status</span></th><th scope="col">Why</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Accessibility</th><td><span class="tag">Required</span></td><td>Find, focus, move and resize other apps' windows.</td></tr>
+            <tr><th scope="row">Input Monitoring</th><td><span class="tag">Required</span></td><td>Hear ⌘Tab, the tiling shortcuts and the trackpad gesture.</td></tr>
+            <tr><th scope="row">Screen Recording</th><td><span class="tag opt">Optional</span></td><td>Window pictures in the switcher and Overview. Without it, cards show app icons.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">To update, choose Check for Updates… from the menu bar icon. Each download is checked against the copy you have before it replaces it, so your permissions carry over.</p>
+    </div>
+  </section>
+
+  <section class="band sec" id="shortcuts" aria-labelledby="sc-h">
+    <div class="wrap">
+      <div class="head">
+        <h2 id="sc-h">The keys worth knowing.</h2>
+        <p>Every shortcut is also listed, and searchable, in <span class="nw">Settings › Shortcuts &amp; Help</span>.</p>
+      </div>
+      <div class="sc">
+        <table class="tbl">
+          <caption class="sr">Default keyboard shortcuts</caption>
+          <tbody>
+            <tr><th scope="rowgroup" colspan="2">Switcher</th></tr>
+            <tr><td><span class="keys"><kbd>⌘</kbd><kbd>Tab</kbd></span></td><td>Open the switcher and step forward</td></tr>
+            <tr><td><span class="keys"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>Tab</kbd></span></td><td>Step back</td></tr>
+            <tr><td><span class="keys"><kbd>⌘</kbd><kbd>W</kbd><kbd>M</kbd><kbd>H</kbd><kbd>Q</kbd></span></td><td>Close, minimize, hide or quit, with ⌘ held</td></tr>
+            <tr><td><span class="keys"><kbd>⌘</kbd><kbd>⌥</kbd><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd></span></td><td>Tile the selected window: halves, fill, undo</td></tr>
+          </tbody>
+          <tbody>
+            <tr><th scope="rowgroup" colspan="2">Anywhere</th></tr>
+            <tr><td><span class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd></span></td><td>Tile the front window to a half</td></tr>
+            <tr><td><span class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>↩</kbd></span></td><td>Fill the display</td></tr>
+            <tr><td><span class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>Z</kbd></span></td><td>Restore (undo the last arrangement)</td></tr>
+            <tr><td><span class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd></span></td><td>Open the Overview</td></tr>
+          </tbody>
+          <tbody>
+            <tr><th scope="rowgroup" colspan="2">Tile pairs</th></tr>
+            <tr><td><span class="keys"><kbd>⌘</kbd><kbd>⌥</kbd><kbd>↩</kbd></span></td><td>Open the selection with its partner</td></tr>
+            <tr><td><span class="keys"><kbd>⌘</kbd><kbd>A</kbd></span></td><td>Open the selection alone, in the switcher</td></tr>
+          </tbody>
+        </table>
+        <p class="more"><a href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/docs/shortcuts.md">See every shortcut</a></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="faq" aria-labelledby="faq-h">
+    <div class="wrap">
+      <div class="head"><h2 id="faq-h">Questions and answers.</h2></div>
+      <div class="faq">
+        <details>
+          <summary>Why does macOS say Paneflo can't be opened?</summary>
+          <div class="ans"><p>Paneflo is signed but not notarized yet. Click Done, open System Settings › Privacy &amp; Security, scroll to Security and choose Open Anyway next to Paneflo. You do this once per download; updates installed from the menu bar don't ask again.</p></div>
+        </details>
+        <details>
+          <summary>Which Macs does it run on?</summary>
+          <div class="ans"><p>Macs with Apple silicon running macOS 26 or later. Intel Macs and earlier versions of macOS aren't supported.</p></div>
+        </details>
+        <details>
+          <summary>Why does it need Accessibility and Input Monitoring?</summary>
+          <div class="ans"><p>Accessibility lets Paneflo find, focus, move and resize other apps' windows. Input Monitoring lets it hear ⌘Tab, the tiling shortcuts and the trackpad gesture. Screen Recording is optional and only adds window pictures.</p></div>
+        </details>
+        <details>
+          <summary>Does it replace Mission Control or Spaces?</summary>
+          <div class="ans"><p>No. The Overview is Paneflo's own overlay and leaves Mission Control and Spaces as they are. Windows on other Spaces and full-screen windows aren't always found.</p></div>
+        </details>
+        <details>
+          <summary>Can I change the shortcuts?</summary>
+          <div class="ans"><p>Yes, for tiling: Settings › Tiling › Keyboard Shortcuts has a recorder for each arrangement. If another tool also uses ⌘Tab or ⌃⌥Space, choose Pause Shortcuts in the menu bar to hand those keys back.</p></div>
+        </details>
+        <details>
+          <summary>The three-finger swipe opens Mission Control.</summary>
+          <div class="ans"><p>macOS still owns that swipe. In System Settings › Trackpad › More Gestures, turn off the three-finger Mission Control and App Exposé swipes, or move them to four fingers. Then turn the gesture on in Settings › Overview &amp; Gesture. It works with the built-in trackpad only.</p></div>
+        </details>
+        <details>
+          <summary>How do I uninstall it?</summary>
+          <div class="ans"><p>Quit Paneflo from the menu bar and move it to the Trash. To remove its settings too, run <code>defaults delete dev.paneflo.Paneflo</code> in Terminal.</p></div>
+        </details>
+        <details>
+          <summary>Something isn't working.</summary>
+          <div class="ans"><p>The <a href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/docs/troubleshooting.md">troubleshooting guide</a> covers permissions, shortcuts, previews and updates. If it doesn't help, <a href="https://github.com/Jenish-Shobhit/Paneflo/issues/new/choose">open an issue</a>.</p></div>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec closing" aria-labelledby="end-h">
+    <div class="wrap">
+      <img class="icon" src="assets/icon-128.png" width="96" height="96" alt="" loading="lazy" decoding="async">
+      <div class="head">
+        <h2 id="end-h">Put every window in its place.</h2>
+        <p>Free, open source and made for macOS 26.</p>
+      </div>
+      <div class="cta">
+        <a class="btn" data-download href="https://github.com/Jenish-Shobhit/Paneflo/releases/latest">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10m-4.2-4.2L10 13l4.2-4.2M4 16.5h12"/></svg>Download for Mac
+        </a>
+        <a class="textlink" href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/docs/user-guide.md">Read the user guide</a>
+      </div>
+      <p class="meta"><strong class="dl-meta">Latest release</strong>. Requires macOS 26 or later on Apple silicon.</p>
     </div>
   </section>
 </main>
 
 <footer>
   <div class="wrap">
-    <span>Paneflo · MIT License</span>
+    <span>Paneflo is free software under the MIT License.</span>
     <nav aria-label="Project">
-      <a href="https://github.com/Jenish-Shobhit/Paneflo">GitHub</a>
-      <a href="https://github.com/Jenish-Shobhit/Paneflo/releases">Releases</a>
-      <a href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/CHANGELOG.md">Changelog</a>
-      <a href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/docs/user-guide.md">User guide</a>
-      <a href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/LICENSE">License</a>
+      <ul>
+        <li><a href="https://github.com/Jenish-Shobhit/Paneflo">GitHub</a></li>
+        <li><a href="https://github.com/Jenish-Shobhit/Paneflo/releases">Releases</a></li>
+        <li><a href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/CHANGELOG.md">Changelog</a></li>
+        <li><a href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/docs/user-guide.md">User guide</a></li>
+        <li><a href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/docs/troubleshooting.md">Troubleshooting</a></li>
+        <li><a href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/LICENSE">License</a></li>
+      </ul>
     </nav>
+    <p class="legal">Paneflo is an independent project and is not affiliated with Apple. Mac and macOS are trademarks of Apple Inc.</p>
   </div>
 </footer>
 
 <script>
 (function () {
   "use strict";
-  var d = document;
+  var d = document, w = window;
+  var rm = w.matchMedia ? w.matchMedia("(prefers-reduced-motion: reduce)") : null;
+  function still() { return !!(rm && rm.matches); }
+  function each(sel, fn) { [].forEach.call(d.querySelectorAll(sel), fn); }
+  var io = "IntersectionObserver" in w;
 
-  /* Switcher illustration: the selection steps through the shelf, like holding ⌘ and pressing Tab. */
-  var cards = [].slice.call(d.querySelectorAll(".shelf .card")), cap = d.getElementById("cap"), stage = d.getElementById("stage");
-  var rm = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
-  var sel = 1, timer = 0, onScreen = true;
+  /* Reveal the illustrations once as they scroll in. */
+  if (io) {
+    var rev = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("in"); rev.unobserve(e.target); } });
+    }, { rootMargin: "0px 0px -8% 0px" });
+    each(".reveal", function (el) { rev.observe(el); });
+  } else {
+    each(".reveal", function (el) { el.classList.add("in"); });
+  }
+
+  /* Hero: the selection steps through the shelf, like holding ⌘ and pressing Tab. */
+  var cards = [].slice.call(d.querySelectorAll("#stage .card")), cap = d.getElementById("cap"), stage = d.getElementById("stage");
+  var sel = 1, timer = 0, heroOn = true;
   function show(n) {
     var pair = cards[n].parentNode.classList.contains("pair") ? cards[n].parentNode : null;
     cards.forEach(function (c, k) {
@@ -315,14 +855,37 @@ footer a:hover{color:var(--ink)}
   }
   function run() {
     clearInterval(timer); timer = 0;
-    if (!(rm && rm.matches) && onScreen && !d.hidden) timer = setInterval(function () { sel = (sel + 1) % cards.length; show(sel); }, 1800);
+    if (!still() && heroOn && !d.hidden) timer = setInterval(function () { sel = (sel + 1) % cards.length; show(sel); }, 1700);
   }
   if (cards.length) {
     show(sel); run();
     d.addEventListener("visibilitychange", run);
     if (rm && rm.addEventListener) rm.addEventListener("change", run);
-    if ("IntersectionObserver" in window) new IntersectionObserver(function (e) { onScreen = e[0].isIntersecting; run(); }).observe(stage);
+    if (io) new IntersectionObserver(function (e) { heroOn = e[0].isIntersecting; run(); }).observe(stage);
   }
+
+  /* Snap demo: pause the loop while it is off screen. */
+  var snap = d.getElementById("snap");
+  if (snap && io) new IntersectionObserver(function (e) { snap.classList.toggle("paused", !e[0].isIntersecting); }).observe(snap);
+
+  /* Keyboard tiling: the keys place the window on the little display. */
+  var Z = {
+    left: ["0", "5%", "50%", "95%", "←", "Left half"],
+    right: ["50%", "5%", "50%", "95%", "→", "Right half"],
+    top: ["0", "5%", "100%", "47.5%", "↑", "Top half"],
+    bottom: ["0", "52.5%", "100%", "47.5%", "↓", "Bottom half"],
+    fill: ["0", "5%", "100%", "95%", "↩", "Fill"],
+    restore: ["12%", "16%", "44%", "58%", "Z", "Restored"]
+  };
+  var mw = d.getElementById("mw"), hint = d.querySelector(".pad .hint");
+  each(".pad .tk", function (b) {
+    b.addEventListener("click", function () {
+      var z = Z[b.getAttribute("data-z")];
+      mw.style.left = z[0]; mw.style.top = z[1]; mw.style.width = z[2]; mw.style.height = z[3];
+      each(".pad .tk", function (o) { o.setAttribute("aria-pressed", String(o === b)); });
+      hint.innerHTML = "⌃⌥" + z[4] + " <strong>" + z[5] + "</strong>";
+    });
+  });
 
   /* Latest release. Links default to the releases page, so they work without JS or when the API fails. */
   function pickRelease(rel) {
@@ -339,22 +902,15 @@ footer a:hover{color:var(--ink)}
     var mb = Number(zip.size) / 1048576, meta = [];
     if (version) meta.push("Version " + version);
     if (mb > 0) meta.push((mb >= 10 ? Math.round(mb) : mb.toFixed(1)) + " MB");
-    return {
-      href: zip.browser_download_url,
-      label: "Download Paneflo" + (version ? " " + version : ""),
-      meta: meta.join(" · "),
-      name: zip.name
-    };
+    return { href: zip.browser_download_url, meta: meta.join(", "), name: zip.name };
   }
-  function each(sel, fn) { [].forEach.call(d.querySelectorAll(sel), fn); }
-  if (!window.fetch) return;
+  if (!w.fetch) return;
   fetch("https://api.github.com/repos/Jenish-Shobhit/Paneflo/releases/latest", { headers: { Accept: "application/vnd.github+json" } })
     .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
     .then(function (rel) {
       var r = pickRelease(rel);
       if (!r) return;
       each("[data-download]", function (l) { l.href = r.href; });
-      each(".dl-label", function (l) { l.textContent = r.label; });
       each(".zip-name", function (l) { l.textContent = r.name; });
       if (r.meta) each(".dl-meta", function (l) { l.textContent = r.meta; });
     })

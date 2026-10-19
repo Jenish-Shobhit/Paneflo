@@ -2,29 +2,35 @@
 
 ## Guides
 
-- [User guide](user-guide.md): every feature and setting.
-- [Keyboard shortcuts](shortcuts.md): the complete list.
-- [Troubleshooting](troubleshooting.md): permissions, gestures, previews, updates.
-- [Architecture](architecture.md): modules, threads, performance invariants.
-- [Building](building.md): build, test, release and benchmarks.
-- [Manual QA](QA.md): release acceptance checklist.
-- [Status](status.md): verification record and known limits.
-- [Specifications](specs/000-product.md) and [engineering spec](specs/001-engineering.md).
+| Guide | What it covers |
+|---|---|
+| [User guide](user-guide.md) | Every feature and setting |
+| [Keyboard shortcuts](shortcuts.md) | The complete reference, including custom tiling shortcuts |
+| [Troubleshooting](troubleshooting.md) | Opening, permissions, shortcuts, the gesture, previews and updates |
+| [Architecture](architecture.md) | Modules, threads and performance invariants |
+| [Building](building.md) | Build, test, sign, release and benchmarks |
+| [Manual QA](QA.md) | Release acceptance checklist |
+| [Status](status.md) | Verification record and known limits |
+| [Product spec](specs/000-product.md) and [engineering spec](specs/001-engineering.md) | Requirements, architecture and capability gates |
 
 ## Site files
 
-What is public here (everything in this folder is served when GitHub Pages is on):
+Everything in this folder is public and is served when GitHub Pages is on.
 
-- `index.html` is the download page. It is self-contained (no external scripts), asks the GitHub API for the latest release and links `Paneflo-<version>.zip`, and falls back to the releases page.
-- `specs/` holds the product and engineering specifications. They are public.
-- `status.md` is the implementation status, verification record and known limits. It is public.
-- `.nojekyll` keeps Pages from running Jekyll over this folder.
+| Path | What it is |
+|---|---|
+| `index.html` | The download page. One self-contained file: inline CSS and JavaScript, no frameworks, web fonts or external scripts. It asks the GitHub API for the latest release to link `Paneflo-<version>.zip` with its version and size, and falls back to the releases page. |
+| `404.html` | The Pages not-found page. |
+| `favicon.png`, `icon.png`, `og.png`, `assets/` | Icons and the social preview image. |
+| `images/` | Illustrations for the README, drawn from synthetic mockups (no real windows or desktops). |
+| `specs/`, `status.md` | The product and engineering specifications and the verification record. |
+| `.nojekyll` | Keeps Pages from running Jekyll over this folder. |
 
 Keep private material (research, captures, machine traces, local window titles) under the ignored `dev_acrtifacts/`, never in `docs/`.
 
 ## Enabling the site
 
-Settings → Pages → Build and deployment → Source: **Deploy from a branch**, Branch: **main**, Folder: **/docs**. The site is then at `https://jenish-shobhit.github.io/Paneflo/`.
+Settings › Pages › Build and deployment › Source: **Deploy from a branch**, Branch: **main**, Folder: **/docs**. The site is then at `https://jenish-shobhit.github.io/Paneflo/`.
 
 ## Releasing
 
