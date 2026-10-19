@@ -6,6 +6,7 @@ All notable changes to Paneflo are listed here. Versions follow [Semantic Versio
 
 ### Fixes
 
+- Settings › Tiling › Keyboard Shortcuts: scrolling a recorder out of view no longer cancels recording; it ends only when you press a key, switch pane, or leave Settings.
 - Dragging a snapped window away gives it its old size back silently: no "Layout applied. Undo is available." line (nothing was added to Undo), and no failure note mid-drag if the app refuses.
 - Tiling shortcuts recorded on the number pad now read "Num1" (spoken "Keypad 1") instead of looking like the top-row key, and the menu bar shows no key for them rather than a misleading one.
 - Tiling shortcuts: ⌥ (or ⌥⇧) alone on a letter, digit, punctuation or Space key is refused, because it would swallow typing; add ⌃ or ⌘. ⌥ with arrows, Return, Escape, Delete, Home/End, Page Up/Down and F-keys is still fine.

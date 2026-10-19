@@ -170,6 +170,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
 
     private func select(_ pane: SettingsPane) {
+        if pane != model.pane { endShortcutRecording() }
         model.pane = pane
         defaults.set(pane.rawValue, forKey: Self.lastPaneKey)
         if pane == .overviewGesture { refreshGestureGuidance() }
