@@ -59,11 +59,14 @@ import PanefloCore
         }.sorted()
     }
 
-    @MainActor static func waitUntil(_ timeout: Double, _ condition: () -> Bool) async -> Double? {
+    /// Polls `condition`. Teardown timings come from the poll, so they poll every millisecond. Latencies are stamped
+    /// by the preview callbacks, so those waits poll every 25 ms (`idle: true`): a process woken every millisecond
+    /// has its timers fire almost on time, which an idle app with a visible panel does not get.
+    @MainActor static func waitUntil(_ timeout: Double, idle: Bool = false, _ condition: () -> Bool) async -> Double? {
         let start = ProcessInfo.processInfo.systemUptime
         while ProcessInfo.processInfo.systemUptime - start < timeout {
             if condition() { return ProcessInfo.processInfo.systemUptime - start }
-            try? await Task.sleep(for: .milliseconds(1))
+            try? await Task.sleep(for: .milliseconds(idle ? 25 : 1))
         }
         return condition() ? ProcessInfo.processInfo.systemUptime - start : nil
     }
@@ -113,8 +116,8 @@ import PanefloCore
         // Cold open: empty cache, no shareable content yet.
         recorder.reset(); open(selected: 0)
         // The selected card shows live frames; its snapshot is cached but not emitted.
-        let allCold = await waitUntil(5) { recorder.snapshots.count >= cards.count - 1 }
-        let liveCold = await waitUntil(3) { recorder.firstLive[cards[0].id] != nil }
+        let allCold = await waitUntil(5, idle: true) { recorder.snapshots.count >= cards.count - 1 }
+        let liveCold = await waitUntil(3, idle: true) { recorder.firstLive[cards[0].id] != nil }
         print("RESULT cold firstSnapshotMs=\(ms(recorder.firstSnapshot)) allSnapshotsMs=\(ms(allCold.map { _ in recorder.snapshots.values.max() ?? 0 })) firstLiveFrameMs=\(ms(recorder.firstLive[cards[0].id])) liveObserved=\(liveCold != nil) cacheEntries=\(capture.cacheCount) cacheMiB=\(mib(capture.cacheBytes))")
         try? await Task.sleep(for: .milliseconds(500))
 
@@ -122,7 +125,7 @@ import PanefloCore
         let change = ProcessInfo.processInfo.systemUptime
         recorder.start = change
         open(selected: 1)
-        _ = await waitUntil(3) { recorder.firstLive[cards[1].id] != nil }
+        _ = await waitUntil(3, idle: true) { recorder.firstLive[cards[1].id] != nil }
         let label = recorder.lastLabels[cards[0].id] ?? "?"
         print("RESULT selectionChange liveFrameMs=\(ms(recorder.firstLive[cards[1].id])) previousCardLabelPrefix=\(label.hasPrefix("Snapshot") ? "Snapshot" : label) liveStreams=\(capture.liveStreamCount)")
 
@@ -139,9 +142,20 @@ import PanefloCore
         recorder.reset(); open(selected: 0)
         let syncCount = recorder.synchronousSnapshots
         recorder.snapshots.removeAll(); recorder.firstSnapshot = nil
-        let refreshed = await waitUntil(5) { recorder.snapshots.count >= cards.count - 1 }
-        _ = await waitUntil(3) { recorder.firstLive[cards[0].id] != nil }
+        let refreshed = await waitUntil(5, idle: true) { recorder.snapshots.count >= cards.count - 1 }
+        _ = await waitUntil(3, idle: true) { recorder.firstLive[cards[0].id] != nil }
         print("RESULT warm synchronousCachedSnapshots=\(syncCount)/\(cards.count) refreshAllMs=\(ms(refreshed.map { _ in recorder.snapshots.values.max() ?? 0 })) firstLiveFrameMs=\(ms(recorder.firstLive[cards[0].id]))")
+        close(); recorder.frames.removeAll()
+        _ = await waitUntil(3) { capture.liveStreamCount == 0 }
+
+        // Open after an idle pause longer than the window-list reuse age: the usual ⌘Tab, minutes after the last one.
+        // Cached snapshots show at once; fresh ones and the live stream may wait for a new window-list query.
+        try? await Task.sleep(for: .seconds(CaptureController.contentReuseAge + 1))
+        recorder.reset(); open(selected: 0)
+        recorder.snapshots.removeAll(); recorder.firstSnapshot = nil
+        let idleRefreshed = await waitUntil(5, idle: true) { recorder.snapshots.count >= cards.count - 1 }
+        _ = await waitUntil(3, idle: true) { recorder.firstLive[cards[0].id] != nil }
+        print("RESULT afterIdle firstSnapshotMs=\(ms(recorder.firstSnapshot)) refreshAllMs=\(ms(idleRefreshed.map { _ in recorder.snapshots.values.max() ?? 0 })) firstLiveFrameMs=\(ms(recorder.firstLive[cards[0].id]))")
         close(); recorder.frames.removeAll()
         _ = await waitUntil(3) { capture.liveStreamCount == 0 }
 
@@ -155,8 +169,8 @@ import PanefloCore
         print("RESULT pressureCritical liveStreamsZeroAfterMs=\(ms(criticalZero)) cacheEntries=\(capture.cacheCount) label=\(pausedLabel)")
         recorder.reset(); recorder.frames.removeAll()
         capture.applyPressure(.warning)
-        _ = await waitUntil(3) { recorder.firstLive[cards[2].id] != nil }
-        _ = await waitUntil(5) { recorder.snapshots.count >= cards.count - 1 }
+        _ = await waitUntil(3, idle: true) { recorder.firstLive[cards[2].id] != nil }
+        _ = await waitUntil(5, idle: true) { recorder.snapshots.count >= cards.count - 1 }
         print("RESULT pressureWarningResume firstLiveFrameMs=\(ms(recorder.firstLive[cards[2].id])) snapshotsRefreshed=\(recorder.snapshots.count) cacheMiB=\(mib(capture.cacheBytes)) liveFrameWidth=\(recorder.frames[cards[2].id]?.width ?? 0)")
         capture.applyPressure(.normal)
         close(); recorder.frames.removeAll()

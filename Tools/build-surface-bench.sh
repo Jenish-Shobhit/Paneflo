@@ -33,6 +33,8 @@ set -- "$APP_SOURCES/RuntimeDiagnostics.swift" "$APP_SOURCES/Capture/CaptureCont
 # Older trees (--source) still carry the removed developer sample views, which their DesktopController needs.
 if [ -f "$APP_SOURCES/SampleViews.swift" ]; then set -- "$@" "$APP_SOURCES/SampleViews.swift"; fi
 if [ -f "$APP_SOURCES/TilePairController.swift" ]; then set -- "$@" "$APP_SOURCES/TilePairController.swift"; fi
+# Settings panes name shortcut keys through ShortcutKeyNames (Input/) since 1.2.
+if [ -f "$APP_SOURCES/Input/ShortcutKeyNames.swift" ]; then set -- "$@" "$APP_SOURCES/Input/ShortcutKeyNames.swift"; fi
 for directory in Design Settings Settings/Panes Setup; do
     if [ -d "$APP_SOURCES/$directory" ]; then
         for file in "$APP_SOURCES/$directory"/*.swift; do set -- "$@" "$file"; done
@@ -47,6 +49,8 @@ if grep -rqs "func nativeCheckReplaceOutsideClickMonitor" "$APP_SOURCES"; then F
 if grep -rqs "protocol PreviewProvider" "$APP_SOURCES"; then FLAGS="$FLAGS -D SURFACE_BENCH_PREVIEWS"; fi
 if grep -rqs "protocol DesktopEntryProvider" "$APP_SOURCES"; then FLAGS="$FLAGS -D SURFACE_BENCH_DESKTOP"; fi
 if grep -rqs "static var usesGlass" "$APP_SOURCES"; then FLAGS="$FLAGS -D SURFACE_BENCH_GLASS"; fi
+if [ -f "$APP_SOURCES/Surfaces/SnapPreviewPanel.swift" ]; then FLAGS="$FLAGS -D SURFACE_BENCH_SNAP"; fi
+if grep -qs "func prepare()" "$APP_SOURCES/Surfaces/SnapPreviewPanel.swift"; then FLAGS="$FLAGS -D SURFACE_BENCH_SNAP_PREPARE"; fi
 
 xcrun swiftc -target "$TARGET_TRIPLE" -swift-version 6 -parse-as-library -O \
     -module-cache-path "$OUTPUT_DIR/module-cache" -emit-library -emit-module \
