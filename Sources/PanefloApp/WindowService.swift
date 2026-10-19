@@ -559,7 +559,8 @@ final class WindowService {
     /// Moves a window to an exact frame (a pair follow-up: a displaced member's home, the rest of the display beside
     /// a size-limited partner). A frame that left every display is clamped into the nearest one.
     /// `recordsUndo` false: the move is not an arrangement the user would undo (a tiled window getting its own size
-    /// back while it is dragged away).
+    /// back while it is dragged away). Such a move is also silent: no status line (it would claim an undo exists) and
+    /// no failure note (the user is mid-drag); if the app refuses the write, the window simply keeps its size.
     func place(_ id: WindowIdentity, frame: WindowRect, operation: UInt64? = nil, recordsUndo: Bool = true,
                completion: (@MainActor @Sendable (TileOutcome?) -> Void)? = nil) {
         guard hasAccessibility, validLifetime(id), recordIndex[id] != nil, let target = targets[id] else { completion?(nil); return }
@@ -585,8 +586,8 @@ final class WindowService {
                         self.undoHistory.record([GeometryChange(id: id, before: before, after: after)], operation: operation)
                     }
                     if isTile, !superseded, let before = report.before, let after = report.after { self.onTiled?(id, before, after) }
-                    if !superseded { self.onStatus?(report.message) }
-                    if report.after == nil, !superseded, !report.message.hasPrefix("Layout superseded") {
+                    if !superseded, recordsUndo { self.onStatus?(report.message) }
+                    if recordsUndo, report.after == nil, !superseded, !report.message.hasPrefix("Layout superseded") {
                         RuntimeDiagnostics.mark("tile placement failed")
                         self.onPlacementFailed?(id, report.message)
                     }
