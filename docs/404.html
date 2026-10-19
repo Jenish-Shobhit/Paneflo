@@ -9,11 +9,28 @@
 <link rel="icon" type="image/png" href="/Paneflo/favicon.png">
 <meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<script>
+/* The appearance chosen on the main page (Light or Dark), or ?theme=; otherwise the system's. */
+(function () {
+  var t = null;
+  try { t = localStorage.getItem("paneflo-theme"); } catch (e) {}
+  var q = /[?&]theme=(light|dark|auto)(&|$)/.exec(location.search);
+  if (q) t = q[1];
+  if (t !== "light" && t !== "dark") return;
+  document.documentElement.setAttribute("data-theme", t);
+  document.querySelector('meta[name="color-scheme"]').setAttribute("content", t);
+  [].forEach.call(document.querySelectorAll('meta[name="theme-color"]'), function (m) { m.setAttribute("content", t === "dark" ? "#000000" : "#fbfbfd"); });
+})();
+</script>
 <style>
+:root{color-scheme:light dark}
+:root[data-theme="light"]{color-scheme:light}
+:root[data-theme="dark"]{color-scheme:dark}
 :root{--bg:#fbfbfd;--ink:#1d1d1f;--ink2:#424245;--acc:#0b7563;--btn:#0b7563;--btn-ink:#fff;--btn-hi:#086253;
   --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro",system-ui,"Helvetica Neue",Arial,sans-serif;
   --disp:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro",system-ui,"Helvetica Neue",Arial,sans-serif}
-@media (prefers-color-scheme:dark){:root{--bg:#000;--ink:#f5f5f7;--ink2:#c7c7cc;--acc:#43d1b6;--btn:#43d1b6;--btn-ink:#00261f;--btn-hi:#6fe0ca}}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#000;--ink:#f5f5f7;--ink2:#c7c7cc;--acc:#43d1b6;--btn:#43d1b6;--btn-ink:#00261f;--btn-hi:#6fe0ca}}
+:root[data-theme="dark"]{--bg:#000;--ink:#f5f5f7;--ink2:#c7c7cc;--acc:#43d1b6;--btn:#43d1b6;--btn-ink:#00261f;--btn-hi:#6fe0ca}
 *{box-sizing:border-box}
 html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.5 var(--sans);-webkit-font-smoothing:antialiased}

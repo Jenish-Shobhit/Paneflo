@@ -24,8 +24,33 @@
 <meta name="twitter:title" content="Paneflo: every window, in its place">
 <meta name="twitter:description" content="A ⌘Tab switcher for windows, snap areas and keyboard tiling, tile pairs and an organized Overview. Free and open source.">
 <meta name="twitter:image" content="https://jenish-shobhit.github.io/Paneflo/og.png">
-<script>document.documentElement.classList.add("js")</script>
+<script>
+/* Appearance, before first paint: a saved Light or Dark sets data-theme; Auto (no attribute) follows the system.
+   ?theme=light|dark|auto overrides it for one visit without saving. */
+(function () {
+  var r = document.documentElement, t = null;
+  r.classList.add("js");
+  function set(v) {
+    v = v === "light" || v === "dark" ? v : "auto";
+    if (v === "auto") r.removeAttribute("data-theme"); else r.setAttribute("data-theme", v);
+    var cs = document.querySelector('meta[name="color-scheme"]');
+    if (cs) cs.setAttribute("content", v === "auto" ? "light dark" : v);
+    [].forEach.call(document.querySelectorAll('meta[name="theme-color"]'), function (m) {
+      var dark = v === "auto" ? /dark/.test(m.getAttribute("media") || "") : v === "dark";
+      m.setAttribute("content", dark ? "#000000" : "#fbfbfd");
+    });
+    return v;
+  }
+  try { t = localStorage.getItem("paneflo-theme"); } catch (e) {}
+  var q = /[?&]theme=(light|dark|auto)(&|$)/.exec(location.search);
+  if (q) t = q[1];
+  window.panefloTheme = { set: set, current: set(t) };
+})();
+</script>
 <style>
+:root{color-scheme:light dark}
+:root[data-theme="light"]{color-scheme:light}
+:root[data-theme="dark"]{color-scheme:dark}
 :root{
   --bg:#fbfbfd;--band:#f5f5f7;--surface:#fff;--ink:#1d1d1f;--ink2:#424245;--mute:#6e6e73;
   --line:rgba(0,0,0,.1);--hair:rgba(0,0,0,.06);
@@ -41,7 +66,8 @@
   --disp:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro",system-ui,"Helvetica Neue",Arial,sans-serif;
   --ease:cubic-bezier(.22,.7,.2,1);
 }
-@media (prefers-color-scheme:dark){:root{
+/* Dark: from the system unless Light is chosen, or when Dark is chosen. Every dark rule below uses the same pair. */
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#000;--band:#0f0f11;--surface:#1c1c1e;--ink:#f5f5f7;--ink2:#c7c7cc;--mute:#9a9aa0;
   --line:rgba(255,255,255,.13);--hair:rgba(255,255,255,.08);
   --acc:#43d1b6;--acc-ink:#00261f;--acc-hi:#6fe0ca;--acc-soft:rgba(67,209,182,.14);
@@ -53,6 +79,18 @@
   --outline:rgba(255,255,255,.16);--outline-edge:rgba(255,255,255,.55);
   --depth:0 2px 4px rgba(0,0,0,.5),0 30px 70px -30px rgba(0,0,0,.9);
 }}
+:root[data-theme="dark"]{
+  --bg:#000;--band:#0f0f11;--surface:#1c1c1e;--ink:#f5f5f7;--ink2:#c7c7cc;--mute:#9a9aa0;
+  --line:rgba(255,255,255,.13);--hair:rgba(255,255,255,.08);
+  --acc:#43d1b6;--acc-ink:#00261f;--acc-hi:#6fe0ca;--acc-soft:rgba(67,209,182,.14);
+  --nav:rgba(10,10,12,.72);
+  --key:linear-gradient(#3a3a3e,#2c2c30);--key-edge:rgba(255,255,255,.12);--key-ink:#f5f5f7;
+  --wall:radial-gradient(90% 80% at 18% 8%,#1f6e60 0,rgba(31,110,96,0) 60%),radial-gradient(70% 90% at 100% 100%,#021714 0,rgba(2,23,20,0) 70%),linear-gradient(150deg,#14574c,#0b3b33 55%,#072b25);
+  --win:#2a2a2d;--win-bar:#323236;--win-line:rgba(255,255,255,.08);--skel:rgba(255,255,255,.12);--skel2:rgba(255,255,255,.07);
+  --glass:rgba(40,40,44,.58);--glass-edge:rgba(255,255,255,.16);--well:rgba(0,0,0,.34);
+  --outline:rgba(255,255,255,.16);--outline-edge:rgba(255,255,255,.55);
+  --depth:0 2px 4px rgba(0,0,0,.5),0 30px 70px -30px rgba(0,0,0,.9);
+}
 *,*::before,*::after{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%;text-size-adjust:100%;scroll-padding-top:64px}
 @media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
@@ -81,6 +119,26 @@ p{margin:0;text-wrap:pretty}
 .nav li a:hover{color:var(--ink);text-decoration:none}
 .pill{display:inline-flex;align-items:center;min-height:30px;padding:0 14px;border-radius:999px;background:var(--acc);color:var(--acc-ink);font-size:13px;font-weight:600;letter-spacing:-.01em}
 .pill:hover{background:var(--acc-hi);text-decoration:none}
+.theme{display:none;gap:2px;padding:2px;border-radius:999px;background:var(--hair);box-shadow:inset 0 0 0 1px var(--hair)}
+.js .theme{display:flex}
+.theme button{appearance:none;border:0;margin:0;padding:0;width:30px;height:26px;border-radius:999px;background:none;color:var(--mute);display:grid;place-items:center;cursor:pointer;transition:background .2s,color .2s}
+.theme button:hover{color:var(--ink)}
+.theme button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.14),0 0 0 .5px var(--line)}
+.theme button:focus-visible{outline-offset:1px;border-radius:999px}
+.theme svg{width:15px;height:15px}
+
+/* the one-line install command */
+.term{max-width:720px;margin:28px auto 0}
+.term-l{font-size:15px;color:var(--ink2);margin-bottom:10px}
+.cmd{display:flex;align-items:center;gap:10px;padding:6px 6px 6px 18px;border-radius:16px;background:var(--surface);box-shadow:0 0 0 1px var(--line),0 12px 32px -22px rgba(0,0,0,.4);text-align:left}
+.cmd code{flex:1;min-width:0;padding:10px 0;font:14px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:0;color:var(--ink);white-space:nowrap;overflow-x:auto;scrollbar-width:none}
+.cmd code::-webkit-scrollbar{display:none}
+.cmd .prompt{color:var(--mute);-webkit-user-select:none;user-select:none}
+.copy{display:none;flex:none;align-items:center;gap:6px;min-height:36px;padding:0 14px;border:0;border-radius:11px;background:var(--acc-soft);color:var(--acc-hi);font:600 14px/1 var(--sans);letter-spacing:-.01em;cursor:pointer;transition:background .2s}
+.js .copy{display:inline-flex}
+.copy:hover{background:color-mix(in srgb,var(--acc) 22%,transparent)}
+.copy svg{width:14px;height:14px}
+.term-r{margin-top:10px;font-size:14px;color:var(--mute)}
 
 /* hero */
 .hero{text-align:center;padding:72px 0 0}
@@ -101,7 +159,8 @@ p{margin:0;text-wrap:pretty}
 .screen{position:relative;aspect-ratio:16/10;border-radius:clamp(10px,1.8vw,20px);overflow:hidden;background:var(--wall);box-shadow:var(--depth),inset 0 0 0 1px var(--hair);isolation:isolate;contain:paint}
 .mbar{position:absolute;left:0;right:0;top:0;height:5%;min-height:12px;background:rgba(255,255,255,.28);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);z-index:3}
 .mbar::before{content:"";position:absolute;left:1.6%;top:50%;width:min(14%,120px);height:28%;margin-top:-.8%;border-radius:4px;background:linear-gradient(90deg,rgba(0,0,0,.42) 0 12%,transparent 12% 20%,rgba(0,0,0,.24) 20% 44%,transparent 44% 52%,rgba(0,0,0,.24) 52% 74%,transparent 74% 82%,rgba(0,0,0,.24) 82%)}
-@media (prefers-color-scheme:dark){.mbar{background:rgba(0,0,0,.28)}.mbar::before{filter:invert(1)}}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .mbar{background:rgba(0,0,0,.28)}:root:not([data-theme="light"]) .mbar::before{filter:invert(1)}}
+:root[data-theme="dark"] .mbar{background:rgba(0,0,0,.28)}:root[data-theme="dark"] .mbar::before{filter:invert(1)}
 .mbar::after{content:"";position:absolute;right:1.6%;top:50%;width:min(9%,80px);height:28%;margin-top:-.8%;border-radius:4px;background:linear-gradient(90deg,var(--coral) 0 16%,transparent 16% 30%,rgba(0,0,0,.24) 30%)}
 .win{position:absolute;border-radius:clamp(5px,.9vw,10px);background:var(--win);box-shadow:0 0 0 .5px rgba(0,0,0,.2),0 12px 34px -12px rgba(0,0,0,.45);overflow:hidden}
 .win::before{content:"";position:absolute;left:0;right:0;top:0;height:max(10px,9%);max-height:28px;background:radial-gradient(circle at 10px 50%,#ff5f57 3.5px,transparent 4px),radial-gradient(circle at 22px 50%,#febc2e 3.5px,transparent 4px),radial-gradient(circle at 34px 50%,#28c840 3.5px,transparent 4px),var(--win-bar);border-bottom:1px solid var(--win-line)}
@@ -291,7 +350,8 @@ kbd,.key{display:inline-grid;place-items:center;min-width:30px;height:30px;paddi
 /* overview */
 .ov .screen{max-width:1024px;margin:0 auto}
 .ov .screen::before{content:"";position:absolute;inset:0;z-index:2;background:rgba(236,244,242,.62);-webkit-backdrop-filter:blur(18px) saturate(1.3);backdrop-filter:blur(18px) saturate(1.3)}
-@media (prefers-color-scheme:dark){.ov .screen::before{background:rgba(8,14,13,.62)}}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .ov .screen::before{background:rgba(8,14,13,.62)}}
+:root[data-theme="dark"] .ov .screen::before{background:rgba(8,14,13,.62)}
 .ov .layer{position:absolute;inset:7% 6% 6%;z-index:3;display:flex;flex-direction:column;align-items:center}
 .search{display:flex;align-items:center;gap:8px;width:min(44%,360px);height:clamp(22px,3.6vw,36px);padding:0 2.2%;border-radius:999px;background:var(--glass);box-shadow:inset 0 0 0 1px var(--glass-edge);font-size:clamp(9px,1.3vw,14px);color:var(--ink2)}
 .search svg{width:1.1em;height:1.1em;flex:none;opacity:.8}
@@ -307,7 +367,8 @@ kbd,.key{display:inline-grid;place-items:center;min-width:30px;height:30px;paddi
 .slot.sel .pv{box-shadow:0 0 0 clamp(2px,.3vw,3px) var(--acc)}
 .slot.free .pv{background:var(--well);box-shadow:inset 0 1px 5px rgba(0,0,0,.18)}
 .slot.pin .pv{background:none;box-shadow:inset 0 0 0 1.5px rgba(0,0,0,.18);display:grid;place-items:center;font-size:clamp(8px,1.15vw,13px);color:var(--ink2)}
-@media (prefers-color-scheme:dark){.slot.pin .pv{box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.25)}}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .slot.pin .pv{box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.25)}}
+:root[data-theme="dark"] .slot.pin .pv{box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.25)}
 .slot.desk .pv{background:var(--wall)}
 
 /* privacy */
@@ -334,6 +395,12 @@ kbd,.key{display:inline-grid;place-items:center;min-width:30px;height:30px;paddi
 .tbl td{color:var(--ink2)}
 .tag{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap;background:var(--acc-soft);color:var(--acc)}
 .tag.opt{background:transparent;color:var(--mute);box-shadow:inset 0 0 0 1px var(--line)}
+.quick{margin:20px auto 0;padding:28px 26px 26px;border-radius:22px;background:var(--surface);box-shadow:0 0 0 1px var(--hair);text-align:center}
+.quick h3{font-size:21px;font-weight:600;letter-spacing:-.025em}
+.quick>p{margin:8px auto 0;max-width:40em;color:var(--ink2);font-size:16px}
+.quick .term{margin-top:20px}
+.quick .cmd{background:var(--band);box-shadow:0 0 0 1px var(--line)}
+@media (min-width:901px){.quick{padding:32px 40px 30px}}
 
 /* shortcuts */
 .sc{max-width:820px;margin:clamp(44px,6vw,64px) auto 0}
@@ -393,7 +460,10 @@ footer .legal{flex-basis:100%;padding-top:16px;border-top:1px solid var(--hair);
 }
 @media (max-width:760px){
   .nav ul{display:none}
-  .nav .pill{margin-left:auto}
+  .nav .wrap{gap:12px}
+  .nav .theme{margin-left:auto}
+  html:not(.js) .nav .pill{margin-left:auto}
+  .cmd code{white-space:normal;overflow-wrap:break-word;font-size:13px}
   .hero{padding-top:48px}
   .hero .icon{width:104px;height:104px}
   .stage{margin-top:44px}
@@ -411,6 +481,10 @@ footer .legal{flex-basis:100%;padding-top:16px;border-top:1px solid var(--hair);
 }
 @media (max-width:480px){
   .lb small{display:none}
+  .cmd{flex-wrap:wrap;gap:4px;padding:6px}
+  .cmd code{flex-basis:100%;padding:10px 10px 6px}
+  .copy{flex:1;justify-content:center}
+  .quick{padding:24px 16px 20px}
   .arrows{grid-template-columns:repeat(3,52px)}
   .tk{min-width:52px}
   .held{min-width:54px;height:52px}
@@ -427,6 +501,7 @@ footer .legal{flex-basis:100%;padding-top:16px;border-top:1px solid var(--hair);
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
+<p class="sr" id="copy-live" aria-live="polite"></p>
 
 <header class="nav">
   <div class="wrap">
@@ -440,6 +515,11 @@ footer .legal{flex-basis:100%;padding-top:16px;border-top:1px solid var(--hair);
         <li><a href="#faq">FAQ</a></li>
       </ul>
     </nav>
+    <div class="theme" role="group" aria-label="Appearance">
+      <button type="button" data-theme-set="auto" aria-pressed="true" aria-label="Automatic appearance, matches your system" title="Automatic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="5.75"/><path d="M8 2.25a5.75 5.75 0 0 1 0 11.5z" fill="currentColor" stroke="none"/></svg></button>
+      <button type="button" data-theme-set="light" aria-pressed="false" aria-label="Light appearance" title="Light"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1.25v1.5M8 13.25v1.5M1.25 8h1.5M13.25 8h1.5M3.2 3.2l1.06 1.06M11.74 11.74l1.06 1.06M3.2 12.8l1.06-1.06M11.74 4.26l1.06-1.06"/></svg></button>
+      <button type="button" data-theme-set="dark" aria-pressed="false" aria-label="Dark appearance" title="Dark"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M13.5 9.6A5.75 5.75 0 1 1 6.4 2.5a4.6 4.6 0 0 0 7.1 7.1z"/></svg></button>
+    </div>
     <a class="pill" data-download href="https://github.com/Jenish-Shobhit/Paneflo/releases/latest">Download</a>
   </div>
 </header>
@@ -461,6 +541,14 @@ footer .legal{flex-basis:100%;padding-top:16px;border-top:1px solid var(--hair);
         <a class="textlink" href="https://github.com/Jenish-Shobhit/Paneflo">View the source on GitHub</a>
       </div>
       <p class="meta"><strong class="dl-meta">Latest release</strong>. Free and open source. Requires macOS 26 or later on Apple silicon.</p>
+      <div class="term">
+        <p class="term-l">Or paste one line into Terminal to install it without the Open Anyway step.</p>
+        <div class="cmd">
+          <code><span class="prompt">$ </span><span data-cmd>curl -fsSL https://<wbr>jenish-shobhit.github.io/<wbr>Paneflo/<wbr>install.sh | bash</span></code>
+          <button class="copy" type="button" data-copy aria-label="Copy the install command"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M5 2.5A1.5 1.5 0 0 1 6.5 1h6A1.5 1.5 0 0 1 14 2.5v8a1.5 1.5 0 0 1-1.5 1.5H11v1.5A1.5 1.5 0 0 1 9.5 15h-6A1.5 1.5 0 0 1 2 13.5v-8A1.5 1.5 0 0 1 3.5 4H5V2.5ZM6.5 2.5V4h3A1.5 1.5 0 0 1 11 5.5v5h1.5v-8h-6Zm-3 3v8h6v-8h-6Z"/></svg><span>Copy</span></button>
+        </div>
+        <p class="term-r">Read it first: <a href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/docs/install.sh">install.sh</a></p>
+      </div>
 
       <figure class="stage" id="stage">
         <div class="screen" role="img" aria-label="Illustration of the Paneflo switcher: a glass shelf of window cards over the desktop. The selected window is ringed and two tiled windows sit side by side as a pair.">
@@ -698,6 +786,17 @@ footer .legal{flex-basis:100%;padding-top:16px;border-top:1px solid var(--hair);
         <li><h3>Choose Open Anyway</h3><p>Paneflo isn't notarized yet, so macOS stops the first launch. Click Done, then open System Settings › Privacy &amp; Security and choose Open Anyway next to Paneflo.</p></li>
         <li><h3>Grant access</h3><p>Set up Paneflo opens on its own. Click Grant… on each row and switch Paneflo on; the row turns green. Then hold ⌘ and press Tab.</p></li>
       </ol>
+      <div class="quick">
+        <h3>Or skip Open Anyway with one line in Terminal</h3>
+        <p>Instead of steps 1 and 2, open Terminal, paste this and press Return. It downloads the latest release from GitHub, checks its size and checksum and that it's signed with Paneflo's certificate, moves it to Applications and opens it. If any check fails, nothing is installed. Then grant access as in step 3.</p>
+        <div class="term">
+          <div class="cmd">
+            <code><span class="prompt">$ </span><span data-cmd>curl -fsSL https://<wbr>jenish-shobhit.github.io/<wbr>Paneflo/<wbr>install.sh | bash</span></code>
+            <button class="copy" type="button" data-copy aria-label="Copy the install command"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M5 2.5A1.5 1.5 0 0 1 6.5 1h6A1.5 1.5 0 0 1 14 2.5v8a1.5 1.5 0 0 1-1.5 1.5H11v1.5A1.5 1.5 0 0 1 9.5 15h-6A1.5 1.5 0 0 1 2 13.5v-8A1.5 1.5 0 0 1 3.5 4H5V2.5ZM6.5 2.5V4h3A1.5 1.5 0 0 1 11 5.5v5h1.5v-8h-6Zm-3 3v8h6v-8h-6Z"/></svg><span>Copy</span></button>
+          </div>
+          <p class="term-r">Read it first: <a href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/docs/install.sh">install.sh</a>. Run it again any time to update.</p>
+        </div>
+      </div>
       <div class="perm">
         <h3>What Paneflo asks for</h3>
         <p>Three permissions, and nothing else. If a row says Restart Paneflo to apply, restart it once.</p>
@@ -754,7 +853,11 @@ footer .legal{flex-basis:100%;padding-top:16px;border-top:1px solid var(--hair);
       <div class="faq">
         <details>
           <summary>Why does macOS say Paneflo can't be opened?</summary>
-          <div class="ans"><p>Paneflo is signed but not notarized yet. Click Done, open System Settings › Privacy &amp; Security, scroll to Security and choose Open Anyway next to Paneflo. You do this once per download; updates installed from the menu bar don't ask again.</p></div>
+          <div class="ans"><p>Paneflo is signed but not notarized yet. Click Done, open System Settings › Privacy &amp; Security, scroll to Security and choose Open Anyway next to Paneflo. You do this once per download; updates installed from the menu bar don't ask again.</p><p>To skip this step, install with the one line in Terminal from <a href="#install">Install</a> instead.</p></div>
+        </details>
+        <details>
+          <summary>What does the Terminal command do?</summary>
+          <div class="ans"><p>It runs <a href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/docs/install.sh">install.sh</a> from this site. The script finds the latest release on GitHub, checks the zip's size and SHA-256 against what GitHub lists, and checks that the app inside is Paneflo, at that version, signed with Paneflo's certificate. Only then does it move any older copy to the Trash and put the new one in Applications. If Paneflo is running, it asks you to quit it from the menu bar icon first.</p><p>A file that curl downloads isn't quarantined, so macOS doesn't ask for Open Anyway; the script's checks take the place of that step. Your permissions carry over to the new copy.</p></div>
         </details>
         <details>
           <summary>Which Macs does it run on?</summary>
@@ -831,6 +934,56 @@ footer .legal{flex-basis:100%;padding-top:16px;border-top:1px solid var(--hair);
   function still() { return !!(rm && rm.matches); }
   function each(sel, fn) { [].forEach.call(d.querySelectorAll(sel), fn); }
   var io = "IntersectionObserver" in w;
+
+  /* Appearance: Auto, Light or Dark. The choice is saved when storage works; the page works without it. */
+  var pt = w.panefloTheme, KEY = "paneflo-theme";
+  function markTheme(v) { each("[data-theme-set]", function (b) { b.setAttribute("aria-pressed", String(b.getAttribute("data-theme-set") === v)); }); }
+  if (pt) {
+    markTheme(pt.current);
+    each("[data-theme-set]", function (b) {
+      b.addEventListener("click", function () {
+        var v = pt.current = pt.set(b.getAttribute("data-theme-set"));
+        try { if (v === "auto") localStorage.removeItem(KEY); else localStorage.setItem(KEY, v); } catch (e) {}
+        markTheme(v);
+      });
+    });
+    w.addEventListener("storage", function (e) { if (e.key === KEY) { pt.current = pt.set(e.newValue); markTheme(pt.current); } });
+  }
+
+  /* Copy buttons for the install command. */
+  var live = d.getElementById("copy-live"), liveTimer = 0;
+  function copied(btn, label, said) {
+    btn.querySelector("span").textContent = label;
+    if (live) { live.textContent = ""; setTimeout(function () { live.textContent = said; }, 30); }
+    clearTimeout(liveTimer);
+    liveTimer = setTimeout(function () { each("[data-copy] span", function (s) { s.textContent = "Copy"; }); if (live) live.textContent = ""; }, 1800);
+  }
+  function selectCmd(el) {
+    var r = d.createRange(); r.selectNodeContents(el);
+    var s = w.getSelection(); s.removeAllRanges(); s.addRange(r);
+  }
+  function legacyCopy(text) {
+    var ta = d.createElement("textarea"), ok = false;
+    ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.top = "-1000px"; ta.style.opacity = "0";
+    d.body.appendChild(ta); ta.select();
+    try { ok = d.execCommand("copy"); } catch (e) {}
+    d.body.removeChild(ta);
+    return ok;
+  }
+  each("[data-copy]", function (btn) {
+    btn.addEventListener("click", function () {
+      var el = btn.parentNode.querySelector("[data-cmd]"), text = el.textContent;
+      function done() { copied(btn, "Copied", "Copied the install command"); }
+      function fallback() {
+        var ok = legacyCopy(text);
+        btn.focus();
+        if (ok) done();
+        else { selectCmd(el); copied(btn, "Press ⌘C", "Selected the install command. Press Command C to copy it."); }
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
+      else fallback();
+    });
+  });
 
   /* Reveal the illustrations once as they scroll in. */
   if (io) {
