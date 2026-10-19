@@ -43,8 +43,9 @@ With ⌘ held, **W** closes the selected window, **M** minimizes it, **H** hides
 
 ## Tiling
 
-Tiling works in two places.
+Tiling works in three ways.
 
+- **Drag to a screen edge:** drag a window by its title bar until the pointer touches the top edge to fill the display, the left or right edge for that half, or a corner for a quarter. An outline shows where it will land; release to place it, or move away to cancel. The bottom edge does nothing (its corners still give the bottom quarters), so dragging past the Dock never resizes a window by accident. Only the outer edges of your display arrangement count: an edge shared with another display lets the window cross over. The menu bar counts as the top edge. Drag a window Paneflo tiled away from its place and it gets its previous size back. Resizing a window, selecting text or dragging files never snaps. Turn it off in **Settings › Tiling › Snap windows by dragging to screen edges**; it needs Accessibility.
 - **Anywhere:** ⌃⌥ with the arrows tiles the frontmost window (Left, Right, Top, Bottom half). ⌃⌥Return fills its display and ⌃⌥Z undoes. The target is read when you press the keys; a sheet or dialog arranges its own window. The menu bar's **Tile Front Window** offers the same arrangements. These shortcuts are defaults: **Settings › Tiling › Keyboard Shortcuts** has a recorder for each arrangement, including the quarters, thirds and Center, which start unassigned. Click a recorder and press the keys you want (Delete clears, Escape cancels, Reset to Defaults restores); changes take effect at once. Paneflo refuses a bare key, ⌘Tab and the other switcher keys, and the Overview's ⌃⌥Space, moves a shortcut another action holds, and warns about system chords such as ⌘Q.
 - **In the picker:** ⌘⌥ with the arrows tiles the selected window: Left and Right for a half, Up to fill, Down to undo. Repeating a half moves the window to the next display.
 
@@ -94,7 +95,7 @@ Menu bar › **Settings…** (⌘,).
 | --- | --- |
 | General | Use Paneflo shortcuts, Launch at login (off by default), Card size, Show selected window title, Show menu bar icon |
 | Shortcuts & Help | Every key and gesture, grouped and searchable |
-| Tiling | Raise tile pairs together, Show pairs side by side, Snap assist (all on by default); Keyboard Shortcuts for each arrangement |
+| Tiling | Snap windows by dragging to screen edges, Raise tile pairs together, Show pairs side by side, Snap assist (all on by default); Keyboard Shortcuts for each arrangement |
 | Overview & Gesture | Keep empty places, Remove Free Slots, Reset Slot Order…, the gesture and its conflict status, Open Trackpad Settings… |
 | Previews | Window previews and Screen Recording status |
 | Desktop | The Desktop card; experimental macOS Show Desktop option |

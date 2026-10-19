@@ -139,6 +139,10 @@ final class SettingsModel {
     /// What the last Remove Free Slots or Reset Slot Order did; nil until one runs.
     var slotNote: String?
 
+    // Tiling
+    /// macOS's own drag-to-edge tiling is on (read when Settings opens or becomes key).
+    var systemEdgeTiling = false
+
     // Tiling › Keyboard Shortcuts
     var tilingKeymap = TilingKeymap.defaults
     /// The action whose recorder is waiting for a key.

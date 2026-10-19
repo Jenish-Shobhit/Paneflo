@@ -36,6 +36,8 @@ The first four rows are defaults for the anywhere shortcuts, which you can chang
 | ⌘⌥↑ | Fill the display |
 | ⌘⌥↓ | Undo for the selected window |
 
+Without keys: drag a window by its title bar to the top edge to fill the display, a side edge for that half, or a corner for a quarter (Settings › Tiling).
+
 ### Customizing the tiling shortcuts
 
 Each arrangement has a recorder: Left, Right, Top and Bottom Half; the four quarters; First, Middle and Last Third; Fill; Center; and Restore. Click one and press the keys you want. Delete clears it, Escape cancels, and **Reset to Defaults** restores the table above (quarters, thirds and Center start unassigned).

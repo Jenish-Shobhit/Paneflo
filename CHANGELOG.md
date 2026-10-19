@@ -6,6 +6,7 @@ All notable changes to Paneflo are listed here. Versions follow [Semantic Versio
 
 ### Tiling
 
+- Snap areas: drag a window by its title bar to the top edge of a display to fill it, to the left or right edge for that half, or into a corner for a quarter. A translucent outline shows where it will land; release to place it. The bottom edge does nothing. Edges shared between displays don't count, and the menu bar counts as the top edge. A window Paneflo tiled gets its previous size back when you drag it away. Snapped windows pair and undo like any other tile. On by default: Settings › Tiling › Snap windows by dragging to screen edges.
 - Settings › Tiling › Keyboard Shortcuts: record your own shortcut for each arrangement (halves, quarters, thirds, Fill, Center, Restore). Defaults stay ⌃⌥ with the arrows, Return and Z; the rest start unassigned. Delete clears a shortcut, Escape cancels, Reset to Defaults restores them. Changes apply at once and the menu bar's Tile Front Window shows the new keys.
 - Shortcuts need ⌘, ⌃ or ⌥ (F-keys excepted), can't use Paneflo's own keys, and move from another action rather than doubling up. System chords such as ⌘Q warn instead of blocking.
 - Shortcuts follow the physical key and are shown with the current keyboard layout's character.

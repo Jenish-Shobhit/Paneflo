@@ -27,6 +27,10 @@ Run this on a release build installed in `/Applications`, signed with the Panefl
 - [ ] Complementary halves form a pair; side-by-side card; opening either raises both; ⌘A / ⌥Return opens alone.
 - [ ] Replacing a member, swapping, Fill, Unpair, and one undo restoring everything.
 - [ ] Full-screen window or Accessibility off: a clear note, no crash.
+- [ ] Drag a window by its title bar to the top edge (and into the menu bar), the left and right edges and each corner: the outline matches the landing; release tiles; moving away hides the outline; releasing elsewhere does nothing. The bottom edge does nothing.
+- [ ] Drag a tiled window away: it gets its previous size under the pointer. Resizing from any edge, selecting text and dragging a file never show an outline.
+- [ ] Two displays: the shared edge never arms; the outer edges of both do. Display change mid-drag hides the outline.
+- [ ] With macOS's own edge tiling on, Settings › Tiling says so; toggling the setting off stops snapping at once; Reduce Motion and Increase Contrast change the outline.
 
 ## Overview
 

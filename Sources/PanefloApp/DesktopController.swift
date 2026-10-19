@@ -446,6 +446,14 @@ final class DesktopController: NSObject, SurfaceHost {
                               notResizable: { [weak self] frame in self?.feedback.show("This window can’t be resized, so it was moved", near: frame) })
     }
 
+    /// A window dropped on a screen edge or corner: tiled on the display it was dropped on, through the one tiling path
+    /// (pairs, undo and the restore size all follow). Never while a surface is up.
+    func snapDraggedWindow(_ id: WindowIdentity, zone: LayoutZone, display: Int) {
+        guard !isVisible else { return }
+        RuntimeDiagnostics.mark("tile drag zone=\(zone.rawValue) display=\(display)")
+        pairs.tile(id, zone: zone, service: service, snapAssist: false, display: display)
+    }
+
     /// Why an arrangement did not happen, where the user is looking: inline on a visible surface, else the HUD.
     private func arrangementFailed(_ message: String, window id: WindowIdentity?) {
         RuntimeDiagnostics.mark("tile failure shown surface=\(visibleSurface != nil)")

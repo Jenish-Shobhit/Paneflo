@@ -47,6 +47,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The user asked for previews in this process, so re-probing Screen Recording is expected.
     private var previewPermissionRequested = false
     private var desktop: DesktopController?
+    /// Drag-to-edge snapping; its mouse monitor runs only while the setting is on and Accessibility is granted.
+    private var dragSnap: DragSnapService?
 
     // Setup state for this process (see `SetupModel`).
     private var requestedPermissions: Set<SetupPermission> = []
@@ -68,6 +70,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let entry = DesktopEntryController(service: desktopService, settings: DesktopSettings())
         desktopEntry = entry
         controller.desktopEntry = entry
+        let snap = DragSnapService(service: windows, desktop: controller)
+        dragSnap = snap
+        windows.onTiled = { [weak snap] id, before, after in snap?.noteTiled(id, before: before, after: after) }
         desktopService.onChange = { [weak controller] in controller?.desktopStateChanged() }
         desktopService.start()
         controller.setDesktopSettings(showsEntry: entry.showsDesktopEntry, usesSystemShowDesktop: entry.usesSystemShowDesktop)
@@ -191,6 +196,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if setupPreferences.noteSetup(setupModel(permissions)) { RuntimeDiagnostics.mark("setup complete shortcuts=on") }
         startShortcutsIfReady(setupModel(permissions))
         startGestureIfReady(setupModel(permissions))
+        dragSnap?.update(accessibility: permissions.accessibility)
         startPreviewsIfReady(permissions)
         return publishSetup(permissions)
     }
@@ -655,9 +661,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func openSettings() { showSettings(pane: nil) }
     @objc private func showAbout() { showSettings(pane: .about) }
     private func showSettings(pane: SettingsPane?) { reconcile(); desktop?.showPreferences(pane: pane) }
-    @objc private func quit() { gestures.stop(); shortcuts.stop(); capture.stop(); desktop?.dismiss(); NSApp.terminate(nil) }
+    @objc private func quit() { gestures.stop(); shortcuts.stop(); capture.stop(); dragSnap?.stop(); desktop?.dismiss(); NSApp.terminate(nil) }
     func applicationWillTerminate(_ notification: Notification) {
-        gestures.stop(); shortcuts.stop(); capture.stop()
+        gestures.stop(); shortcuts.stop(); capture.stop(); dragSnap?.stop()
         // Never leave apps hidden by a Desktop session behind when Paneflo quits. One restore path: the persisted
         // journal, which the next launch also reads after a crash.
         StartupRecovery.terminate(desktop: desktopService, defaults: preferences)
