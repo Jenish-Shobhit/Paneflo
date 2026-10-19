@@ -231,6 +231,20 @@ struct TilingShortcutsTests {
         #expect(ShortcutChordFormat.spoken(chord(6, .command), layoutLabel: "z") == "Command Z")
     }
 
+    /// The menu bar's Tile Front Window shows the same chord Settings does: every key Settings names without the keyboard
+    /// layout (Escape, arrows, F-keys, ...) has a menu key equivalent, so ⌥⎋ is not shown in Settings and missing from
+    /// the menu.
+    @Test func everyFixedKeyHasAMenuKeyEquivalent() {
+        for keyCode in UInt16(0)...UInt16(127) where ShortcutChordFormat.fixedKey(keyCode) != nil {
+            #expect(ShortcutChordFormat.menuKeyEquivalent(keyCode) != nil, "key \(keyCode)")
+        }
+        #expect(ShortcutChordFormat.menuKeyEquivalent(53) == "\u{1b}")
+        #expect(ShortcutChordFormat.menuKeyEquivalent(123) == "\u{f702}")
+        #expect(ShortcutChordFormat.menuKeyEquivalent(122) == "\u{f704}", "F1")
+        #expect(ShortcutChordFormat.menuKeyEquivalent(90) == "\u{f717}", "F20")
+        #expect(ShortcutChordFormat.menuKeyEquivalent(6) == nil, "Z: the layout's character")
+    }
+
     // MARK: Routing
 
     @Test func routingUsesTheKeymapTableAndPausesForRecording() {

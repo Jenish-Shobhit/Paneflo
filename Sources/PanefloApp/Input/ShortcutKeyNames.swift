@@ -58,32 +58,10 @@ enum ShortcutKeyNames {
         if chord.modifiers.contains(.shift) { mask.insert(.shift) }
         if chord.modifiers.contains(.option) { mask.insert(.option) }
         if chord.modifiers.contains(.control) { mask.insert(.control) }
-        func function(_ key: Int) -> String { String(UnicodeScalar(UInt32(key))!) }
-        let key: String
-        switch chord.keyCode {
-        case 123: key = function(NSLeftArrowFunctionKey)
-        case 124: key = function(NSRightArrowFunctionKey)
-        case 125: key = function(NSDownArrowFunctionKey)
-        case 126: key = function(NSUpArrowFunctionKey)
-        case 36: key = "\r"
-        case 76: key = "\u{3}"
-        case 48: key = "\t"
-        case 49: key = " "
-        case 51: key = "\u{8}"
-        case 117: key = function(NSDeleteFunctionKey)
-        case 115: key = function(NSHomeFunctionKey)
-        case 119: key = function(NSEndFunctionKey)
-        case 116: key = function(NSPageUpFunctionKey)
-        case 121: key = function(NSPageDownFunctionKey)
-        default:
-            if let number = ShortcutChordFormat.functionKeyNumber(chord.keyCode) {
-                key = function(NSF1FunctionKey + number - 1)
-            } else if let character = layoutCharacter(for: chord.keyCode) {
-                key = character.lowercased()
-            } else {
-                return nil
-            }
-        }
+        // Keys Settings names without the layout (Escape, arrows, F-keys, ...) have a fixed equivalent; the rest show the
+        // layout's character, as Settings does.
+        guard let key = ShortcutChordFormat.menuKeyEquivalent(chord.keyCode) ?? layoutCharacter(for: chord.keyCode)?.lowercased()
+        else { return nil }
         return (key, mask)
     }
 }

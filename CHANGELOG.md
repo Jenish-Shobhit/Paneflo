@@ -8,6 +8,7 @@ All notable changes to Paneflo are listed here. Versions follow [Semantic Versio
 
 - Tiling shortcuts recorded on Home, End, Page Up, Page Down, Forward Delete or Enter now work; the keyboard's Fn flag on those keys no longer stops them matching.
 - A tiling shortcut pressed while the switcher or Overview is open (⌃⌥↑ for Top Half, a quarter, a third, Center) now marks the card with that arrangement; it used to say "Fill screen", to VoiceOver too.
+- The menu bar's Tile Front Window shows a shortcut that uses Escape (such as ⌥⎋) instead of leaving it out.
 
 ## 1.2.0 — 2026-10-19
 

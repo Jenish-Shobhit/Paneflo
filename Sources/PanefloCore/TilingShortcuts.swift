@@ -313,6 +313,33 @@ public enum ShortcutChordFormat {
         return nil
     }
 
+    /// An `NSMenuItem` key equivalent for a key that doesn't depend on the layout (the AppKit function-key characters
+    /// for arrows, F-keys and the navigation keys), or nil when the layout's character names the key.
+    public static func menuKeyEquivalent(_ keyCode: UInt16) -> String? {
+        let character: UInt32
+        switch keyCode {
+        case 36: character = 0x0D // Return
+        case 76: character = 0x03 // Enter
+        case 48: character = 0x09 // Tab
+        case 49: character = 0x20 // Space
+        case 51: character = 0x08 // Delete
+        case 53: character = 0x1B // Escape
+        case 123: character = 0xF702 // NSLeftArrowFunctionKey
+        case 124: character = 0xF703
+        case 125: character = 0xF701
+        case 126: character = 0xF700
+        case 117: character = 0xF728 // NSDeleteFunctionKey (forward delete)
+        case 115: character = 0xF729 // NSHomeFunctionKey
+        case 119: character = 0xF72B // NSEndFunctionKey
+        case 116: character = 0xF72C // NSPageUpFunctionKey
+        case 121: character = 0xF72D // NSPageDownFunctionKey
+        default:
+            guard let number = functionNumbers[keyCode] else { return nil }
+            character = 0xF704 + UInt32(number - 1) // NSF1FunctionKey ...
+        }
+        return UnicodeScalar(character).map { String(Character($0)) }
+    }
+
     /// `layoutLabel` is the current keyboard layout's character for the key, when it has one.
     public static func keyLabel(_ keyCode: UInt16, layoutLabel: String? = nil) -> (glyph: String, spoken: String) {
         if let key = fixedKey(keyCode) { return key }
