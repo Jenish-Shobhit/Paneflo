@@ -18,7 +18,11 @@ final class DragSnapService {
     private var tracker = SnapDragTracker()
     private var monitor: Any?
     private var releaseCheck: Timer?
+    /// Samples the pressed window on time while it has not been seen moving (`SnapDragTracker.awaitsMovement`).
+    private var sampleTimer: Timer?
     private var observers: [NSObjectProtocol] = []
+    private var workspaceObservers: [NSObjectProtocol] = []
+    private var distributedObservers: [NSObjectProtocol] = []
     /// Displays in `WindowService.displayAreas()` order, and the primary display's height; nil after a display change.
     private var displayCache: (areas: [DisplayArea], primaryHeight: Double)?
     private var wanted = SurfacePreferences(defaults: .standard).dragToSnap
@@ -48,12 +52,28 @@ final class DragSnapService {
                 self?.cancel()
             }
         })
+        // Lock, display or system sleep and a session switch end the drag: the release that follows is not seen (the
+        // release check would infer it after unlock and snap a window the user no longer meant to move).
+        let workspace = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.screensDidSleepNotification, NSWorkspace.willSleepNotification,
+                     NSWorkspace.sessionDidResignActiveNotification] {
+            workspaceObservers.append(workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.cancel() }
+            })
+        }
+        distributedObservers.append(DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.cancel() }
+        })
     }
 
     isolated deinit {
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        for observer in workspaceObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
+        for observer in distributedObservers { DistributedNotificationCenter.default().removeObserver(observer) }
         if let monitor { NSEvent.removeMonitor(monitor) }
         releaseCheck?.invalidate()
+        sampleTimer?.invalidate()
     }
 
     /// The latest Accessibility reading (from the app's permission reconcile, never from the input path).
@@ -78,9 +98,13 @@ final class DragSnapService {
         let active = wanted && accessibility && !RuntimeDiagnostics.benchNoInput
         if active, monitor == nil {
             monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { [weak self] event in
-                // Global monitors run on the main thread; the event is only read.
+                // Global monitors run on the main thread; the event is only read. Its own location (screen
+                // coordinates, as it has no window) is where the button went down or the drag was, even when the
+                // monitor runs late and the cursor has moved on (a quick flick): `NSEvent.mouseLocation` would be
+                // the cursor now, and a press read there can miss the title bar and ignore the whole drag.
                 let type = event.type
-                MainActor.assumeIsolated { self?.handle(type) }
+                let location = event.locationInWindow
+                MainActor.assumeIsolated { self?.handle(type, at: location) }
             }
             RuntimeDiagnostics.mark("dragSnap monitor=on")
         } else if !active, let monitor {
@@ -93,9 +117,8 @@ final class DragSnapService {
 
     // MARK: Input (main thread, arithmetic only)
 
-    private func handle(_ type: NSEvent.EventType) {
+    private func handle(_ type: NSEvent.EventType, at location: NSPoint) {
         let displays = currentDisplays()
-        let location = NSEvent.mouseLocation
         let point = SnapPoint(x: location.x, y: displays.primaryHeight - location.y)
         if desktop?.isVisible == true { cancel(); return }
         switch type {
@@ -130,6 +153,31 @@ final class DragSnapService {
             case let .snap(number, target): snap(number, to: target)
             }
         }
+        updateSampleTimer()
+    }
+
+    /// A flick can park the pointer at an edge before the window was seen to follow, and a parked pointer sends no
+    /// drag events: while the decision is open the window is sampled on a timer too.
+    private func updateSampleTimer() {
+        guard tracker.awaitsMovement else {
+            sampleTimer?.invalidate()
+            sampleTimer = nil
+            return
+        }
+        guard sampleTimer == nil else { return }
+        let timer = Timer(timeInterval: tracker.settings.sampleInterval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                guard NSEvent.pressedMouseButtons & 1 != 0 else {
+                    self.sampleTimer?.invalidate()
+                    self.sampleTimer = nil
+                    return
+                }
+                self.apply(self.tracker.tick(now: ProcessInfo.processInfo.systemUptime))
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        sampleTimer = timer
     }
 
     // MARK: Window-server reads (background queue)
