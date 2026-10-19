@@ -3,7 +3,7 @@
 #
 #   scripts/bench.sh build [<git-ref>] [--app]    bench tools (and with --app a Paneflo.app) of this tree, or of <ref>
 #                                                 built in a temporary worktree under .build/bench-worktrees
-#   scripts/bench.sh run [--runs N] [--cards 20,60] [--only surface|tile|capture]
+#   scripts/bench.sh run [--runs N] [--cards 20,60] [--only surface|tile|capture|snap]
 #   scripts/bench.sh ab <refA> <refB> [--runs N] [--cards ..] [--only ..]   interleaved, side by side with deltas
 #   scripts/bench.sh launch [--runs N]            launch -> menu ready, idle footprint (bench copy, no input taps)
 #   scripts/bench.sh report <file.jsonl>...       the tables again
@@ -112,6 +112,8 @@ build_one() {
   sh "$ROOT/Tools/build-tile-bench.sh" "$out/tile" --source "$src" >&2 || say "tile bench build failed for $name"
   say "building capture bench ($name)"
   build_capture "$out" "$src" || say "capture bench build failed for $name"
+  say "building snap bench ($name)"
+  sh "$ROOT/Tools/build-snap-bench.sh" "$out/snap" --source "$src" >&2 || say "snap bench build failed for $name"
   if [[ "$with_app" == 1 ]]; then
     say "building Paneflo.app ($name)"
     if [[ -n "$ref" ]]; then (cd "$src" && scripts/build.sh >&2) && ditto "$src/build/Paneflo.app" "$out/Paneflo.app" >&2
@@ -174,7 +176,14 @@ capture_once() {
   "$bin" "$FIXTURE_APP/Contents/MacOS/PanefloFixture" 6 > "$log" 2>&1 || status=$?
   if grep -q 'screenRecording=not-granted' "$log"; then skip "$build" capture "Screen Recording not granted to this terminal"; rm -f "$log"; return; fi
   if [[ "$status" != 0 ]]; then skip "$build" capture "capture-bench exit $status"; rm -f "$log"; return; fi
-  # "RESULT <section> key=value ..." : numeric values only; suffix Ms -> ms, MiB -> MiB, else count
+  emit_results "$build" capture "$run" "$log"
+  rm -f "$log"
+}
+
+# emit_results <build> <bench> <run> <log>
+# "RESULT <section> key=value ..." : numeric values only; suffix Ms -> ms, MiB -> MiB, else count
+emit_results() {
+  local build=$1 bench=$2 run=$3 log=$4
   grep '^RESULT ' "$log" | while IFS= read -r line; do
     local section; section=$(echo "$line" | awk '{print $2}')
     case "$section" in host) continue ;; esac
@@ -183,19 +192,30 @@ capture_once() {
       local k=${kv%%=*} v=${kv#*=} unit=count
       [[ "$v" =~ ^-?[0-9]+(\.[0-9]+)?$ ]] || continue
       case "$k" in *Ms) unit=ms ;; *MiB) unit=MiB ;; esac
-      emit "$build" capture "$section.$k" "$unit" "$run" "$v"
+      emit "$build" "$bench" "$section.$k" "$unit" "$run" "$v"
     done
   done
+}
+
+# snap_once <build> <run>
+snap_once() {
+  local build=$1 run=$2 bin="$TOOLS_DIR/$build/snap/snap-bench" log status=0
+  [[ -x "$bin" ]] || { skip "$build" snap "not built"; return; }
+  log=$(mktemp "${TMPDIR:-/tmp}/paneflo-snap.XXXXXX")
+  "$bin" "$FIXTURE_APP/Contents/MacOS/PanefloFixture" > "$log" 2>&1 || status=$?
+  if [[ "$status" != 0 ]]; then skip "$build" snap "snap-bench exit $status"; rm -f "$log"; return; fi
+  emit_results "$build" snap "$run" "$log"
   rm -f "$log"
 }
 
 # one_block <build> <run> : one iteration of every selected bench
-ONLY="surface,tile,capture"; CARDS="20,60"; RUNS=5
+ONLY="surface,tile,capture,snap"; CARDS="20,60"; RUNS=5
 one_block() {
   local build=$1 run=$2 c
   if [[ ",$ONLY," == *,surface,* ]]; then for c in ${CARDS//,/ }; do surface_once "$build" "$c" "$run"; done; fi
   if [[ ",$ONLY," == *,tile,* ]]; then tile_once "$build" "$run"; fi
   if [[ ",$ONLY," == *,capture,* ]]; then capture_once "$build" "$run"; fi
+  if [[ ",$ONLY," == *,snap,* ]]; then snap_once "$build" "$run"; fi
 }
 
 parse_opts() {

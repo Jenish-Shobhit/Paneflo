@@ -49,6 +49,8 @@ if grep -rqs "func nativeCheckReplaceOutsideClickMonitor" "$APP_SOURCES"; then F
 if grep -rqs "protocol PreviewProvider" "$APP_SOURCES"; then FLAGS="$FLAGS -D SURFACE_BENCH_PREVIEWS"; fi
 if grep -rqs "protocol DesktopEntryProvider" "$APP_SOURCES"; then FLAGS="$FLAGS -D SURFACE_BENCH_DESKTOP"; fi
 if grep -rqs "static var usesGlass" "$APP_SOURCES"; then FLAGS="$FLAGS -D SURFACE_BENCH_GLASS"; fi
+if [ -f "$APP_SOURCES/Surfaces/SnapPreviewPanel.swift" ]; then FLAGS="$FLAGS -D SURFACE_BENCH_SNAP"; fi
+if grep -qs "func prepare()" "$APP_SOURCES/Surfaces/SnapPreviewPanel.swift"; then FLAGS="$FLAGS -D SURFACE_BENCH_SNAP_PREPARE"; fi
 
 xcrun swiftc -target "$TARGET_TRIPLE" -swift-version 6 -parse-as-library -O \
     -module-cache-path "$OUTPUT_DIR/module-cache" -emit-library -emit-module \

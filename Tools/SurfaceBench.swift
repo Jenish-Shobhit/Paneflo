@@ -218,11 +218,48 @@ struct SurfaceBench {
             if !desktop.isVisible { recorder.add("overview.escape.call", sample.call) }
             await settle(200)
         }
+        #if SURFACE_BENCH_SNAP
+        await snapOutline(recorder: recorder)
+        #endif
+
         let final = BusyProbe(); final.start()
         await settle(1000)
         recorder.add("hidden.idle.busy1s", final.stop())
         recorder.add("footprint.afterSurfaces.MiB", footprintMiB())
     }
+
+    #if SURFACE_BENCH_SNAP
+    /// The drag-to-edge outline (`SnapPreviewPanel`), driven directly: no drag, no other app's window. The first show
+    /// includes whatever the build does before it (creating the panel, unless it was prepared earlier); `prepare` is
+    /// timed separately when the build has it, as the app calls it off the drag path.
+    @MainActor static func snapOutline(recorder: Recorder) async {
+        guard let screen = NSScreen.screens.first else { return }
+        let visible = screen.visibleFrame
+        let top = screen.frame.height - visible.maxY
+        let left = WindowRect(x: visible.minX, y: top, width: visible.width / 2, height: visible.height)
+        let right = WindowRect(x: visible.minX + visible.width / 2, y: top, width: visible.width / 2, height: visible.height)
+        let outline = SnapPreviewPanel()
+        #if SURFACE_BENCH_SNAP_PREPARE
+        let start = now(); outline.prepare(); recorder.add("snap.prepare.call", now() - start)
+        await settle(200)
+        #endif
+        var sample = await timed { outline.show(left) }
+        recorder.add("snap.firstShow.call", sample.call); recorder.add("snap.firstShow.turn", sample.turn)
+        await settle(250)
+        outline.hide()
+        await settle(150)
+        for round in 0..<6 {
+            sample = await timed { outline.show(round % 2 == 0 ? right : left) }
+            recorder.add("snap.show.call", sample.call); recorder.add("snap.show.turn", sample.turn)
+            await settle(200)
+            sample = await timed { outline.show(round % 2 == 0 ? left : right) }
+            recorder.add("snap.zoneChange.turn", sample.turn)
+            await settle(200)
+            outline.hide()
+            await settle(150)
+        }
+    }
+    #endif
 
     /// Physical footprint of this bench process (MiB; reported in the "ms" column). It is the bench process, not the app.
     static func footprintMiB() -> Double {
