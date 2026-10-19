@@ -33,6 +33,8 @@ set -- "$APP_SOURCES/RuntimeDiagnostics.swift" "$APP_SOURCES/Capture/CaptureCont
 # Older trees (--source) still carry the removed developer sample views, which their DesktopController needs.
 if [ -f "$APP_SOURCES/SampleViews.swift" ]; then set -- "$@" "$APP_SOURCES/SampleViews.swift"; fi
 if [ -f "$APP_SOURCES/TilePairController.swift" ]; then set -- "$@" "$APP_SOURCES/TilePairController.swift"; fi
+# Settings panes name shortcut keys through ShortcutKeyNames (Input/) since 1.2.
+if [ -f "$APP_SOURCES/Input/ShortcutKeyNames.swift" ]; then set -- "$@" "$APP_SOURCES/Input/ShortcutKeyNames.swift"; fi
 for directory in Design Settings Settings/Panes Setup; do
     if [ -d "$APP_SOURCES/$directory" ]; then
         for file in "$APP_SOURCES/$directory"/*.swift; do set -- "$@" "$file"; done
