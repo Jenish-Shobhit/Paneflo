@@ -84,4 +84,16 @@ struct LayoutEngineTests {
         #expect(valid.changes[0].before == before)
         #expect(valid.changes[0].after.x == 24)
     }
+
+    /// A card's arrangement badge (and its VoiceOver label) names the zone that was tiled: ⌃⌥↑ (Top Half) with the
+    /// Overview open is not "Fill screen".
+    @Test
+    func everyZoneHasItsOwnFeedbackTitleAndSymbol() {
+        #expect(Set(LayoutZone.allCases.map(\.feedbackTitle)).count == LayoutZone.allCases.count)
+        #expect(Set(LayoutZone.allCases.map(\.feedbackSymbol)).count == LayoutZone.allCases.count)
+        #expect(LayoutZone.topHalf.feedbackTitle == "Top half")
+        #expect(LayoutZone.maximize.feedbackTitle == "Fill screen")
+        for zone in LayoutZone.allCases { #expect(LayoutZone(feedbackTitle: zone.feedbackTitle) == zone) }
+        #expect(LayoutZone(feedbackTitle: "Somewhere") == nil)
+    }
 }

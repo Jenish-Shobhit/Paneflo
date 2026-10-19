@@ -41,6 +41,52 @@ public enum LayoutZone: String, CaseIterable, Sendable {
     case center, maximize
 }
 
+public extension LayoutZone {
+    /// The arrangement a surface card shows after a tile (its accessibility label says it too).
+    var feedbackTitle: String {
+        switch self {
+        case .leftHalf: "Left half"
+        case .rightHalf: "Right half"
+        case .topHalf: "Top half"
+        case .bottomHalf: "Bottom half"
+        case .firstThird: "First third"
+        case .middleThird: "Middle third"
+        case .lastThird: "Last third"
+        case .topLeftQuarter: "Top left quarter"
+        case .topRightQuarter: "Top right quarter"
+        case .bottomLeftQuarter: "Bottom left quarter"
+        case .bottomRightQuarter: "Bottom right quarter"
+        case .center: "Centered"
+        case .maximize: "Fill screen"
+        }
+    }
+
+    /// The SF Symbol for `feedbackTitle`.
+    var feedbackSymbol: String {
+        switch self {
+        case .leftHalf: "rectangle.lefthalf.filled"
+        case .rightHalf: "rectangle.righthalf.filled"
+        case .topHalf: "rectangle.tophalf.filled"
+        case .bottomHalf: "rectangle.bottomhalf.filled"
+        case .firstThird: "rectangle.leadingthird.inset.filled"
+        case .middleThird: "rectangle.center.inset.filled"
+        case .lastThird: "rectangle.trailingthird.inset.filled"
+        case .topLeftQuarter: "rectangle.inset.topleft.filled"
+        case .topRightQuarter: "rectangle.inset.topright.filled"
+        case .bottomLeftQuarter: "rectangle.inset.bottomleft.filled"
+        case .bottomRightQuarter: "rectangle.inset.bottomright.filled"
+        case .center: "rectangle.inset.filled"
+        case .maximize: "rectangle.fill"
+        }
+    }
+
+    /// The zone a `feedbackTitle` names.
+    init?(feedbackTitle: String) {
+        guard let zone = Self.allCases.first(where: { $0.feedbackTitle == feedbackTitle }) else { return nil }
+        self = zone
+    }
+}
+
 public enum LayoutRejection: Equatable, Sendable {
     case invalidInput, insufficientSpace, minimumSize
 }

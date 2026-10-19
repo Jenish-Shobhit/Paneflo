@@ -425,7 +425,7 @@ final class DesktopController: NSObject, SurfaceHost {
         latestPlacement &+= 1
         let generation = latestPlacement
         let presentedGeneration = presentationGeneration
-        surface.setLayoutBadge(zone == .leftHalf ? "Left half" : zone == .rightHalf ? "Right half" : "Fill screen", for: id)
+        surface.setLayoutBadge(zone.feedbackTitle, for: id)
         // Snap assist: the second half of a pair goes on the first half's display.
         RuntimeDiagnostics.mark("tile chord zone=\(zone.rawValue) surface=\(surface === overview ? "overview" : "switcher")")
         pairs.tile(id, zone: zone, service: service, snapAssist: preferences.snapAssist) { [weak self, weak surface] outcome, _ in

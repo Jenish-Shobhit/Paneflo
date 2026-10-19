@@ -66,7 +66,8 @@ final class CardView: NSButton {
     var icon: NSImage? {
         didSet { guard oldValue !== icon else { return }; withoutAnimation { applyIcon() } }
     }
-    /// Arrangement feedback ("Left half", "Right half", "Fill screen") shown as a corner glyph for the session.
+    /// Arrangement feedback (`LayoutZone.feedbackTitle`: "Left half", "Fill screen", ...) shown as a corner glyph for
+    /// the session.
     var layoutBadge: String? {
         didSet { guard oldValue != layoutBadge else { return }; updateAccessibilityLabel(); withoutAnimation { applyCorner() } }
     }
@@ -516,9 +517,7 @@ final class CardView: NSButton {
             return
         }
         let symbol: String? = switch layoutBadge {
-        case "Left half"?: "rectangle.lefthalf.filled"
-        case "Right half"?: "rectangle.righthalf.filled"
-        case .some: "rectangle.fill"
+        case let title?: LayoutZone(feedbackTitle: title)?.feedbackSymbol ?? "rectangle.fill"
         case nil: isPinned && record != nil ? "pin.fill" : nil
         }
         chrome.corner.show(symbol, fill: palette.accent, tint: palette.chipGlyph, scale: scale)
