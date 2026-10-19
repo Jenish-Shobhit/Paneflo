@@ -25,7 +25,7 @@ final class SnapPreviewPanel {
         applyStyle(PanefloStyle.Accessibility.current)
         let duration = PanefloStyle.Motion.duration(0.12)
         if panel.isVisible {
-            guard duration > 0 else { panel.setFrame(rect, display: true); return }
+            guard duration > 0 else { setFrameNow(panel, rect); return }
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = duration
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
@@ -33,13 +33,22 @@ final class SnapPreviewPanel {
             }
             return
         }
-        panel.setFrame(rect, display: false)
+        setFrameNow(panel, rect)
         panel.alphaValue = duration > 0 ? 0 : 1
         panel.orderFrontRegardless()
         guard duration > 0 else { return }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = duration
             panel.animator().alphaValue = 1
+        }
+    }
+
+    /// Sets the frame at once and ends a glide still running towards an earlier zone: a plain `setFrame` leaves that
+    /// animation going, so an outline hidden and shown again within it would finish on the old zone.
+    private func setFrameNow(_ panel: NSPanel, _ rect: NSRect) {
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            panel.animator().setFrame(rect, display: false)
         }
     }
 
