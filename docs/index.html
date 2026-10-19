@@ -4,552 +4,1479 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<title>Paneflo: every window, in its place</title>
-<meta name="description" content="Paneflo is a free, open-source menu bar app for macOS: a window switcher with previews, keyboard tiling with tiled pairs, and an organized Overview you open with a shortcut or an optional three-finger swipe.">
+<title>Paneflo — Every window. In its place.</title>
+<meta name="description" content="Paneflo is a free, open-source menu bar app for macOS: a ⌘Tab that switches between individual windows, keyboard tiling with tile pairs, and an Overview where every window keeps its place.">
 <link rel="canonical" href="https://jenish-shobhit.github.io/Paneflo/">
 <link rel="icon" type="image/png" href="favicon.png">
-<link rel="apple-touch-icon" href="icon.png">
-<meta name="theme-color" content="#f3f6f5" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0e1514" media="(prefers-color-scheme: dark)">
+<link rel="apple-touch-icon" href="assets/icon-256.png">
+<meta name="theme-color" content="#eef5f3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#061412" media="(prefers-color-scheme: dark)">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Paneflo">
 <meta property="og:url" content="https://jenish-shobhit.github.io/Paneflo/">
-<meta property="og:title" content="Paneflo for macOS">
-<meta property="og:description" content="Every window. In its place. A window switcher, keyboard tiling and an organized Overview. Free and open source.">
-<meta property="og:image" content="https://jenish-shobhit.github.io/Paneflo/icon.png">
-<meta property="og:image:alt" content="The Paneflo app icon: three tiled glass panes on teal, one in coral.">
-<meta name="twitter:card" content="summary">
+<meta property="og:title" content="Paneflo for macOS — Every window. In its place.">
+<meta property="og:description" content="A ⌘Tab for individual windows, keyboard tiling with tile pairs, and an Overview where nothing moves unless you move it. Free and open source.">
+<meta property="og:image" content="https://jenish-shobhit.github.io/Paneflo/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The Paneflo icon beside the words Every window. In its place., over a teal and coral desktop with a glass window switcher.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Paneflo for macOS — Every window. In its place.">
+<meta name="twitter:description" content="A ⌘Tab for individual windows, keyboard tiling with tile pairs, and an organized Overview. Free and open source.">
+<meta name="twitter:image" content="https://jenish-shobhit.github.io/Paneflo/og.png">
 <style>
-  :root {
-    --ink: #14211f;
-    --ink-2: #2b3d3a;
-    --muted: #4a5d5a;
-    --paper: #f3f6f5;
-    --paper-alt: #e9f0ee;
-    --surface: #ffffff;
-    --line: #d5dedc;
-    --line-strong: #bccac7;
-    --tint: #e3efec;
-    --accent: #0b6b61;
-    --accent-ink: #0b6b61;
-    --button: #0b6b61;
-    --button-ink: #ffffff;
-    --coral: #e2603f;
-    --coral-soft: #fbe3db;
-    --desk: #dfe9e6;
-    --nav-bg: rgba(243, 246, 245, 0.78);
-    --win-shadow: 0 1px 2px rgba(20, 33, 31, 0.14), 0 10px 26px rgba(20, 33, 31, 0.16);
-    --glow-a: rgba(11, 122, 110, 0.16);
-    --glow-b: rgba(226, 96, 63, 0.12);
-    --wide: 1040px;
-    --gutter: max(16px, env(safe-area-inset-left));
-    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, Roboto, "Helvetica Neue", sans-serif;
-    --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", system-ui, sans-serif;
-    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+:root {
+  --paper: #eef5f3;
+  --paper-2: #e3eeeb;
+  --raised: #ffffff;
+  --ink: #062522;
+  --ink-2: #24413d;
+  --muted: #4a625e;
+  --line: rgba(6, 37, 34, .11);
+  --line-2: rgba(6, 37, 34, .2);
+  --teal: #0c7a6e;
+  --teal-hi: #0a6a60;
+  --on-teal: #ffffff;
+  --aqua: #5fd3c0;
+  --coral: #ef6a4a;
+  --coral-ink: #b4442b;
+  --halo-a: rgba(31, 170, 151, .32);
+  --halo-b: rgba(239, 106, 74, .22);
+  --nav: rgba(238, 245, 243, .72);
+  --key-top: #ffffff;
+  --key-bot: #e7efed;
+  --key-edge: rgba(6, 37, 34, .18);
+  --key-ink: #14302c;
+  /* wallpaper */
+  --sky-1: #a8ddd2; --sky-2: #f7d3c2; --sun-1: #ffb497; --sun-2: rgba(255, 180, 151, 0);
+  --d1: #8fd7c8; --d2: #36a493; --d3: #0f6f64; --d4: #0a4f48; --rib: #f58a6b;
+  --glass: rgba(255, 255, 255, .3);
+  --glass-hi: rgba(255, 255, 255, .42);
+  --glass-lo: rgba(255, 255, 255, .1);
+  --glass-edge: rgba(255, 255, 255, .6);
+  --glass-shadow: 0 1px 0 rgba(255, 255, 255, .85) inset, 0 -1px 0 rgba(255, 255, 255, .25) inset, 0 30px 60px -18px rgba(4, 48, 42, .5), 0 2px 8px rgba(4, 48, 42, .14);
+  --card-ink: #0d2b27;
+  --card-sub: rgba(13, 43, 39, .66);
+  --win-bar: #f4f7f6;
+  --win-line: rgba(0, 0, 0, .1);
+  --win-shadow: 0 1px 1px rgba(0, 0, 0, .08), 0 18px 40px -10px rgba(3, 40, 35, .45);
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Segoe UI", system-ui, Roboto, sans-serif;
+  --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --wide: 1200px;
+  --text: 1100px;
+  --gut: max(16px, env(safe-area-inset-left));
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #061412; --paper-2: #0a1d1a; --raised: #0f2421;
+    --ink: #e6f3f0; --ink-2: #c1d7d2; --muted: #93aea8;
+    --line: rgba(230, 243, 240, .1); --line-2: rgba(230, 243, 240, .2);
+    --teal: #3cc1ad; --teal-hi: #5fd3c0; --on-teal: #031d19;
+    --coral: #ff7d5c; --coral-ink: #ff9e84;
+    --halo-a: rgba(41, 190, 168, .26); --halo-b: rgba(255, 125, 92, .16);
+    --nav: rgba(6, 20, 18, .7);
+    --key-top: #24403b; --key-bot: #172d29; --key-edge: rgba(0, 0, 0, .55); --key-ink: #e6f3f0;
+    --sky-1: #041a18; --sky-2: #17403b; --sun-1: #e0684a; --sun-2: rgba(224, 104, 74, 0);
+    --d1: #1d6b60; --d2: #13534a; --d3: #0b3c36; --d4: #062a26; --rib: #c9583d;
+    --pv-filter: brightness(.86) saturate(1.05); --glass: rgba(20, 44, 40, .42); --glass-hi: rgba(40, 70, 66, .5); --glass-lo: rgba(10, 28, 26, .32); --glass-edge: rgba(255, 255, 255, .16);
+    --glass-shadow: 0 1px 0 rgba(255, 255, 255, .12) inset, 0 24px 60px -12px rgba(0, 0, 0, .6), 0 2px 8px rgba(0, 0, 0, .3);
+    --card-ink: #eef7f5; --card-sub: rgba(238, 247, 245, .66);
+    --win-bar: #26302f; --win-line: rgba(255, 255, 255, .08);
+    --win-shadow: 0 1px 1px rgba(0, 0, 0, .3), 0 18px 40px -10px rgba(0, 0, 0, .7);
+    color-scheme: dark;
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --ink: #e6f0ee;
-      --ink-2: #cadbd8;
-      --muted: #9db3af;
-      --paper: #0e1514;
-      --paper-alt: #121b1a;
-      --surface: #16201f;
-      --line: #2a3a38;
-      --line-strong: #3a4f4c;
-      --tint: #1b2d2a;
-      --accent: #4fd1bd;
-      --accent-ink: #5fdcc8;
-      --button: #2fb7a3;
-      --button-ink: #06201c;
-      --coral: #ff8a6b;
-      --coral-soft: #3a2119;
-      --desk: #101b19;
-      --nav-bg: rgba(14, 21, 20, 0.76);
-      --win-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 12px 30px rgba(0, 0, 0, 0.5);
-      --glow-a: rgba(47, 183, 163, 0.20);
-      --glow-b: rgba(255, 138, 107, 0.12);
-    }
-  }
+}
+:root[data-theme="dark"] {
+  --paper: #061412; --paper-2: #0a1d1a; --raised: #0f2421;
+  --ink: #e6f3f0; --ink-2: #c1d7d2; --muted: #93aea8;
+  --line: rgba(230, 243, 240, .1); --line-2: rgba(230, 243, 240, .2);
+  --teal: #3cc1ad; --teal-hi: #5fd3c0; --on-teal: #031d19;
+  --coral: #ff7d5c; --coral-ink: #ff9e84;
+  --halo-a: rgba(41, 190, 168, .26); --halo-b: rgba(255, 125, 92, .16);
+  --nav: rgba(6, 20, 18, .7);
+  --key-top: #24403b; --key-bot: #172d29; --key-edge: rgba(0, 0, 0, .55); --key-ink: #e6f3f0;
+  --sky-1: #041a18; --sky-2: #17403b; --sun-1: #e0684a; --sun-2: rgba(224, 104, 74, 0);
+  --d1: #1d6b60; --d2: #13534a; --d3: #0b3c36; --d4: #062a26; --rib: #c9583d;
+  --pv-filter: brightness(.86) saturate(1.05); --glass: rgba(20, 44, 40, .42); --glass-hi: rgba(40, 70, 66, .5); --glass-lo: rgba(10, 28, 26, .32); --glass-edge: rgba(255, 255, 255, .16);
+  --glass-shadow: 0 1px 0 rgba(255, 255, 255, .12) inset, 0 24px 60px -12px rgba(0, 0, 0, .6), 0 2px 8px rgba(0, 0, 0, .3);
+  --card-ink: #eef7f5; --card-sub: rgba(238, 247, 245, .66);
+  --win-bar: #26302f; --win-line: rgba(255, 255, 255, .08);
+  --win-shadow: 0 1px 1px rgba(0, 0, 0, .3), 0 18px 40px -10px rgba(0, 0, 0, .7);
+  color-scheme: dark;
+}
 
-  *, *::before, *::after { box-sizing: border-box; }
-  html { overflow-x: clip; -webkit-text-size-adjust: 100%; scroll-behavior: smooth; scroll-padding-top: 72px; }
-  body {
-    margin: 0; background: var(--paper); color: var(--ink);
-    font: 17px/1.55 var(--sans); letter-spacing: -0.01em;
-    -webkit-font-smoothing: antialiased; overflow-x: clip;
-  }
-  img, svg { max-width: 100%; }
-  a { color: var(--accent-ink); text-underline-offset: 0.18em; }
-  a:hover { text-decoration-thickness: 2px; }
-  :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
-  p { margin: 0; text-wrap: pretty; }
-  h1, h2, h3 { font-family: var(--display); margin: 0; text-wrap: balance; }
-  strong { font-weight: 600; }
-  code { font: 0.9em/1 var(--mono); background: var(--tint); padding: 0.14em 0.36em; border-radius: 5px; letter-spacing: 0; }
-  kbd {
-    display: inline-block; min-width: 1.9em; padding: 2px 7px; margin-right: 2px;
-    font: 600 14px/1.4 var(--sans); text-align: center; color: var(--ink);
-    background: var(--surface); border: 1px solid var(--line-strong); border-bottom-width: 2.5px; border-radius: 7px;
-  }
-  .wrap { width: 100%; max-width: calc(var(--wide) + 2 * var(--gutter)); margin-inline: auto; padding-inline: var(--gutter); }
-  .skip { position: absolute; left: 12px; top: -60px; z-index: 50; padding: 10px 16px; border-radius: 10px; background: var(--button); color: var(--button-ink); font-weight: 600; text-decoration: none; }
-  .skip:focus { top: 12px; }
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; scroll-behavior: smooth; scroll-padding-top: 72px; }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font: 17px/1.55 var(--sans); -webkit-font-smoothing: antialiased; overflow-x: hidden;
+}
+img, svg { display: block; }
+a { color: var(--teal); text-underline-offset: .18em; text-decoration-thickness: 1px; }
+a:hover { color: var(--teal-hi); }
+:focus-visible { outline: 3px solid var(--coral); outline-offset: 3px; border-radius: 6px; }
+h1, h2, h3 { font-family: var(--display); margin: 0; text-wrap: balance; }
+p { margin: 0; text-wrap: pretty; }
+.sr { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.skip { position: absolute; left: 12px; top: -60px; z-index: 100; background: var(--raised); color: var(--ink); padding: 10px 14px; border-radius: 10px; }
+.skip:focus { top: 10px; }
+.wrap { width: min(var(--wide), 100% - 2 * var(--gut)); margin-inline: auto; }
 
-  /* Navigation */
-  .nav { position: sticky; top: 0; z-index: 20; background: var(--nav-bg); -webkit-backdrop-filter: saturate(180%) blur(18px); backdrop-filter: saturate(180%) blur(18px); border-bottom: 1px solid transparent; transition: border-color 0.2s; }
-  .nav.scrolled { border-bottom-color: var(--line); }
-  .nav .wrap { display: flex; align-items: center; gap: 20px; height: 56px; }
-  .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 18px; color: var(--ink); text-decoration: none; margin-right: auto; }
-  .brand img { width: 28px; height: 28px; }
-  .nav a.link { color: var(--ink-2); text-decoration: none; font-size: 15px; }
-  .nav a.link:hover { color: var(--accent-ink); }
-  .nav .button { padding: 7px 14px; font-size: 14.5px; border-radius: 10px; box-shadow: none; }
+/* Keycaps */
+kbd {
+  display: inline-grid; place-items: center; min-width: 1.85em; height: 1.85em; padding: 0 .42em;
+  font: 600 .8em/1 var(--sans); color: var(--key-ink);
+  background: linear-gradient(var(--key-top), var(--key-bot));
+  border: 1px solid var(--key-edge); border-bottom-width: 2px; border-radius: .42em;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .5) inset, 0 1px 2px rgba(0, 0, 0, .08);
+  vertical-align: .08em; white-space: nowrap;
+}
+.keys { display: inline-flex; gap: .22em; align-items: center; vertical-align: middle; }
 
-  .button {
-    display: inline-flex; align-items: center; justify-content: center; gap: 10px;
-    padding: 13px 22px; border-radius: 12px; font-weight: 600; font-size: 17px; text-decoration: none;
-    background: var(--button); color: var(--button-ink);
-    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.2) inset, 0 6px 18px rgba(11, 107, 97, 0.28);
-  }
-  .button:hover { filter: brightness(1.08); text-decoration: none; }
-  .button svg { width: 18px; height: 18px; flex: none; }
-  .button.quiet { background: transparent; color: var(--accent-ink); box-shadow: inset 0 0 0 1.5px var(--line-strong); }
-  .button.quiet:hover { box-shadow: inset 0 0 0 1.5px var(--accent); filter: none; }
+/* Navigation */
+.nav {
+  position: sticky; top: 0; z-index: 50; background: var(--nav);
+  -webkit-backdrop-filter: saturate(1.6) blur(18px); backdrop-filter: saturate(1.6) blur(18px);
+  border-bottom: 1px solid transparent; transition: border-color .2s;
+}
+.nav.scrolled { border-bottom-color: var(--line); }
+.nav .wrap { display: flex; align-items: center; gap: 22px; height: 56px; }
+.brand { display: inline-flex; align-items: center; gap: 9px; font: 650 17px/1 var(--display); color: var(--ink); text-decoration: none; letter-spacing: -.01em; }
+.brand img { width: 28px; height: 28px; }
+.nav-links { display: flex; gap: 22px; margin-left: 12px; }
+.nav-links a { color: var(--ink-2); text-decoration: none; font-size: 14px; }
+.nav-links a:hover { color: var(--ink); }
+.nav-end { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.theme {
+  width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--line-2); background: transparent;
+  color: var(--ink-2); display: grid; place-items: center; cursor: pointer;
+}
+.theme:hover { color: var(--ink); background: var(--line); }
+.theme svg { width: 17px; height: 17px; }
+.theme .moon { display: none; }
+:root[data-theme="dark"] .theme .sun, :root[data-theme="dark"] .theme .moon { display: block; }
+:root[data-theme="dark"] .theme .sun { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme .sun { display: none; }
+  :root:not([data-theme="light"]) .theme .moon { display: block; }
+}
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 44px; padding: 0 20px;
+  border-radius: 999px; font: 600 16px/1 var(--sans); text-decoration: none; white-space: nowrap; cursor: pointer; border: 0;
+  transition: transform .15s ease, background-color .15s ease, box-shadow .15s ease;
+}
+.btn svg { width: 18px; height: 18px; flex: none; }
+.btn-primary { background: var(--teal); color: var(--on-teal); box-shadow: 0 1px 0 rgba(255, 255, 255, .25) inset, 0 10px 24px -8px var(--halo-a); }
+.btn-primary:hover { background: var(--teal-hi); color: var(--on-teal); }
+.btn-primary:active { transform: translateY(1px); }
+.btn-quiet { background: transparent; color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-2); }
+.btn-quiet:hover { color: var(--ink); background: var(--line); }
+.btn-sm { min-height: 36px; padding: 0 15px; font-size: 14px; }
 
-  /* Hero */
-  .hero-bg { background: radial-gradient(60rem 28rem at 12% -10%, var(--glow-a), transparent 70%), radial-gradient(40rem 24rem at 95% 10%, var(--glow-b), transparent 70%); }
-  .hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 48px; align-items: center; padding: 56px 0 40px; }
-  .hero .appicon { width: 88px; height: 88px; margin-bottom: 22px; filter: drop-shadow(0 8px 14px rgba(5, 40, 36, 0.28)); }
-  h1 { font-size: clamp(38px, 6vw, 64px); line-height: 1.02; letter-spacing: -0.03em; font-weight: 750; margin-bottom: 20px; }
-  h1 em { font-style: normal; color: var(--accent-ink); }
-  .lede { font-size: 19px; max-width: 31em; margin-bottom: 28px; color: var(--ink-2); }
-  .get { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
-  .meta { color: var(--muted); font-size: 15px; margin-top: 14px; max-width: 34em; }
+/* Hero */
+.hero { position: relative; padding: clamp(48px, 9vw, 104px) 0 0; isolation: isolate; overflow-x: clip; }
+.hero::before {
+  content: ""; position: absolute; z-index: -1; left: 50%; top: 46%; width: min(1500px, 140vw); height: 70%;
+  transform: translateX(-50%);
+  background:
+    radial-gradient(closest-side at 30% 55%, var(--halo-a), transparent),
+    radial-gradient(closest-side at 72% 60%, var(--halo-b), transparent);
+  filter: blur(30px);
+}
+.hero-head { display: grid; justify-items: center; text-align: center; gap: 0; }
+.hero-icon { width: clamp(96px, 12vw, 132px); height: auto; filter: drop-shadow(0 18px 30px rgba(4, 60, 52, .28)); }
+.hero h1 {
+  margin-top: 22px; font-size: clamp(46px, 8.4vw, 108px); line-height: .96; font-weight: 700; letter-spacing: -.045em;
+}
+.hero h1 span { display: block; }
+.lede { margin-top: 24px; max-width: 34em; font-size: clamp(18px, 2vw, 21px); line-height: 1.5; color: var(--ink-2); }
+.cta { margin-top: 32px; display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+.dl-meta { margin-top: 14px; font-size: 14px; color: var(--muted); min-height: 1.5em; }
+.req { margin-top: 4px; font-size: 14px; color: var(--muted); }
 
-  /* The desk: abstract panes settle into a grid. No real windows or titles. */
-  .desk { position: relative; aspect-ratio: 16 / 11; border-radius: 18px; background: var(--desk); border: 1px solid var(--line); overflow: hidden; box-shadow: var(--win-shadow); }
-  .desk::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 22px; border-bottom: 1px solid var(--line); }
-  .desk::after { content: ""; position: absolute; left: 12px; top: 8px; width: 38px; height: 6px; border-radius: 3px; background: var(--muted); opacity: 0.45; }
-  .pane { position: absolute; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--win-shadow); overflow: hidden;
-    transition: left 0.7s cubic-bezier(.2,.8,.2,1), top 0.7s cubic-bezier(.2,.8,.2,1), width 0.7s cubic-bezier(.2,.8,.2,1), height 0.7s cubic-bezier(.2,.8,.2,1), transform 0.7s cubic-bezier(.2,.8,.2,1); }
-  .pane i { position: absolute; inset: 0 0 auto 0; height: 16px; background: var(--tint); }
-  .pane i::before { content: ""; position: absolute; left: 7px; top: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--coral); box-shadow: 9px 0 var(--muted), 18px 0 var(--muted); opacity: 0.8; }
-  .pane b { position: absolute; left: 10px; right: 28%; top: 28px; height: 6px; border-radius: 3px; background: var(--line); }
-  .pane b + b { top: 42px; right: 12%; }
-  .pane b + b + b { top: 56px; right: 40%; }
-  .pane.hot { border-color: var(--coral); box-shadow: 0 0 0 2px var(--coral), var(--win-shadow); }
-  .pane.hot i { background: var(--coral); opacity: 0.9; }
-  .pane.hot i::before { background: #fff; box-shadow: 9px 0 #fff, 18px 0 #fff; }
-  .pane:nth-child(1) { left: 6%;  top: 14%; width: 46%; height: 52%; transform: rotate(-3deg); }
-  .pane:nth-child(2) { left: 30%; top: 24%; width: 44%; height: 50%; transform: rotate(2deg); z-index: 2; }
-  .pane:nth-child(3) { left: 50%; top: 12%; width: 42%; height: 46%; transform: rotate(-1.5deg); }
-  .pane:nth-child(4) { left: 14%; top: 50%; width: 40%; height: 40%; transform: rotate(2.5deg); z-index: 3; }
-  .pane:nth-child(5) { left: 52%; top: 52%; width: 40%; height: 38%; transform: rotate(-2deg); z-index: 4; }
-  .desk.placed .pane:nth-child(1) { left: 3%;  top: 12%; width: 45%; height: 85%; transform: none; }
-  .desk.placed .pane:nth-child(2) { left: 50%; top: 12%; width: 23%; height: 41%; transform: none; }
-  .desk.placed .pane:nth-child(3) { left: 75%; top: 12%; width: 22%; height: 41%; transform: none; }
-  .desk.placed .pane:nth-child(4) { left: 50%; top: 56%; width: 23%; height: 41%; transform: none; }
-  .desk.placed .pane:nth-child(5) { left: 75%; top: 56%; width: 22%; height: 41%; transform: none; }
-  .caption { color: var(--muted); font-size: 13px; margin: 10px 4px 0; }
+/* Wallpaper */
+.wall { position: absolute; inset: 0; width: 100%; height: 100%; }
+.w-sky1 { stop-color: var(--sky-1); } .w-sky2 { stop-color: var(--sky-2); }
+.w-sun1 { stop-color: var(--sun-1); } .w-sun2 { stop-color: var(--sun-2); }
+.w-d1 { fill: var(--d1); } .w-d2 { fill: var(--d2); } .w-d3 { fill: var(--d3); } .w-d4 { fill: var(--d4); }
+.w-rib { fill: var(--rib); opacity: .55; }
 
-  section { margin: 96px 0 0; }
-  .eyebrow { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-ink); margin-bottom: 8px; }
-  h2 { font-size: clamp(26px, 3.4vw, 34px); line-height: 1.15; letter-spacing: -0.025em; margin-bottom: 10px; }
-  .sub { color: var(--muted); max-width: 40em; margin-bottom: 32px; }
+/* Display stage */
+.stage {
+  position: relative; overflow: hidden; border-radius: clamp(14px, 2vw, 22px); isolation: isolate;
+  box-shadow: 0 0 0 1px var(--line-2), 0 40px 80px -30px rgba(3, 40, 35, .5), 0 8px 24px -10px rgba(3, 40, 35, .25);
+  background: var(--d3);
+  -webkit-user-select: none; user-select: none;
+}
+.menubar {
+  position: absolute; z-index: 30; left: 0; right: 0; top: 0; height: 26px; padding: 0 12px;
+  display: flex; align-items: center; gap: 16px; font: 500 12px/1 var(--sans); color: var(--card-ink);
+  background: rgba(255, 255, 255, .28); -webkit-backdrop-filter: blur(16px) saturate(1.4); backdrop-filter: blur(16px) saturate(1.4);
+}
+:root[data-theme="dark"] .menubar { background: rgba(0, 0, 0, .25); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .menubar { background: rgba(0, 0, 0, .25); } }
+.menubar b { font-weight: 700; }
+.menubar .mb-menus { display: flex; gap: 16px; opacity: .85; }
+.menubar .mb-end { margin-left: auto; display: flex; gap: 14px; align-items: center; }
+.menubar svg { width: 15px; height: 15px; }
+.desk { position: absolute; z-index: 1; left: 0; right: 0; bottom: 0; top: 26px; }
 
-  /* Feature rows */
-  .feature { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 48px; align-items: center; margin-top: 64px; }
-  .feature:nth-of-type(even) .copy { order: 2; }
-  .feature h3 { font-size: 24px; line-height: 1.2; letter-spacing: -0.02em; margin-bottom: 10px; }
-  .feature p { color: var(--ink-2); }
-  .feature p + p { margin-top: 12px; }
-  .keys { margin-top: 16px; }
-  .tag { display: inline-block; margin-top: 14px; font-size: 13px; font-weight: 600; color: var(--accent-ink); background: var(--tint); padding: 3px 10px; border-radius: 99px; }
+/* Desktop windows (shared) */
+.dwin {
+  position: absolute; left: calc(var(--x) * 1%); top: calc(var(--y) * 1%); width: calc(var(--w) * 1%); height: calc(var(--h) * 1%);
+  border-radius: 10px; overflow: hidden; background: var(--raised); box-shadow: var(--win-shadow), 0 0 0 .5px rgba(0, 0, 0, .18);
+  display: flex; flex-direction: column;
+  transition: left .5s cubic-bezier(.2, .8, .2, 1), top .5s cubic-bezier(.2, .8, .2, 1), width .5s cubic-bezier(.2, .8, .2, 1), height .5s cubic-bezier(.2, .8, .2, 1), opacity .3s, transform .3s, box-shadow .2s;
+}
+.dwin .bar {
+  flex: none; height: 22px; display: flex; align-items: center; gap: 5px; padding: 0 8px; background: var(--win-bar);
+  border-bottom: 1px solid var(--win-line); font: 600 10.5px/1 var(--sans); color: var(--card-sub); white-space: nowrap; overflow: hidden;
+}
+.dwin .bar i { width: 8px; height: 8px; border-radius: 50%; background: #ff5f57; flex: none; }
+.dwin .bar i:nth-child(2) { background: #febc2e; } .dwin .bar i:nth-child(3) { background: #28c840; margin-right: 6px; }
+.dwin .bar span { overflow: hidden; text-overflow: ellipsis; margin-inline: auto; padding-right: 30px; }
+.dwin .pv { flex: 1; border-radius: 0; box-shadow: none; aspect-ratio: auto; }
+.dwin .pv::before { display: none; }
 
-  /* Mockups: CSS only, abstract. */
-  .mock { background: var(--desk); border: 1px solid var(--line); border-radius: 18px; padding: 22px; box-shadow: var(--win-shadow); position: relative; overflow: hidden; }
-  .mock .shelf { display: flex; gap: 10px; justify-content: center; align-items: flex-end; padding: 12px; border-radius: 18px; background: color-mix(in srgb, var(--surface) 70%, transparent); border: 1px solid var(--line-strong); }
-  .card { flex: 1 1 0; min-width: 0; aspect-ratio: 4 / 3; border-radius: 9px; background: var(--surface); border: 1px solid var(--line); position: relative; overflow: hidden; }
-  .card::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 14%; background: var(--tint); }
-  .card::after { content: ""; position: absolute; left: 12%; right: 38%; top: 34%; height: 6%; border-radius: 3px; background: var(--line); box-shadow: 0 14px 0 var(--line), 0 28px 0 var(--line); }
-  .card.sel { outline: 3px solid var(--coral); outline-offset: 2px; transform: translateY(-4px); }
-  .card.sel::before { background: var(--coral); opacity: 0.85; }
-  .titleline { margin: 14px auto 0; width: 46%; height: 8px; border-radius: 4px; background: var(--muted); opacity: 0.4; }
-  .link { }
-  .pair { display: flex; align-items: center; }
-  .pair .card { aspect-ratio: 3 / 4; }
-  .pairlink { flex: none; width: 18px; height: 4px; background: var(--accent); border-radius: 2px; margin: 0 -2px; position: relative; z-index: 2; }
+/* Previews (CSS-drawn, invented content) */
+.pv { position: relative; overflow: hidden; aspect-ratio: 16 / 10; border-radius: 8px; background: #fbfcfc; filter: var(--pv-filter, none); }
+.pv > * { position: absolute; }
+.pv-notes { background: #fffaf0; }
+.pv-notes .h { left: 9%; top: 14%; width: 46%; height: 8%; border-radius: 3px; background: #c9a227; opacity: .85; }
+.pv-notes .l { left: 9%; right: 9%; top: 30%; bottom: 10%; background: repeating-linear-gradient(#fffaf0 0 9%, #e8dcc0 9% 13%, #fffaf0 13% 18%); -webkit-mask: linear-gradient(90deg, #000 70%, transparent 95%); mask: linear-gradient(90deg, #000 70%, transparent 95%); }
+.pv-mail { background: #fff; }
+.pv-mail .side { left: 0; top: 0; bottom: 0; width: 24%; background: #eef2f6; }
+.pv-mail .rows { left: 28%; right: 6%; top: 10%; bottom: 8%; background: repeating-linear-gradient(transparent 0 6%, #3b82f6 6% 9%, transparent 9% 13%, #d8dee6 13% 16%, transparent 16% 25%); background-size: 60% 100%, 100% 100%; background-repeat: no-repeat; }
+.pv-mail .rows::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(transparent 0 23.5%, #e6eaee 23.5% 25%); }
+.pv-editor { background: #fcfcfd; }
+.pv-editor .t { left: 12%; right: 12%; top: 12%; bottom: 8%; background:
+  linear-gradient(#24302e, #24302e) 0 0 / 52% 9% no-repeat,
+  repeating-linear-gradient(transparent 0 20%, #c8cfcd 20% 25%, transparent 25% 31%); }
+.pv-editor .t::after { content: ""; position: absolute; right: 0; bottom: 0; width: 38%; height: 30%; background: #fcfcfd; }
+.pv-web { background: #fff; }
+.pv-web .url { left: 20%; right: 20%; top: 5%; height: 9%; border-radius: 99px; background: #edf1f1; }
+.pv-web .img { left: 8%; right: 8%; top: 20%; height: 38%; border-radius: 4px; background: linear-gradient(160deg, #6fd3c3, #2a8f82 55%, #f08a6c); }
+.pv-web .tx { left: 8%; right: 30%; top: 64%; bottom: 8%; background: repeating-linear-gradient(#c9d1d0 0 18%, transparent 18% 34%); }
+.pv-term { background: #0f1b1a; }
+.pv-term .tx { left: 7%; right: 20%; top: 12%; height: 60%; background: repeating-linear-gradient(transparent 0 6%, #5fd3c0 6% 12%, transparent 12% 22%); -webkit-mask: linear-gradient(90deg, #000 0 55%, transparent 55% 60%, #000 60% 80%, transparent 80%); mask: linear-gradient(90deg, #000 0 55%, transparent 55% 60%, #000 60% 80%, transparent 80%); opacity: .8; }
+.pv-term .cur { left: 7%; top: 76%; width: 4%; height: 8%; background: #e8f5f2; }
+.pv-music { background: linear-gradient(150deg, #2a1d2e, #141a22); }
+.pv-music .art { left: 8%; top: 16%; width: 34%; aspect-ratio: 1; border-radius: 6px; background: linear-gradient(135deg, #ff8a6b, #c03b7a 55%, #3a2a8a); }
+.pv-music .eq { left: 50%; right: 8%; top: 30%; height: 40%; display: flex; gap: 6%; align-items: flex-end; }
+.pv-music .eq b { flex: 1; height: 40%; border-radius: 2px; background: rgba(255, 255, 255, .78); transform-origin: bottom; }
+.pv-music .eq b:nth-child(2) { height: 80%; } .pv-music .eq b:nth-child(3) { height: 55%; } .pv-music .eq b:nth-child(4) { height: 95%; } .pv-music .eq b:nth-child(5) { height: 35%; }
+.pv-photos { background: #f4f5f5; }
+.pv-photos .g { inset: 8%; display: grid; grid-template-columns: repeat(4, 1fr); gap: 5%; }
+.pv-photos .g b { position: static; border-radius: 3px; background: #79c9bd; }
+.pv-photos .g b:nth-child(2) { background: #f2a07f; } .pv-photos .g b:nth-child(3) { background: #2d8c80; } .pv-photos .g b:nth-child(4) { background: #f6cf8e; }
+.pv-photos .g b:nth-child(5) { background: #e57e66; } .pv-photos .g b:nth-child(6) { background: #a5ddd2; } .pv-photos .g b:nth-child(7) { background: #4f6f9a; } .pv-photos .g b:nth-child(8) { background: #9ad09a; }
+.pv-cal { background: #fff; }
+.pv-cal .g { inset: 14% 6% 6%; background: repeating-linear-gradient(90deg, transparent 0 calc(14.28% - 1px), #e3e8e7 calc(14.28% - 1px) 14.28%), repeating-linear-gradient(transparent 0 calc(25% - 1px), #e3e8e7 calc(25% - 1px) 25%); }
+.pv-cal .e1 { left: 22%; top: 30%; width: 12%; height: 14%; border-radius: 2px; background: #5fd3c0; }
+.pv-cal .e2 { left: 50%; top: 52%; width: 12%; height: 22%; border-radius: 2px; background: #f39a7f; }
+.pv-pdf { background: #e6e9e9; }
+.pv-pdf .pg { left: 28%; right: 28%; top: 8%; bottom: 0; background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, .12); }
+.pv-pdf .pg::after { content: ""; position: absolute; inset: 14% 12% 30%; border: 2px solid #2f4b47; border-radius: 2px; background: linear-gradient(90deg, transparent 48%, #2f4b47 48% 52%, transparent 52%) 0 0 / 100% 60% no-repeat; }
+.live .pv-term .cur { animation: blink 1s steps(2, jump-none) infinite; }
+.live .pv-music .eq b { animation: eq .9s ease-in-out infinite alternate; }
+.live .pv-music .eq b:nth-child(2) { animation-delay: -.3s; } .live .pv-music .eq b:nth-child(3) { animation-delay: -.6s; } .live .pv-music .eq b:nth-child(4) { animation-delay: -.15s; }
+.live .pv-notes .l, .live .pv-editor .t::after { animation: type 3.2s ease-in-out infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+@keyframes eq { from { transform: scaleY(.35); } to { transform: scaleY(1); } }
+@keyframes type { 0%, 15% { width: 38%; } 60%, 100% { width: 6%; } }
+.pv-notes .l { transition: none; }
+.live .pv-notes .l { animation: none; }
 
-  .tile2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; aspect-ratio: 16 / 9; }
-  .tile2 > div { border-radius: 10px; background: var(--surface); border: 1px solid var(--line); position: relative; overflow: hidden; }
-  .tile2 > div::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 12%; background: var(--tint); }
-  .tile2 .ghost { background: transparent; border: 2px dashed var(--coral); }
-  .tile2 .ghost::before { display: none; }
-  .tile2 .hotp { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
-  .tile2 .hotp::before { background: var(--accent); opacity: 0.8; }
+/* App glyph chips */
+.ai { width: 16px; height: 16px; border-radius: 4.5px; display: grid; place-items: center; flex: none; color: #fff; box-shadow: 0 0 0 .5px rgba(0, 0, 0, .15) inset; }
+.ai svg { width: 11px; height: 11px; }
+.ai-notes { background: linear-gradient(#f9d25e, #eba832); }
+.ai-mail { background: linear-gradient(#5fb0ff, #2a6fe0); }
+.ai-editor { background: linear-gradient(#8a90ff, #5459d6); }
+.ai-web { background: linear-gradient(#43cadb, #1b86ab); }
+.ai-term { background: linear-gradient(#45504e, #1b2322); }
+.ai-music { background: linear-gradient(#ff7b8e, #e23d58); }
+.ai-photos { background: linear-gradient(#ffad6b, #ec6a7c); }
+.ai-cal { background: linear-gradient(#ff7262, #d8402f); }
+.ai-pdf { background: linear-gradient(#6fc8ff, #3a7bd5); }
+.ai-desk { background: linear-gradient(#5fd3c0, #0c7a6e); }
 
-  .slots { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-  .slots .card { aspect-ratio: 4 / 3; }
-  .slots .free { background: transparent; border: 2px dashed var(--line-strong); }
-  .slots .free::before, .slots .free::after { display: none; }
-  .slots .dragging { transform: rotate(-4deg) scale(1.05); box-shadow: var(--win-shadow); z-index: 2; outline: 3px solid var(--coral); outline-offset: 1px; }
-  .swipe { display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 16px; color: var(--muted); font-size: 13px; }
-  .swipe span.dot { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); opacity: 0.75; }
-  .swipe svg { width: 18px; height: 18px; color: var(--accent); }
+/* Switcher shelf */
+.sw-stage { aspect-ratio: 16 / 9.4; }
+.sw-overlay { position: absolute; inset: 26px 0 0; display: grid; place-items: center; align-content: center; gap: 14px; padding: 16px; z-index: 20; }
+.shelf {
+  --cw: 118px;
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; padding: 12px; width: max-content; max-width: 100%;
+  border-radius: 26px; background: linear-gradient(170deg, var(--glass-hi), var(--glass-lo) 60%); border: 1px solid var(--glass-edge); box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: blur(24px) saturate(1.8); backdrop-filter: blur(24px) saturate(1.8);
+  transition: opacity .22s ease, transform .22s ease;
+}
+.shelf:focus { outline: none; }
+.shelf:focus-visible { box-shadow: var(--glass-shadow), 0 0 0 3px var(--coral); }
+.shelf.away { opacity: 0; transform: scale(.97); pointer-events: none; }
+.pair { display: flex; gap: 10px; position: relative; }
+.link {
+  position: absolute; left: 50%; top: calc(var(--cw) * .3125); transform: translate(-50%, -50%); z-index: 3;
+  width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--raised); color: var(--teal); box-shadow: 0 2px 6px rgba(0, 0, 0, .2), 0 0 0 1px var(--line-2);
+}
+.link svg { width: 12px; height: 12px; }
+.card {
+  position: relative; width: var(--cw); padding: 6px 6px 7px; border-radius: 15px; cursor: pointer; color: var(--card-ink);
+  transition: box-shadow .12s ease, background-color .12s ease;
+}
+.card .pv { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .07), inset 0 2px 5px rgba(0, 0, 0, .14); border-radius: 9px; }
+.card .meta { display: grid; grid-template-columns: 16px 1fr; column-gap: 6px; align-items: center; margin-top: 7px; min-width: 0; }
+.card .meta .ai { grid-row: span 2; }
+.card .tt { font: 600 11.5px/1.2 var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .an { font: 500 10.5px/1.25 var(--sans); color: var(--card-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card.sel { background: rgba(255, 255, 255, .22); box-shadow: 0 0 0 2.5px var(--coral), 0 0 0 7px color-mix(in srgb, var(--coral) 22%, transparent); }
+.card.partner { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--coral) 55%, transparent); }
+.card .mark {
+  position: absolute; right: 10px; top: calc(var(--cw) * .625 - 14px); width: 18px; height: 18px; border-radius: 50%;
+  display: grid; place-items: center; background: rgba(20, 30, 30, .62); color: #fff;
+}
+.card .mark svg { width: 10px; height: 10px; }
+.card.min .pv, .card.hid .pv { filter: saturate(.4) brightness(.92); }
+.pv-desk { background: none; }
+.pv-desk svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.sw-title {
+  max-width: min(560px, 92%); padding: 6px 14px; border-radius: 99px; font: 600 14px/1.3 var(--sans); color: var(--card-ink);
+  background: var(--glass); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border: 1px solid var(--glass-edge);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity .2s;
+}
+.sw-overlay.closed .sw-title { opacity: 0; }
+.desk.revealed .dwin { opacity: 0; visibility: hidden; transform: translateY(10%) scale(.96); transition: opacity .3s, transform .3s, visibility 0s .3s; }
+.dwin.gone { opacity: 0; visibility: hidden; transform: scale(.94); pointer-events: none; transition: opacity .3s, transform .3s, visibility 0s .3s; }
+.dwin.pop { animation: pop .45s cubic-bezier(.2, .8, .2, 1); }
+@keyframes pop { 0% { transform: scale(.97); } 50% { transform: scale(1.012); } 100% { transform: scale(1); } }
 
-  .desktop-mock { display: flex; gap: 10px; align-items: flex-end; justify-content: center; padding: 12px; border-radius: 18px; background: color-mix(in srgb, var(--surface) 70%, transparent); border: 1px solid var(--line-strong); }
-  .desktop-mock .card.wall { background: linear-gradient(135deg, #2fb7a3, #5b6ee0); border-color: transparent; }
-  .desktop-mock .card.wall::before, .desktop-mock .card.wall::after { display: none; }
+.try { margin-top: 18px; display: flex; flex-wrap: wrap; gap: 8px 22px; justify-content: center; font-size: 14px; color: var(--muted); }
+.try > span { display: inline-flex; align-items: center; gap: 8px; }
+.try kbd { transition: transform .08s, background .12s, color .12s; }
+.try kbd.held, .try kbd.hit { background: var(--teal); color: var(--on-teal); border-color: transparent; transform: translateY(1px); }
+.reset { font: inherit; color: var(--teal); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: .18em; }
+.status { min-height: 1.5em; margin-top: 8px; text-align: center; font-size: 14px; color: var(--ink-2); }
 
-  .settings-mock { display: grid; grid-template-columns: 110px 1fr; border-radius: 14px; overflow: hidden; border: 1px solid var(--line-strong); background: var(--surface); }
-  .settings-mock .side { background: var(--tint); padding: 12px 10px; display: grid; gap: 8px; align-content: start; }
-  .settings-mock .side span { display: block; height: 10px; border-radius: 5px; background: var(--line-strong); }
-  .settings-mock .side span.on { background: var(--accent); }
-  .settings-mock .body { padding: 14px; display: grid; gap: 12px; }
-  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-  .row i { height: 8px; border-radius: 4px; background: var(--line); flex: 1; max-width: 55%; }
-  .row u { width: 30px; height: 18px; border-radius: 9px; background: var(--accent); position: relative; text-decoration: none; flex: none; }
-  .row u::after { content: ""; position: absolute; right: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; }
-  .row u.off { background: var(--line-strong); }
-  .row u.off::after { right: auto; left: 2px; }
-  .keyrow { display: flex; flex-wrap: wrap; gap: 6px; }
+/* Facts under the hero */
+.facts { margin-top: clamp(40px, 6vw, 72px); display: grid; grid-template-columns: repeat(4, 1fr); gap: 28px; }
+.facts h3 { font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
+.facts p { margin-top: 6px; font-size: 15px; color: var(--muted); line-height: 1.5; }
 
-  .note { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--coral); border-radius: 12px; padding: 14px 18px; margin-top: 40px; max-width: 46rem; font-size: 16px; }
+/* Sections */
+.sec { padding: clamp(72px, 10vw, 136px) 0 0; }
+.sec-head { max-width: 760px; }
+.sec h2 { font-size: clamp(34px, 5vw, 60px); line-height: 1.02; letter-spacing: -.035em; font-weight: 700; }
+.sec-head p { margin-top: 18px; font-size: clamp(17px, 1.6vw, 20px); color: var(--ink-2); max-width: 36em; }
+.split { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: clamp(28px, 4vw, 56px); align-items: start; margin-top: 44px; }
+.points { display: grid; gap: 22px; margin: 0; padding: 0; list-style: none; }
+.points li { padding-top: 18px; border-top: 1px solid var(--line); }
+.points h3 { font-size: 18px; font-weight: 650; letter-spacing: -.01em; }
+.points p { margin-top: 6px; color: var(--muted); font-size: 15.5px; }
+.points p .keys { font-size: 15px; }
 
-  /* Install */
-  ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: step; display: grid; gap: 22px; max-width: 46rem; }
-  ol.steps > li { counter-increment: step; position: relative; padding-left: 50px; }
-  ol.steps > li::before { content: counter(step); position: absolute; left: 0; top: -1px; width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; font-weight: 700; font-size: 15px; background: var(--tint); color: var(--accent-ink); }
-  ol.steps ol { margin: 8px 0 0; padding-left: 20px; color: var(--muted); }
-  ol.steps ol li { margin: 4px 0; }
-  .path { white-space: nowrap; }
+/* Tiling demo */
+.tl-stage { aspect-ratio: 16 / 10; }
+.tl-stage .dwin { left: calc(var(--x) * 1% + 5px); top: calc(var(--y) * 1% + 5px); width: calc(var(--w) * 1% - 10px); height: calc(var(--h) * 1% - 10px); }
+.tl-stage .dwin { cursor: pointer; }
+.tl-stage .dwin.front { box-shadow: var(--win-shadow), 0 0 0 2px var(--coral); }
+.tl-stage .dwin.paired:not(.front) { box-shadow: var(--win-shadow), 0 0 0 1.5px color-mix(in srgb, var(--aqua) 80%, transparent); }
+.tl-link {
+  position: absolute; z-index: 25; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--raised); color: var(--teal); box-shadow: 0 4px 12px rgba(0, 0, 0, .25), 0 0 0 1px var(--line-2);
+  opacity: 0; transform: scale(.5); transition: opacity .25s, transform .35s cubic-bezier(.3, 1.6, .5, 1), left .5s, top .5s;
+}
+.tl-link svg { width: 15px; height: 15px; }
+.tl-link.on { opacity: 1; transform: scale(1); }
+.pad { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; }
+.kbtn {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 12px 6px 8px; border-radius: 12px; cursor: pointer;
+  background: var(--raised); color: var(--ink); border: 1px solid var(--line-2); font: 500 14px/1 var(--sans);
+}
+.kbtn:hover { border-color: var(--teal); }
+.kbtn.hit { background: color-mix(in srgb, var(--teal) 14%, var(--raised)); border-color: var(--teal); }
+.kbtn kbd { font-size: 12px; }
+.narr { margin-top: 14px; min-height: 3em; color: var(--ink-2); font-size: 15px; }
+.replay { margin-left: auto; }
 
-  .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr)); gap: 28px 32px; }
-  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 22px; }
-  .panel h3 { font-size: 18px; margin-bottom: 8px; }
-  dl.asks { margin: 0; display: grid; gap: 14px; }
-  dl.asks dt { font-weight: 600; }
-  dl.asks dd { margin: 2px 0 0; color: var(--muted); }
-  ul.plain { margin: 0; padding-left: 20px; color: var(--muted); }
-  ul.plain li { margin: 6px 0; }
-  ul.plain strong { color: var(--ink); }
+/* Pair mini illustration */
+.pair-art { display: flex; align-items: center; gap: 0; margin-top: 18px; }
+.pair-art .card { --cw: 150px; background: var(--raised); box-shadow: 0 0 0 1px var(--line); color: var(--ink); }
+.pair-art .card .an { color: var(--muted); }
+.pair-art .card.sel { box-shadow: 0 0 0 2.5px var(--coral); }
+.pair-art .pair { gap: 8px; }
 
-  /* FAQ */
-  .faq { max-width: 46rem; display: grid; gap: 10px; }
-  details { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 0 18px; }
-  details[open] { border-color: var(--line-strong); }
-  summary { cursor: pointer; font-weight: 600; padding: 15px 0; list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-  summary::-webkit-details-marker { display: none; }
-  summary::after { content: "+"; font-size: 22px; line-height: 1; color: var(--accent-ink); flex: none; }
-  details[open] summary::after { content: "\2212"; }
-  details p { color: var(--muted); padding: 0 0 16px; }
+/* Overview demo */
+.ov-stage { aspect-ratio: 16 / 9.6; }
+.ov-veil {
+  position: absolute; inset: 26px 0 0; z-index: 20; display: flex; flex-direction: column; align-items: center;
+  padding: clamp(14px, 3vw, 34px) clamp(14px, 4vw, 56px);
+  background: linear-gradient(color-mix(in srgb, var(--paper) 12%, transparent), color-mix(in srgb, var(--paper) 50%, transparent));
+  -webkit-backdrop-filter: blur(30px) saturate(1.5); backdrop-filter: blur(24px) saturate(1.5);
+  transition: opacity .3s ease;
+}
+.ov-veil.closed { opacity: 0; pointer-events: none; }
+.ov-top { display: flex; align-items: center; gap: 12px; width: min(420px, 100%); }
+.ov-search {
+  flex: 1; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; border-radius: 10px;
+  background: var(--glass); border: 1px solid var(--glass-edge); color: var(--card-ink);
+}
+.ov-search svg { width: 14px; height: 14px; opacity: .7; flex: none; }
+.ov-search input { flex: 1; min-width: 0; border: 0; background: transparent; font: 14px var(--sans); color: inherit; outline: none; }
+.ov-search input::placeholder { color: var(--card-sub); }
+.ov-search:focus-within { box-shadow: 0 0 0 3px var(--coral); }
+.ov-count { font: 600 12.5px/1 var(--sans); color: var(--card-sub); white-space: nowrap; }
+.ov-grid {
+  flex: 1; min-height: 0; width: min(100%, 1000px); margin-top: clamp(12px, 2.4vw, 26px); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr); gap: clamp(10px, 1.8vw, 22px); align-content: center;
+}
+.ov-grid:focus { outline: none; }
+.ov-grid:focus-visible { outline: 3px solid var(--coral); outline-offset: 6px; border-radius: 12px; }
+.slot { position: relative; min-width: 0; display: flex; flex-direction: column; border-radius: 14px; padding: 6px; transition: opacity .2s, box-shadow .12s; touch-action: none; }
+.slot .pv { flex: 1; aspect-ratio: auto; min-height: 0; border-radius: 9px; box-shadow: 0 10px 22px -10px rgba(0, 0, 0, .45), 0 0 0 .5px rgba(0, 0, 0, .2); }
+.slot .meta { display: flex; align-items: center; gap: 6px; margin-top: 7px; color: var(--card-ink); min-width: 0; }
+.slot .tt { font: 600 12px/1.2 var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.slot.win { cursor: grab; }
+.slot.sel { box-shadow: 0 0 0 2.5px var(--coral); background: rgba(255, 255, 255, .14); }
+.slot.dim { opacity: .28; }
+.slot.free .well, .slot.pin .well {
+  flex: 1; border-radius: 10px; display: grid; place-items: center; text-align: center; padding: 6px;
+  background: color-mix(in srgb, var(--card-ink) 6%, transparent);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, .14), inset 0 0 0 1px color-mix(in srgb, var(--card-ink) 10%, transparent);
+  font: 500 11.5px/1.3 var(--sans); color: var(--card-sub);
+}
+.slot.pin .well { background: transparent; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--card-ink) 22%, transparent); }
+.slot.pin .well .ai { margin: 0 auto 6px; opacity: .55; }
+.slot.free .meta, .slot.pin .meta { visibility: hidden; }
+.slot.target { box-shadow: 0 0 0 2.5px var(--aqua); }
+.slot.dragging { z-index: 40; opacity: .92; cursor: grabbing; transition: none; }
+.slot.desk-tile .pv { overflow: hidden; }
+.ov-bar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin-top: 16px; }
+.swipe { width: 28px; height: 22px; color: var(--teal); }
+.swipe circle { animation: none; }
+.swipe.go circle { animation: swipeup .9s cubic-bezier(.3, .7, .3, 1) both; }
+.swipe.go circle:nth-child(2) { animation-delay: .05s; } .swipe.go circle:nth-child(3) { animation-delay: .1s; }
+@keyframes swipeup { from { transform: translateY(5px); opacity: .3; } to { transform: translateY(-5px); opacity: 1; } }
+.note { font-size: 14px; color: var(--muted); }
 
-  footer { margin: 104px 0 0; padding: 28px 0 56px; border-top: 1px solid var(--line); color: var(--muted); font-size: 15px; }
-  footer .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 24px; }
-  footer .brand { font-size: 16px; margin-right: 8px; color: var(--ink); }
-  footer .grow { margin-left: auto; }
+/* More */
+.more { margin-top: 44px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 56px; }
+.more article { padding: 26px 0; border-top: 1px solid var(--line); display: grid; grid-template-columns: 44px 1fr; gap: 0 18px; }
+.more .gly { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: color-mix(in srgb, var(--teal) 12%, transparent); color: var(--teal); }
+.more .gly svg { width: 22px; height: 22px; }
+.more h3 { font-size: 19px; font-weight: 650; letter-spacing: -.012em; }
+.more p { margin-top: 6px; color: var(--muted); font-size: 15.5px; }
 
-  @media (max-width: 860px) {
-    .hero { grid-template-columns: minmax(0, 1fr); gap: 32px; padding-top: 36px; }
-    .feature { grid-template-columns: minmax(0, 1fr); gap: 24px; margin-top: 48px; }
-    .feature:nth-of-type(even) .copy { order: 0; }
-    .nav a.link { display: none; }
-  }
-  @media (max-width: 600px) {
-    body { font-size: 16px; }
-    .lede { font-size: 17px; }
-    .hero .button { width: 100%; }
-    section { margin-top: 72px; }
-    .path { white-space: normal; }
-    .mock { padding: 14px; }
-    footer .grow { margin-left: 0; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .pane { transition: none; }
-    html { scroll-behavior: auto; }
-  }
+/* Shortcuts */
+.sheet { margin-top: 44px; columns: 3 300px; column-gap: 40px; }
+.group { break-inside: avoid; margin-bottom: 34px; }
+.group h3 { font-size: 15px; font-weight: 650; color: var(--ink); padding-bottom: 10px; border-bottom: 1px solid var(--line-2); }
+.group dl { margin: 0; }
+.group .row { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.group dt { display: flex; flex-wrap: wrap; gap: 4px; font-size: 15px; }
+.group dd { margin: 0; font-size: 14.5px; color: var(--ink-2); text-align: right; }
+
+/* Install */
+.steps { margin: 44px 0 0; padding: 0; list-style: none; counter-reset: s; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 36px; }
+.steps li { counter-increment: s; position: relative; padding: 22px 0 28px; border-top: 1px solid var(--line-2); }
+.steps li::before {
+  content: counter(s); display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
+  background: var(--teal); color: var(--on-teal); font: 700 14px/1 var(--sans); margin-bottom: 14px;
+}
+.steps h3 { font-size: 18px; font-weight: 650; letter-spacing: -.01em; }
+.steps p { margin-top: 6px; color: var(--muted); font-size: 15.5px; }
+.steps b { color: var(--ink-2); font-weight: 600; }
+.install-cta { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+
+/* FAQ */
+.faq { margin-top: 36px; max-width: 820px; }
+.faq details { border-top: 1px solid var(--line); }
+.faq details:last-child { border-bottom: 1px solid var(--line); }
+.faq summary { cursor: pointer; list-style: none; padding: 20px 40px 20px 0; position: relative; font: 600 18px/1.35 var(--display); letter-spacing: -.01em; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after {
+  content: ""; position: absolute; right: 6px; top: 50%; width: 10px; height: 10px; margin-top: -7px;
+  border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg); transition: transform .2s;
+}
+.faq details[open] summary::after { transform: rotate(225deg); margin-top: -2px; }
+.faq details p { padding: 0 0 22px; color: var(--ink-2); max-width: 44em; }
+.faq code, .steps code { font: 14px var(--mono); background: var(--paper-2); padding: 2px 6px; border-radius: 5px; overflow-wrap: anywhere; }
+
+/* Closing band */
+.close {
+  margin-top: clamp(80px, 10vw, 136px); position: relative; overflow: hidden; border-radius: clamp(18px, 2.5vw, 28px);
+  padding: clamp(48px, 7vw, 88px) clamp(20px, 5vw, 64px); text-align: center; display: grid; justify-items: center; isolation: isolate;
+}
+.close .wall { z-index: -2; }
+.close::after { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(color-mix(in srgb, var(--paper) 10%, transparent), color-mix(in srgb, var(--paper) 55%, transparent)); }
+.close img { width: 88px; height: 88px; filter: drop-shadow(0 12px 22px rgba(0, 0, 0, .25)); }
+.close h2 { margin-top: 18px; font-size: clamp(32px, 5vw, 56px); letter-spacing: -.035em; line-height: 1.02; }
+.close .cta { margin-top: 26px; }
+.close .req { color: var(--ink-2); }
+
+/* Footer */
+footer { margin-top: 72px; border-top: 1px solid var(--line); padding: 30px 0 calc(36px + env(safe-area-inset-bottom)); font-size: 14px; color: var(--muted); }
+footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; }
+footer nav { display: flex; flex-wrap: wrap; gap: 10px 22px; }
+footer nav a { color: var(--ink-2); text-decoration: none; }
+footer nav a:hover { color: var(--ink); text-decoration: underline; }
+footer .made { margin-left: auto; }
+
+/* Responsive */
+@media (max-width: 980px) {
+  .facts { grid-template-columns: repeat(2, 1fr); }
+  .split { grid-template-columns: 1fr; }
+  .steps { grid-template-columns: repeat(2, 1fr); }
+  .nav-links { display: none; }
+}
+@media (max-width: 720px) {
+  .sw-stage { aspect-ratio: auto; height: clamp(520px, 150vw, 640px); }
+  .ov-stage { aspect-ratio: auto; height: auto; }
+  .ov-veil { position: relative; inset: auto; margin-top: 26px; }
+  .ov-grid { grid-template-columns: repeat(2, 1fr); grid-auto-rows: auto; }
+  .slot .pv, .slot .well { flex: none !important; aspect-ratio: 16 / 10; }
+  .menubar .mb-menus { display: none; }
+  .more { grid-template-columns: 1fr; }
+  .steps { grid-template-columns: 1fr; }
+  .facts { grid-template-columns: 1fr; gap: 20px; }
+  .group .row { gap: 10px; }
+  .group dd { font-size: 14px; }
+  footer .made { margin-left: 0; }
+  .nav .btn-sm .lbl-long { display: none; }
+}
+@media (max-width: 420px) {
+  .pad .kbtn > span:not(.keys) { display: none; }
+  .pad .kbtn { padding: 6px 8px; }
+  .replay { margin-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .shelf, .sw-title, .ov-veil, .menubar, .nav { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .shelf, .sw-title { background: var(--raised); }
+  .ov-veil { background: var(--paper); }
+}
 </style>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
+<noscript><style>.shelf, .sw-title, .ov-veil, .pad, .narr, .ov-bar, .try, .status { display: none; }</style></noscript>
 
-<nav class="nav" id="nav" aria-label="Primary">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <linearGradient id="g-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="w-sky1"/><stop offset="1" class="w-sky2"/></linearGradient>
+    <radialGradient id="g-sun"><stop offset="0" class="w-sun1"/><stop offset="1" class="w-sun2"/></radialGradient>
+    <radialGradient id="g-aq" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#5fd3c0" stop-opacity=".45"/><stop offset="1" stop-color="#5fd3c0" stop-opacity="0"/></radialGradient>
+  </defs>
+  <symbol id="wallpaper" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice">
+    <rect width="1600" height="1000" fill="url(#g-sky)"/>
+    <circle cx="1120" cy="300" r="400" fill="url(#g-sun)"/>
+    <circle cx="300" cy="220" r="360" fill="url(#g-aq)"/>
+    <path class="w-d1" d="M0 440C260 360 470 405 710 460C990 524 1230 370 1600 415V1000H0Z"/>
+    <path class="w-rib" d="M0 530C300 468 540 508 820 548C1100 588 1320 488 1600 500V538C1320 526 1100 628 820 588C540 550 300 506 0 566Z"/>
+    <path class="w-d2" d="M0 590C300 513 560 553 820 613C1080 673 1300 553 1600 571V1000H0Z"/>
+    <path class="w-d3" d="M0 730C360 668 640 708 900 750C1160 792 1380 712 1600 722V1000H0Z"/>
+    <path class="w-d4" d="M0 880C420 842 760 866 1040 890C1280 910 1460 876 1600 872V1000H0Z"/>
+  </symbol>
+  <symbol id="i-notes" viewBox="0 0 16 16"><path d="M4 5h8M4 8h8M4 11h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 16 16"><rect x="2" y="4" width="12" height="9" rx="1.6" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="m2.6 5 5.4 4 5.4-4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linejoin="round"/></symbol>
+  <symbol id="i-editor" viewBox="0 0 16 16"><path d="M10.5 3 13 5.5 6 12.5H3.5V10Z" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linejoin="round"/></symbol>
+  <symbol id="i-web" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" stroke="currentColor" stroke-width="1.4" fill="none"/><path d="m10.2 5.8-1.3 3.1-3.1 1.3 1.3-3.1Z" fill="currentColor"/></symbol>
+  <symbol id="i-term" viewBox="0 0 16 16"><path d="m4 5 3 3-3 3M8.5 11.5H12" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-music" viewBox="0 0 16 16"><path d="M6 11.5V4.2l6-1.4v7.4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linejoin="round"/><circle cx="4.6" cy="11.6" r="1.6" fill="currentColor"/><circle cx="10.6" cy="10.4" r="1.6" fill="currentColor"/></symbol>
+  <symbol id="i-photos" viewBox="0 0 16 16"><path d="M2.5 12.5 6 8l2.5 3 1.8-2 3.2 3.5Z" fill="currentColor"/><circle cx="11" cy="5" r="1.6" fill="currentColor"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 16 16"><rect x="2.5" y="3.5" width="11" height="10" rx="1.8" stroke="currentColor" stroke-width="1.4" fill="none"/><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3" stroke="currentColor" stroke-width="1.4"/></symbol>
+  <symbol id="i-pdf" viewBox="0 0 16 16"><path d="M4 2.5h5.5L12 5v8.5H4Z" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linejoin="round"/><path d="M6 8.5h4M6 11h3" stroke="currentColor" stroke-width="1.3"/></symbol>
+  <symbol id="i-desk" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="8" rx="1.4" stroke="currentColor" stroke-width="1.4" fill="none"/><path d="M6 13.5h4M8 11v2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol>
+  <symbol id="i-link" viewBox="0 0 16 16"><path d="M6.8 9.2a2.6 2.6 0 0 0 3.7 0l2-2a2.6 2.6 0 0 0-3.7-3.7l-.7.7M9.2 6.8a2.6 2.6 0 0 0-3.7 0l-2 2a2.6 2.6 0 0 0 3.7 3.7l.7-.7" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></symbol>
+  <symbol id="i-min" viewBox="0 0 16 16"><path d="M4 8h8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+  <symbol id="i-hid" viewBox="0 0 16 16"><path d="M2 8s2.2-4 6-4 6 4 6 4-2.2 4-6 4-6-4-6-4Z" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="m3 13 10-10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="m10.5 10.5 3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-panes" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="5.5" height="11" rx="1.4" fill="currentColor"/><rect x="8.5" y="2.5" width="6" height="5" rx="1.4" fill="currentColor"/><rect x="8.5" y="9" width="6" height="4.5" rx="1.4" fill="currentColor" opacity=".55"/></symbol>
+  <symbol id="i-down" viewBox="0 0 16 16"><path d="M8 2.5v8m0 0-3.2-3.2M8 10.5l3.2-3.2M3 13.5h10" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+<header class="nav" id="nav">
   <div class="wrap">
-    <a class="brand" href="#top"><img src="icon.png" alt="" width="28" height="28">Paneflo</a>
-    <a class="link" href="#features">Features</a>
-    <a class="link" href="#install">Install</a>
-    <a class="link" href="#updates">Updates</a>
-    <a class="link" href="#faq">FAQ</a>
-    <a class="button" href="https://github.com/Jenish-Shobhit/Paneflo/releases/latest" data-download>Download</a>
+    <a class="brand" href="#top"><img src="assets/icon-64.png" alt="" width="28" height="28">Paneflo</a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#switcher">Switcher</a>
+      <a href="#tiling">Tiling</a>
+      <a href="#overview">Overview</a>
+      <a href="#shortcuts">Shortcuts</a>
+      <a href="#install">Install</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <div class="nav-end">
+      <button class="theme" id="theme" type="button" aria-label="Switch appearance">
+        <svg class="sun" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.6" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M10 1.8v2.4M10 15.8v2.4M1.8 10h2.4M15.8 10h2.4M4.2 4.2l1.7 1.7M14.1 14.1l1.7 1.7M4.2 15.8l1.7-1.7M14.1 5.9l1.7-1.7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        <svg class="moon" viewBox="0 0 20 20" aria-hidden="true"><path d="M16.5 12.4A7 7 0 0 1 7.6 3.5a7 7 0 1 0 8.9 8.9Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+      </button>
+      <a class="btn btn-primary btn-sm" data-download href="https://github.com/Jenish-Shobhit/Paneflo/releases/latest">Download<span class="lbl-long sr"> Paneflo</span></a>
+    </div>
   </div>
-</nav>
+</header>
 
 <main id="main">
-<div class="hero-bg" id="top">
+<section class="hero" id="top" aria-labelledby="hero-h">
   <div class="wrap">
-    <div class="hero">
-      <div>
-        <img class="appicon" src="icon.png" width="88" height="88" alt="Paneflo app icon: three tiled glass panes on teal, one in coral">
-        <h1>Every window.<br><em>In its place.</em></h1>
-        <p class="lede">Paneflo is a menu bar app for your Mac that finds, arranges and switches between individual windows: a ⌘Tab that lists windows instead of apps, keyboard tiling, and an organized Overview that stays where you put things.</p>
-        <div class="get">
-          <a class="button" href="https://github.com/Jenish-Shobhit/Paneflo/releases/latest" data-download>
-            <svg viewBox="0 0 20 20" aria-hidden="true"><path fill="currentColor" d="M10 2a1 1 0 0 1 1 1v8.59l2.3-2.3a1 1 0 1 1 1.4 1.42l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 1 1 1.4-1.42l2.3 2.3V3a1 1 0 0 1 1-1ZM4 16a1 1 0 1 0 0 2h12a1 1 0 1 0 0-2H4Z"/></svg>
-            <span id="download-label">Download Paneflo</span>
-          </a>
-          <a class="button quiet" href="#install">Install steps</a>
-        </div>
-        <p class="meta" id="download-meta">For macOS 26 or later on Apple silicon. Free and open source (MIT). Not notarized yet; the install steps cover the one-time Open Anyway.</p>
+    <div class="hero-head">
+      <picture>
+        <source srcset="assets/icon-256.webp" type="image/webp">
+        <img class="hero-icon" src="assets/icon-256.png" width="132" height="132" alt="Paneflo app icon: three glass panes on teal, the top right one in coral">
+      </picture>
+      <h1 id="hero-h"><span>Every window.</span> <span>In its place.</span></h1>
+      <p class="lede">Paneflo is a menu bar app for macOS. Its ⌘Tab switches between windows instead of apps, it tiles windows from the keyboard, and its Overview keeps every window where you put it.</p>
+      <div class="cta">
+        <a class="btn btn-primary" data-download href="https://github.com/Jenish-Shobhit/Paneflo/releases/latest">
+          <svg aria-hidden="true"><use href="#i-down"/></svg><span class="dl-label">Download Paneflo</span>
+        </a>
+        <a class="btn btn-quiet" href="https://github.com/Jenish-Shobhit/Paneflo">View on GitHub</a>
       </div>
+      <p class="dl-meta" aria-live="polite"><span class="dl-version">Latest release on GitHub</span></p>
+      <p class="req">macOS 26 or later on Apple silicon. Free and open source under the MIT License.</p>
+    </div>
+  </div>
+
+  <div class="wrap" id="switcher" style="margin-top:clamp(44px,6vw,72px)">
+    <div class="stage sw-stage" id="sw-stage">
+      <svg class="wall" aria-hidden="true"><use href="#wallpaper"/></svg>
+      <div class="menubar" aria-hidden="true">
+        <b id="mb-app">Notes</b>
+        <span class="mb-menus"><span>File</span><span>Edit</span><span>View</span><span>Window</span><span>Help</span></span>
+        <span class="mb-end"><svg><use href="#i-panes"/></svg><span>Mon 9:41</span></span>
+      </div>
+      <div class="desk" id="sw-desk" aria-hidden="true"></div>
+      <div class="sw-overlay" id="sw-overlay">
+        <div class="shelf" id="shelf" role="listbox" tabindex="0" aria-label="Paneflo switcher demo. Tab or arrow keys choose a window, Return opens it. W, M, H and Q close, minimize, hide or quit the selected window." aria-orientation="horizontal"></div>
+        <div class="sw-title" id="sw-title" aria-hidden="true"></div>
+      </div>
+    </div>
+    <div class="try" aria-hidden="true">
+      <span><span class="keys"><kbd id="k-cmd">⌘</kbd><kbd id="k-tab">Tab</kbd></span> next window</span>
+      <span><span class="keys"><kbd id="k-arr">← →</kbd></span> choose</span>
+      <span><span class="keys"><kbd id="k-ret">Return</kbd></span> open, like releasing ⌘</span>
+      <span><span class="keys"><kbd>W</kbd><kbd>M</kbd><kbd>H</kbd><kbd>Q</kbd></span> window actions</span>
+    </div>
+    <p class="status" id="sw-status" aria-live="polite">Focus the shelf or point at a card to try it. The windows are made up.</p>
+
+    <div class="facts">
+      <div><h3>Windows, not apps</h3><p>Every window gets its own card: two Mail windows are two cards. Shift–Tab goes back, and the arrows choose while ⌘ is held.</p></div>
+      <div><h3>The selected window is live</h3><p>With Screen Recording on, only the selected card shows a live picture. Every other card is a recent snapshot kept in memory.</p></div>
+      <div><h3>Nothing extra on the shelf</h3><p>No headings, key hints or badges. A small symbol marks minimized, hidden and paused windows, and the full title sits underneath.</p></div>
+      <div><h3>Act without leaving</h3><p>With ⌘ held, <span class="keys"><kbd>W</kbd></span> closes, <span class="keys"><kbd>M</kbd></span> minimizes, <span class="keys"><kbd>H</kbd></span> hides and <span class="keys"><kbd>Q</kbd></span> quits, and the switcher stays open. Finder is never quit.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="tiling" aria-labelledby="tiling-h">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 id="tiling-h">Tile from the keyboard, anywhere.</h2>
+      <p>Send the front window to a half of its display, fill it, or take it back. When two windows share one display edge to edge, Paneflo treats them as a pair.</p>
+    </div>
+    <div class="split">
       <div>
-        <div class="desk" id="desk" role="img" aria-label="An illustration of five overlapping windows settling into a tidy grid">
-          <div class="pane"><i></i><b></b><b></b><b></b></div>
-          <div class="pane hot"><i></i><b></b><b></b><b></b></div>
-          <div class="pane"><i></i><b></b><b></b><b></b></div>
-          <div class="pane"><i></i><b></b><b></b><b></b></div>
-          <div class="pane"><i></i><b></b><b></b><b></b></div>
+        <div class="stage tl-stage" id="tl-stage" role="group" tabindex="0" aria-label="Tiling demo. Arrow keys tile the front window, Return fills, Z undoes. Number keys 1 to 3 bring a window to the front.">
+          <svg class="wall" aria-hidden="true"><use href="#wallpaper"/></svg>
+          <div class="menubar" aria-hidden="true"><b id="tl-app">Editor</b><span class="mb-end"><svg><use href="#i-panes"/></svg><span>Mon 9:41</span></span></div>
+          <div class="desk" id="tl-desk"></div>
         </div>
-        <p class="caption">Illustration: abstract panes, not real windows.</p>
+        <div class="pad" id="tl-pad" aria-label="Tiling shortcuts for the front window">
+          <button class="kbtn" type="button" data-zone="left" aria-label="Left half, Control Option Left Arrow"><span class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>←</kbd></span><span>Left</span></button>
+          <button class="kbtn" type="button" data-zone="right" aria-label="Right half, Control Option Right Arrow"><span class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>→</kbd></span><span>Right</span></button>
+          <button class="kbtn" type="button" data-zone="top" aria-label="Top half, Control Option Up Arrow"><span class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>↑</kbd></span><span>Top</span></button>
+          <button class="kbtn" type="button" data-zone="bottom" aria-label="Bottom half, Control Option Down Arrow"><span class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>↓</kbd></span><span>Bottom</span></button>
+          <button class="kbtn" type="button" data-zone="fill" aria-label="Fill, Control Option Return"><span class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>Return</kbd></span><span>Fill</span></button>
+          <button class="kbtn" type="button" data-zone="undo" aria-label="Undo, Control Option Z"><span class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>Z</kbd></span><span>Undo</span></button>
+          <button class="kbtn replay" type="button" id="tl-replay">Replay</button>
+        </div>
+        <p class="narr" id="tl-narr" aria-live="polite">Click a window to bring it to the front, then use the keys.</p>
+      </div>
+      <ul class="points">
+        <li><h3>Anywhere, with ⌃⌥</h3><p><span class="keys"><kbd>⌃</kbd><kbd>⌥</kbd></span> and an arrow key tiles the front window to that half. <span class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>Return</kbd></span> fills its display and <span class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>Z</kbd></span> undoes. The same arrangements are in the menu bar under Tile Front Window.</p></li>
+        <li><h3>Inside ⌘Tab, with ⌘⌥</h3><p>While switching, <span class="keys"><kbd>⌘</kbd><kbd>⌥</kbd><kbd>←</kbd></span> or <span class="keys"><kbd>→</kbd></span> tiles the selected window without opening it first. Press the same half again to move it to the next display. <span class="keys"><kbd>⌘</kbd><kbd>⌥</kbd><kbd>↑</kbd></span> fills, <span class="keys"><kbd>⌘</kbd><kbd>⌥</kbd><kbd>↓</kbd></span> undoes.</p></li>
+        <li><h3>One undo puts it all back</h3><p>Undo restores every window an arrangement moved and re-forms the pair it ended. If a window can't be arranged, a short note near the bottom of the display says why.</p></li>
+      </ul>
+    </div>
+
+    <div class="split" style="margin-top:clamp(56px,7vw,88px)">
+      <div class="sec-head" style="max-width:none">
+        <h2 style="font-size:clamp(28px,3.6vw,42px)">Two windows, one pair.</h2>
+        <p>Left and right halves, or top and bottom, form a pair, whether Paneflo arranged them or you did. In ⌘Tab they sit side by side with a link at the seam.</p>
+        <div class="pair-art" aria-hidden="true" id="pair-art"></div>
+      </div>
+      <ul class="points">
+        <li><h3>Snap assist</h3><p>After <span class="keys"><kbd>⌘</kbd><kbd>⌥</kbd><kbd>←</kbd></span> in the switcher, choose another window and press <span class="keys"><kbd>⌘</kbd><kbd>⌥</kbd><kbd>→</kbd></span>. It lands beside the first, and the two are paired.</p></li>
+        <li><h3>Open the pair, or one window</h3><p>Opening either window brings its partner forward too. <span class="keys"><kbd>⌘</kbd><kbd>⌥</kbd><kbd>Return</kbd></span> always opens the pair; <span class="keys"><kbd>⌘</kbd><kbd>A</kbd></span> in the switcher opens the selection alone.</p></li>
+        <li><h3>Replace a member in one step</h3><p>Tile a third window into a paired half and it pairs with the other half at once. The window it replaced goes back to where it was before.</p></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="overview" aria-labelledby="overview-h">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 id="overview-h">An Overview where nothing moves unless you move it.</h2>
+      <p>Press <span class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd></span>, or swipe up with three fingers if you turn the gesture on. Every window appears in its own place on a translucent overlay, and those places stay put from one day to the next.</p>
+    </div>
+    <div style="margin-top:44px">
+      <div class="stage ov-stage" id="ov-stage">
+        <svg class="wall" aria-hidden="true"><use href="#wallpaper"/></svg>
+        <div class="menubar" aria-hidden="true"><b>Mail</b><span class="mb-end"><svg><use href="#i-panes"/></svg><span>Mon 9:41</span></span></div>
+        <div class="ov-veil" id="ov-veil">
+          <div class="ov-top">
+            <label class="ov-search"><svg aria-hidden="true"><use href="#i-search"/></svg><span class="sr">Search windows in the Overview demo</span><input id="ov-q" type="search" placeholder="Search" autocomplete="off" spellcheck="false"></label>
+            <span class="ov-count" id="ov-count" aria-live="polite"></span>
+          </div>
+          <div class="ov-grid" id="ov-grid" role="listbox" tabindex="0" aria-label="Overview demo. Arrow keys move between places, Return opens. Drag a window onto another place to move or swap it."></div>
+        </div>
+      </div>
+      <div class="ov-bar">
+        <button class="btn btn-quiet btn-sm" type="button" id="ov-toggle"><svg class="swipe" id="swipe" viewBox="0 0 28 22" aria-hidden="true"><circle cx="7" cy="11" r="3" fill="currentColor"/><circle cx="14" cy="9" r="3" fill="currentColor"/><circle cx="21" cy="11" r="3" fill="currentColor"/></svg><span id="ov-toggle-l">Close Overview</span></button>
+        <p class="note" id="ov-status" aria-live="polite">Type to search, drag a card onto another place, or click a window to open it.</p>
+      </div>
+    </div>
+    <ul class="points" style="margin-top:36px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:22px 36px">
+      <li><h3>Search keeps the layout</h3><p>Typing dims what doesn't match. Nothing reflows, so the window you want is still where you remember it.</p></li>
+      <li><h3>Drag to rearrange</h3><p>Drop a window on a free place to move it there, or on another window to swap the two.</p></li>
+      <li><h3>Places that wait</h3><p>A pinned place stays as a faint outline until its app opens a window again. Free places fade away the next time the Overview opens.</p></li>
+      <li><h3>Its own overlay</h3><p>The Overview is Paneflo's panel, with a Desktop tile first. Apple's Mission Control and Spaces are left as they are.</p></li>
+    </ul>
+  </div>
+</section>
+
+<section class="sec" id="more" aria-labelledby="more-h">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 id="more-h">Quiet by default.</h2>
+      <p>Paneflo lives in the menu bar, starts working once setup is done, and stays out of the way the rest of the time.</p>
+    </div>
+    <div class="more">
+      <article>
+        <span class="gly" aria-hidden="true"><svg><use href="#i-desk"/></svg></span>
+        <div><h3>The desktop, one card away</h3><p>A Desktop card at the end of the ⌘Tab loop and a Desktop tile in the Overview reveal the desktop by hiding other apps. Turn it off in Settings if you don't want it.</p></div>
+      </article>
+      <article>
+        <span class="gly" aria-hidden="true"><svg><use href="#i-panes"/></svg></span>
+        <div><h3>Settings that explain themselves</h3><p>A sidebar with General, Shortcuts &amp; Help, Tiling, Overview &amp; Gesture, Previews, Desktop, Permissions, Updates and About. Shortcuts &amp; Help lists every key and gesture as searchable keycaps.</p></div>
+      </article>
+      <article>
+        <span class="gly" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m9 12 2.2 2.2L15.5 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <div><h3>Nothing leaves your Mac</h3><p>No analytics and no telemetry. The only network use is checking GitHub for updates and downloading them. Window snapshots stay in memory and are never written to disk.</p></div>
+      </article>
+      <article>
+        <span class="gly" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v4.5h-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <div><h3>Updates you can trust</h3><p>Choose Check for Updates… in the menu, or let Paneflo check once a day. Before a download replaces the app, its size, checksum, version and code signature are verified against your installed copy.</p></div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="shortcuts" aria-labelledby="shortcuts-h">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 id="shortcuts-h">Every shortcut on one page.</h2>
+      <p>The same list lives in Settings › Shortcuts &amp; Help, searchable.</p>
+    </div>
+    <div class="sheet">
+      <div class="group">
+        <h3>Switcher</h3>
+        <dl>
+          <div class="row"><dt><kbd>⌘</kbd><kbd>Tab</kbd></dt><dd>Open, then next window</dd></div>
+          <div class="row"><dt><kbd>⌘</kbd><kbd>⇧</kbd><kbd>Tab</kbd></dt><dd>Previous window</dd></div>
+          <div class="row"><dt><kbd>⌘</kbd><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd></dt><dd>Choose with the arrows</dd></div>
+          <div class="row"><dt><kbd>Release ⌘</kbd></dt><dd>Open the selected window</dd></div>
+          <div class="row"><dt><kbd>⌘</kbd><kbd>A</kbd></dt><dd>Open it without its tile partner</dd></div>
+          <div class="row"><dt><kbd>Esc</kbd></dt><dd>Cancel</dd></div>
+        </dl>
+      </div>
+      <div class="group">
+        <h3>While switching</h3>
+        <dl>
+          <div class="row"><dt><kbd>⌘</kbd><kbd>W</kbd></dt><dd>Close the window</dd></div>
+          <div class="row"><dt><kbd>⌘</kbd><kbd>M</kbd></dt><dd>Minimize it</dd></div>
+          <div class="row"><dt><kbd>⌘</kbd><kbd>H</kbd></dt><dd>Hide its app</dd></div>
+          <div class="row"><dt><kbd>⌘</kbd><kbd>Q</kbd></dt><dd>Quit its app</dd></div>
+        </dl>
+      </div>
+      <div class="group">
+        <h3>Tiling the front window</h3>
+        <dl>
+          <div class="row"><dt><kbd>⌃</kbd><kbd>⌥</kbd><kbd>←</kbd><kbd>→</kbd></dt><dd>Left or right half</dd></div>
+          <div class="row"><dt><kbd>⌃</kbd><kbd>⌥</kbd><kbd>↑</kbd><kbd>↓</kbd></dt><dd>Top or bottom half</dd></div>
+          <div class="row"><dt><kbd>⌃</kbd><kbd>⌥</kbd><kbd>Return</kbd></dt><dd>Fill the display</dd></div>
+          <div class="row"><dt><kbd>⌃</kbd><kbd>⌥</kbd><kbd>Z</kbd></dt><dd>Undo</dd></div>
+        </dl>
+      </div>
+      <div class="group">
+        <h3>Tiling in ⌘Tab and the Overview</h3>
+        <dl>
+          <div class="row"><dt><kbd>⌘</kbd><kbd>⌥</kbd><kbd>←</kbd><kbd>→</kbd></dt><dd>Half; again for the next display</dd></div>
+          <div class="row"><dt><kbd>⌘</kbd><kbd>⌥</kbd><kbd>↑</kbd></dt><dd>Fill the display</dd></div>
+          <div class="row"><dt><kbd>⌘</kbd><kbd>⌥</kbd><kbd>↓</kbd></dt><dd>Undo for the selection</dd></div>
+          <div class="row"><dt><kbd>⌘</kbd><kbd>⌥</kbd><kbd>Return</kbd></dt><dd>Open with its tile partner</dd></div>
+        </dl>
+      </div>
+      <div class="group">
+        <h3>Overview</h3>
+        <dl>
+          <div class="row"><dt><kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd></dt><dd>Open the Overview</dd></div>
+          <div class="row"><dt><kbd>Three-finger swipe ↑ ↓</kbd></dt><dd>Open or close (optional)</dd></div>
+          <div class="row"><dt><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd></dt><dd>Move between places</dd></div>
+          <div class="row"><dt><kbd>Return</kbd></dt><dd>Open the window</dd></div>
+          <div class="row"><dt><kbd>⌥</kbd><kbd>Return</kbd></dt><dd>Open it without its partner</dd></div>
+          <div class="row"><dt><kbd>Esc</kbd></dt><dd>Close, or click the background</dd></div>
+        </dl>
       </div>
     </div>
   </div>
-</div>
+</section>
 
-<div class="wrap">
-  <section id="features" aria-labelledby="what" style="margin-top:56px">
-    <p class="eyebrow">What it does</p>
-    <h2 id="what">Three modules, one list of your windows</h2>
-    <p class="sub">Turn on the ones you want. They share a single window list, so what you see in the switcher is what you can tile and organize.</p>
-
-    <div class="feature">
-      <div class="copy">
-        <h3>A switcher for windows, not just apps</h3>
-        <p>Hold <kbd>⌘</kbd> and press <kbd>Tab</kbd> (<kbd>Shift</kbd> goes back) to pick a single window. Arrow keys choose too, <kbd>Esc</kbd> cancels, and releasing ⌘ brings the window forward. The switcher is a compact Liquid Glass shelf over your desktop: cards show the window itself with its app icon, and the selected window's full title sits underneath (you can turn that off). There are no labels or key hints on the cards.</p>
-        <p>With previews on, the selected window shows a live picture and the others show recent snapshots. A small symbol marks a minimized, hidden, other-Space or paused window, and VoiceOver says whether a picture is live or a snapshot.</p>
-        <span class="tag">Previews are optional and need Screen Recording</span>
-      </div>
-      <div class="mock" role="img" aria-label="Illustration of the switcher: a shelf of window cards with one selected, and a line of text beneath it">
-        <div class="shelf"><div class="card"></div><div class="card sel"></div><div class="card"></div><div class="card"></div></div>
-        <div class="titleline"></div>
-      </div>
+<section class="sec" id="install" aria-labelledby="install-h">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 id="install-h">Set up in a few minutes.</h2>
+      <p>Most of it is granting the permissions macOS asks for. A setup guide walks you through each one.</p>
     </div>
-
-    <div class="feature">
-      <div class="copy">
-        <h3>Tiling, and tiled pairs</h3>
-        <p>Hold <kbd>⌘</kbd><kbd>⌥</kbd> in the picker, or <kbd>⌃</kbd><kbd>⌥</kbd> anywhere, and press an arrow: left or right for a half, up to fill the display, down to undo. <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Z</kbd> undoes the last arrangement. The ⌃⌥ keys tile whichever window is in front, in any app, and the menu bar's <strong>Tile Front Window</strong> submenu offers the same: Left, Right, Top and Bottom Half, Fill and Undo.</p>
-        <p>Two windows in opposite halves of one display become a pair, shown side by side with a link in ⌘Tab. Opening one brings its partner forward; <kbd>⌘</kbd><kbd>⌥</kbd><kbd>Return</kbd> opens the pair explicitly, and <kbd>⌘</kbd><kbd>A</kbd> (or <kbd>⌥</kbd><kbd>Return</kbd> in the Overview) opens just the one window.</p>
-        <p>Snap assist: press <kbd>⌘</kbd><kbd>⌥</kbd><kbd>←</kbd> in the picker, and the selected card outlines the right half; choose another window and press <kbd>⌘</kbd><kbd>⌥</kbd><kbd>→</kbd> to place it beside the first and pair them. Tile a third window into a paired half and it replaces that member: the new window pairs with the other half automatically, and the replaced one returns to where it was when that is known.</p>
-      </div>
-      <div class="mock" role="img" aria-label="Illustration of tiling: one window in the left half and a dashed outline marking the right half where a partner will go">
-        <div class="tile2"><div class="hotp"></div><div class="ghost"></div></div>
-      </div>
-    </div>
-
-    <div class="feature">
-      <div class="copy">
-        <h3>An organized Overview</h3>
-        <p>Press <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd>, or swipe three fingers up on the trackpad, for a panel of every window in slots you control. Arrows move spatially, search keeps slots in place, and Return focuses.</p>
-        <p>While the Overview is open, a slot freed by a closed window waits for the next new one, and you can drag a window onto a free slot to place it, or onto another window to swap. The next time it opens, free slots are gone and windows keep their order; only slots you pinned wait for their app. <strong>Keep empty places for closed windows</strong> (Off, Until Paneflo quits, Always) in Settings keeps them longer.</p>
-        <span class="tag">Gesture is optional and experimental</span>
-      </div>
-      <div class="mock" role="img" aria-label="Illustration of the Overview: a grid of window slots, one dashed free slot, and a window being dragged into place">
-        <div class="slots"><div class="card"></div><div class="card"></div><div class="card sel"></div><div class="card"></div><div class="card"></div><div class="card free"></div><div class="card dragging"></div><div class="card"></div></div>
-        <div class="swipe" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span>
-          <svg viewBox="0 0 20 20"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M10 16V4M5 9l5-5 5 5"/></svg>
-          <span>three-finger swipe up</span></div>
-      </div>
-    </div>
-
-    <div class="feature">
-      <div class="copy">
-        <h3>The desktop, in the loop</h3>
-        <p>A Desktop card ends the ⌘Tab loop and a Desktop tile sits in the Overview. Choose it to reveal the desktop by hiding other apps; choose it again, or any window, to bring things back. You can turn it off in Settings.</p>
-      </div>
-      <div class="mock" role="img" aria-label="Illustration of the Desktop entry: a row of window cards ending in a card that shows a wallpaper">
-        <div class="desktop-mock"><div class="card"></div><div class="card"></div><div class="card wall sel"></div></div>
-      </div>
-    </div>
-
-    <div class="feature">
-      <div class="copy">
-        <h3>Settings, Shortcuts &amp; Help</h3>
-        <p>Settings turn each module and option on or off: the selected window's title, card size, tile pairs, snap assist, empty places, the gesture, and updates. <strong>Shortcuts &amp; Help</strong> lists every key, and the menu bar menu has Switch Windows…, Tile Front Window, Overview and a status line that says whether ⌘Tab is ready. <strong>Hide from Menu Bar</strong> removes the icon while Paneflo and its shortcuts keep running.</p>
-      </div>
-      <div class="mock" role="img" aria-label="Illustration of the Settings window: a sidebar and a few toggles">
-        <div class="settings-mock">
-          <div class="side"><span class="on"></span><span></span><span></span><span></span></div>
-          <div class="body">
-            <div class="row"><i></i><u></u></div>
-            <div class="row"><i></i><u></u></div>
-            <div class="row"><i></i><u class="off"></u></div>
-            <div class="keyrow"><kbd>⌘</kbd><kbd>Tab</kbd><kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd></div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <p class="note"><strong>Paneflo's own overview.</strong> It is a panel Paneflo draws; it does not change Apple's Mission Control or Spaces. The trackpad gesture is experimental: it uses an unsupported macOS interface, needs Apple silicon, and checks at runtime that the trackpad data looks as expected, so Settings tells you when it is unavailable. The system three-finger Mission Control and App Exposé swipes must be turned off first.</p>
-  </section>
-
-  <section id="install" aria-labelledby="install-h">
-    <p class="eyebrow">Install</p>
-    <h2 id="install-h">About a minute, plus the permissions macOS asks for</h2>
-    <p class="sub">Paneflo is a plain download: no installer, no account.</p>
     <ol class="steps">
-      <li>Download <span id="zip-name">the zip</span> from the button above and open it. You get <strong>Paneflo.app</strong>.</li>
-      <li>Move Paneflo.app to your <strong>Applications</strong> folder and keep it there: macOS ties Paneflo's permissions to that copy, and updates replace that copy.</li>
-      <li>Open Paneflo. It isn't notarized by Apple yet, so macOS blocks the first launch once:
-        <ol>
-          <li>In the "Paneflo" Not Opened dialog, click <strong>Done</strong>.</li>
-          <li>Open <span class="path"><strong>System Settings › Privacy &amp; Security</strong></span> and scroll to Security.</li>
-          <li>Next to "Paneflo" was blocked, click <strong>Open Anyway</strong>, then confirm with your password or Touch ID.</li>
-        </ol>
-      </li>
-      <li><strong>Set up Paneflo</strong> opens. On <strong>Give Paneflo access</strong> click <strong>Grant…</strong> on each row, switch Paneflo on in the System Settings pane that opens, then come back: the row turns green by itself. Accessibility and Input Monitoring are required; Screen Recording is optional (window pictures).</li>
-      <li>If a row says <strong>Restart Paneflo to apply</strong>, click <strong>Restart Paneflo</strong>. Otherwise click <strong>Continue</strong>, skip or set up the gesture, and finish. ⌘Tab works as soon as the required permissions are on.</li>
-      <li>For the optional gesture: in <span class="path"><strong>System Settings › Trackpad › More Gestures</strong></span>, turn off the three-finger <strong>Mission Control</strong> and <strong>App Exposé</strong> swipes (or move them to four fingers). Paneflo doesn't change them for you. Then turn the gesture on in the setup window's gesture step, or in Settings › Overview &amp; Gesture.</li>
+      <li><h3>Download</h3><p>Get <b class="zip-name">Paneflo-1.1.0.zip</b> from the latest release on GitHub and unzip it.</p></li>
+      <li><h3>Move it to Applications</h3><p>Drag <b>Paneflo.app</b> into your Applications folder, then open it.</p></li>
+      <li><h3>Allow the first launch</h3><p>Paneflo isn't notarized yet, so macOS blocks the first open. Go to <b>System Settings › Privacy &amp; Security</b> and click <b>Open Anyway</b>. You only do this once.</p></li>
+      <li><h3>Grant access</h3><p>Set up Paneflo opens by itself. Turn on <b>Accessibility</b> and <b>Input Monitoring</b> (both required), and <b>Screen Recording</b> if you want window previews. If a row asks, click <b>Restart Paneflo</b>.</p></li>
+      <li><h3>Hold ⌘ and press Tab</h3><p>That's it. ⌘Tab and the tiling keys work as soon as the required permissions are on.</p></li>
+      <li><h3>Optional: the gesture</h3><p>In <b>System Settings › Trackpad › More Gestures</b>, set Mission Control and App Exposé to four fingers or off, then turn on the gesture in <b>Settings › Overview &amp; Gesture</b>.</p></li>
     </ol>
-  </section>
-
-  <section id="asks" aria-labelledby="asks-h">
-    <p class="eyebrow">Permissions and requirements</p>
-    <h2 id="asks-h">What it asks for</h2>
-    <p class="sub">macOS shows each permission only when you click Grant, and Paneflo explains what it is for first.</p>
-    <div class="two">
-      <dl class="asks panel">
-        <div><dt>Accessibility</dt><dd>To find other apps' windows, focus them and move or resize them. Without it Paneflo can't see or place anything. <span class="path">Privacy &amp; Security › Accessibility</span>.</dd></div>
-        <div><dt>Input Monitoring</dt><dd>To catch ⌘Tab, the tiling shortcuts and the trackpad gesture. <span class="path">Privacy &amp; Security › Input Monitoring</span>.</dd></div>
-        <div><dt>Screen Recording (optional)</dt><dd>Only if you turn on previews, for window thumbnails and the one live preview. Without it the switcher still works, with no pictures. <span class="path">Privacy &amp; Security › Screen &amp; System Audio Recording</span>.</dd></div>
-      </dl>
-      <div class="panel">
-        <h3>Requirements</h3>
-        <ul class="plain">
-          <li><strong>macOS 26 or later</strong> on a Mac with <strong>Apple silicon</strong>.</li>
-          <li>Free and open source under the MIT license. No account, no analytics.</li>
-          <li>See the <a href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/docs/status.md">implementation status</a> for what has and hasn't been verified and its known limits (other Spaces and full-screen windows, for one).</li>
-        </ul>
-      </div>
+    <div class="install-cta">
+      <a class="btn btn-primary" data-download href="https://github.com/Jenish-Shobhit/Paneflo/releases/latest"><svg aria-hidden="true"><use href="#i-down"/></svg><span class="dl-label">Download Paneflo</span></a>
+      <a class="btn btn-quiet" data-release href="https://github.com/Jenish-Shobhit/Paneflo/releases/latest">Release notes</a>
     </div>
-  </section>
+  </div>
+</section>
 
-  <section id="updates" aria-labelledby="updates-h">
-    <p class="eyebrow">Updates</p>
-    <h2 id="updates-h">Updates itself from GitHub, only when you choose</h2>
-    <p class="sub">Updates are optional, checked, and kept to your signing identity.</p>
-    <div class="two">
-      <ul class="plain">
-        <li>Choose <strong>Check for Updates…</strong> in Paneflo's menu bar menu. If a newer version exists you see its release notes and can <strong>Install and Relaunch</strong>, choose <strong>Later</strong>, or <strong>Skip This Version</strong>.</li>
-        <li>Paneflo also checks once a day, quietly, and never while the switcher or Overview is open. Turn that off with <strong>Check for updates automatically</strong> in Settings › Updates; with it off, nothing is requested until you ask.</li>
-      </ul>
-      <ul class="plain">
-        <li><strong>Verified before it's installed.</strong> Paneflo checks the download's size and SHA-256, its bundle ID and version, and that its code signature is valid and made with the same certificate as the copy you're running. Anything else is refused.</li>
-        <li>The old copy goes to the Trash, the new one takes its place and opens, and your permissions carry over because the signing certificate is the same.</li>
-        <li>A copy built locally without the "Paneflo Dev" certificate can't verify a download; install from the <a data-release href="https://github.com/Jenish-Shobhit/Paneflo/releases/latest">releases page</a> instead.</li>
-      </ul>
-    </div>
-  </section>
-
-  <section id="privacy" aria-labelledby="privacy-h">
-    <p class="eyebrow">Privacy</p>
-    <h2 id="privacy-h">Nothing leaves your Mac except an update check</h2>
-    <p class="sub">Paneflo has no analytics, no telemetry and no accounts. Its only network traffic is asking GitHub for the latest release, and downloading it when you choose to update. Nothing about you, your Mac or your windows is sent.</p>
-  </section>
-
-  <section id="faq" aria-labelledby="faq-h">
-    <p class="eyebrow">FAQ</p>
-    <h2 id="faq-h">Questions</h2>
-    <div class="faq" style="margin-top:28px">
+<section class="sec" id="faq" aria-labelledby="faq-h">
+  <div class="wrap">
+    <div class="sec-head"><h2 id="faq-h">Questions</h2></div>
+    <div class="faq">
       <details>
         <summary>macOS says Paneflo can't be opened. Is it safe?</summary>
-        <p>Paneflo isn't notarized by Apple yet, so Gatekeeper blocks the first launch. Open System Settings › Privacy &amp; Security, find the message about Paneflo near the bottom, click Open Anyway and confirm. You only do this once. The source is public, and the signature of every update is checked against your installed copy.</p>
+        <p>Paneflo isn't notarized by Apple yet, so Gatekeeper stops the first launch. Open System Settings › Privacy &amp; Security, find the message about Paneflo and click Open Anyway. The source code is public, and every update's signature is checked against the copy you already have.</p>
       </details>
       <details>
-        <summary>I turned the permissions on but a row is still off.</summary>
-        <p>macOS can keep a permission entry for an older build. In Set up Paneflo, click <strong>Permissions stuck? Reset and grant again</strong>. It clears Paneflo's own entries only and walks you through granting them again. If a row says Restart Paneflo to apply, restart it.</p>
+        <summary>I turned a permission on, but Paneflo still shows it as off.</summary>
+        <p>First click Restart Paneflo if the row asks for it: macOS often applies Input Monitoring and Screen Recording only after a relaunch. If it's still off, macOS may be holding an entry for an older copy. In Set up Paneflo (or Settings › Permissions), click <strong>Permissions stuck? Reset and grant again</strong>. It clears only Paneflo's own entries and walks you through granting them again.</p>
       </details>
       <details>
-        <summary>The three-finger swipe does nothing, or opens Mission Control.</summary>
-        <p>Turn off the system's three-finger Mission Control and App Exposé swipes first (System Settings › Trackpad › More Gestures), then enable the gesture in Settings › Overview &amp; Gesture. The gesture is experimental, and Settings says when it is unavailable on your Mac.</p>
+        <summary>I hid the menu bar icon. How do I get it back?</summary>
+        <p>Open Paneflo again from Spotlight, Launchpad or the Applications folder. The icon comes back and Settings opens on General. While it was hidden, your shortcuts and the gesture kept working.</p>
       </details>
       <details>
-        <summary>I hid the menu bar icon. How do I get Paneflo's menu back?</summary>
-        <p>Open Paneflo again from Spotlight, Launchpad or the Applications folder. That brings back the icon and opens Settings with a note that it was restored. Hiding asks first, and the icon can't be hidden while setup is needed or shortcuts have stopped.</p>
+        <summary>The three-finger swipe opens Mission Control instead.</summary>
+        <p>The system's three-finger Mission Control and App Exposé swipes take priority. Set them to four fingers or off in System Settings › Trackpad › More Gestures, then turn on the gesture in Settings › Overview &amp; Gesture. The gesture is optional and experimental, and works on the built-in trackpad. <span class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd></span> always opens the Overview.</p>
+      </details>
+      <details>
+        <summary>How do updates work?</summary>
+        <p>Choose Check for Updates… in the menu bar menu. Paneflo also checks once a day unless you turn that off in Settings › Updates, and never while the switcher or Overview is showing. A download replaces the app only after its size, SHA-256 checksum, bundle ID, version and code signature are verified, and only if it's signed with the same certificate as your copy, so your permissions carry over.</p>
+      </details>
+      <details>
+        <summary>How do I uninstall Paneflo?</summary>
+        <p>Choose Quit Paneflo from its menu and move Paneflo.app from Applications to the Trash. If you like, remove it from the Accessibility, Input Monitoring and Screen Recording lists in System Settings › Privacy &amp; Security. Its settings and Overview places can be removed with <code>defaults delete dev.paneflo.Paneflo</code> in Terminal.</p>
       </details>
       <details>
         <summary>Does it replace Mission Control or Spaces?</summary>
-        <p>No. The Overview is Paneflo's own panel. It doesn't change Apple's Mission Control or control native Spaces.</p>
-      </details>
-      <details>
-        <summary>Why does it need Input Monitoring?</summary>
-        <p>To notice ⌘Tab, the tiling shortcuts and the trackpad gesture while another app is in front. Paneflo does not record or store what you type.</p>
+        <p>No. The Overview is Paneflo's own overlay. It doesn't change Mission Control, native Spaces or the system gestures.</p>
       </details>
     </div>
-  </section>
-</div>
+
+    <div class="close">
+      <svg class="wall" aria-hidden="true"><use href="#wallpaper"/></svg>
+      <img src="assets/icon-128.png" width="88" height="88" alt="" loading="lazy">
+      <h2>Every window. In its place.</h2>
+      <div class="cta">
+        <a class="btn btn-primary" data-download href="https://github.com/Jenish-Shobhit/Paneflo/releases/latest"><svg aria-hidden="true"><use href="#i-down"/></svg><span class="dl-label">Download Paneflo</span></a>
+        <a class="btn btn-quiet" href="https://github.com/Jenish-Shobhit/Paneflo">View on GitHub</a>
+      </div>
+      <p class="req" style="margin-top:14px">macOS 26 or later on Apple silicon. Free, MIT licensed.</p>
+    </div>
+  </div>
+</section>
 </main>
 
 <footer>
   <div class="wrap">
-    <a class="brand" href="#top"><img src="icon.png" alt="" width="24" height="24">Paneflo</a>
-    <span>MIT license</span>
-    <a href="https://github.com/Jenish-Shobhit/Paneflo">Source on GitHub</a>
-    <a href="https://github.com/Jenish-Shobhit/Paneflo/issues">Report an issue</a>
-    <a id="notes" data-release href="https://github.com/Jenish-Shobhit/Paneflo/releases/latest">Release notes</a>
-    <a href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/CHANGELOG.md">Changelog</a>
-    <a class="grow" href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/docs/specs/000-product.md">Product spec</a>
+    <a class="brand" href="#top"><img src="assets/icon-64.png" alt="" width="24" height="24" loading="lazy">Paneflo</a>
+    <nav aria-label="Project">
+      <a href="https://github.com/Jenish-Shobhit/Paneflo">Source</a>
+      <a data-release href="https://github.com/Jenish-Shobhit/Paneflo/releases/latest">Releases</a>
+      <a href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/Jenish-Shobhit/Paneflo/issues">Issues</a>
+      <a href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/LICENSE">MIT License</a>
+    </nav>
+    <span class="made">Made for macOS</span>
   </div>
 </footer>
 
 <script>
 (function () {
   "use strict";
-  var api = "https://api.github.com/repos/Jenish-Shobhit/Paneflo/releases/latest";
-  var ghHost = /^https:\/\/github\.com\//;
-  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var doc = document, root = doc.documentElement;
+  var mq = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : { matches: false };
+  function reduced() { return mq.matches; }
+  function $(id) { return doc.getElementById(id); }
+  function el(tag, cls, html) { var e = doc.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
 
-  // The navigation bar gets its hairline once the page scrolls under it.
-  var nav = document.getElementById("nav");
+  /* ---------- Appearance ---------- */
+  var store = { get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+  var saved = store.get("paneflo-theme");
+  if (saved === "light" || saved === "dark") root.setAttribute("data-theme", saved);
+  function isDark() {
+    var t = root.getAttribute("data-theme");
+    if (t) return t === "dark";
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  }
+  var themeBtn = $("theme");
+  function labelTheme() { themeBtn.setAttribute("aria-label", isDark() ? "Switch to light appearance" : "Switch to dark appearance"); }
+  themeBtn.addEventListener("click", function () {
+    var next = isDark() ? "light" : "dark";
+    root.setAttribute("data-theme", next); store.set("paneflo-theme", next); labelTheme();
+  });
+  labelTheme();
+
+  var nav = $("nav");
   function onScroll() { nav.classList.toggle("scrolled", window.scrollY > 8); }
-  window.addEventListener("scroll", onScroll, { passive: true });
-  onScroll();
+  window.addEventListener("scroll", onScroll, { passive: true }); onScroll();
 
-  // The hero desk: panes settle into a grid once. Static when motion is reduced.
-  var desk = document.getElementById("desk");
-  if (reduce) desk.classList.add("placed");
-  else window.addEventListener("load", function () { setTimeout(function () { desk.classList.add("placed"); }, 450); });
+  /* ---------- Invented windows ---------- */
+  var PV = {
+    notes: '<i class="h"></i><i class="l"></i>',
+    mail: '<i class="side"></i><i class="rows"></i>',
+    editor: '<i class="t"></i>',
+    web: '<i class="url"></i><i class="img"></i><i class="tx"></i>',
+    term: '<i class="tx"></i><i class="cur"></i>',
+    music: '<i class="art"></i><span class="eq"><b></b><b></b><b></b><b></b><b></b></span>',
+    photos: '<span class="g"><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b></span>',
+    cal: '<i class="g"></i><i class="e1"></i><i class="e2"></i>',
+    pdf: '<i class="pg"></i>',
+    desk: '<svg aria-hidden="true"><use href="#wallpaper"/></svg>'
+  };
+  function preview(kind) { return '<div class="pv pv-' + kind + '">' + PV[kind] + '</div>'; }
+  function chip(kind) { return '<span class="ai ai-' + kind + '"><svg aria-hidden="true"><use href="#i-' + kind + '"/></svg></span>'; }
+  function dwin(w) {
+    var d = el("div", "dwin");
+    d.innerHTML = '<div class="bar"><i></i><i></i><i></i><span>' + esc(w.title) + '</span></div>' + preview(w.kind);
+    return d;
+  }
+  function setFrame(node, f) { node.style.setProperty("--x", f[0]); node.style.setProperty("--y", f[1]); node.style.setProperty("--w", f[2]); node.style.setProperty("--h", f[3]); }
 
-  // The newest release: its version on the buttons, its zip as the link. Without an answer (no release yet, a rate
-  // limit, offline, a script blocker) every link keeps pointing at the latest release's page on GitHub.
+  /* ---------- Switcher demo ---------- */
+  var BASE = [
+    { id: "notes", app: "Notes", title: "Trip to Lisbon", kind: "notes", frame: [4, 6, 30, 46] },
+    { id: "mail", app: "Mail", title: "Inbox", kind: "mail", frame: [27, 4, 42, 50] },
+    { id: "editor", app: "Editor", title: "chapter-03.md", kind: "editor", pair: "web", frame: [0, 0, 50, 100] },
+    { id: "web", app: "Browser", title: "Field notes on tides", kind: "web", pair: "editor", frame: [50, 0, 50, 100] },
+    { id: "term", app: "Terminal", title: "~/projects/orbit", kind: "term", frame: [71, 7, 26, 36] },
+    { id: "music", app: "Music", title: "Late Night Radio", kind: "music", frame: [6, 62, 24, 32] },
+    { id: "photos", app: "Photos", title: "Coast, 2025", kind: "photos", minimized: true, frame: [28, 10, 44, 66] }
+  ];
+  var AGO = ["", "1 minute ago", "3 minutes ago", "3 minutes ago", "6 minutes ago", "12 minutes ago", "an hour ago"];
+  var sw = { wins: [], sel: 1, open: true, desktop: false, timer: 0 };
+  var shelf = $("shelf"), swTitle = $("sw-title"), swDesk = $("sw-desk"), swOverlay = $("sw-overlay"), swStatus = $("sw-status"), swStage = $("sw-stage");
+  var deskNodes = {};
+
+  function swReset() {
+    sw.wins = BASE.map(function (w) { var c = {}; for (var k in w) c[k] = w[k]; c.hidden = false; return c; });
+    sw.sel = 1; sw.desktop = false;
+    swDesk.innerHTML = ""; deskNodes = {};
+    sw.wins.forEach(function (w) { var d = dwin(w); setFrame(d, w.frame); deskNodes[w.id] = d; swDesk.appendChild(d); });
+    swRender(); swDeskRender();
+  }
+  // Shelf entries: windows in MRU order, tile pairs grouped at the first member, Desktop last.
+  function entries() {
+    var out = [], seen = {};
+    sw.wins.forEach(function (w) {
+      if (seen[w.id]) return;
+      seen[w.id] = true;
+      var p = w.pair && find(w.pair);
+      if (p) { seen[p.id] = true; var a = w.frame[0] <= p.frame[0] ? [w, p] : [p, w]; out.push({ pair: a }); }
+      else out.push({ win: w });
+    });
+    out.push({ desktop: true });
+    return out;
+  }
+  function flat() { var f = []; entries().forEach(function (e) { if (e.pair) f.push(e.pair[0], e.pair[1]); else f.push(e.win || { id: "desktop", desktop: true }); }); return f; }
+  function find(id) { for (var i = 0; i < sw.wins.length; i++) if (sw.wins[i].id === id) return sw.wins[i]; return null; }
+
+  function cardFor(w, i, selected) {
+    var c = el("div", "card");
+    c.id = "swc-" + w.id; c.setAttribute("role", "option"); c.dataset.i = i;
+    if (w.desktop) {
+      c.innerHTML = preview("desk") + '<div class="meta">' + chip("desk") + '<span class="tt">Desktop</span><span class="an">Show Desktop</span></div>';
+      c.setAttribute("aria-label", "Desktop. Reveals the desktop by hiding other apps.");
+    } else {
+      var mru = sw.wins.indexOf(w);
+      var mark = w.minimized ? "min" : w.hidden ? "hid" : "";
+      c.innerHTML = preview(w.kind) + (mark ? '<span class="mark"><svg><use href="#i-' + mark + '"/></svg></span>' : "") +
+        '<div class="meta">' + chip(w.kind) + '<span class="tt">' + esc(w.title) + '</span><span class="an">' + esc(w.app) + '</span></div>';
+      if (mark) c.classList.add(mark);
+      var state = selected && !w.minimized && !w.hidden ? "live preview" : "snapshot from " + (AGO[mru] || "a while ago");
+      c.setAttribute("aria-label", w.title + ", " + w.app + (w.minimized ? ", minimized" : w.hidden ? ", hidden" : "") + (w.pair ? ", in a tile pair" : "") + ", " + state);
+    }
+    if (selected) { c.classList.add("sel"); c.setAttribute("aria-selected", "true"); if (!w.desktop && !w.minimized && !w.hidden) c.classList.add("live"); }
+    else c.setAttribute("aria-selected", "false");
+    return c;
+  }
+
+  function swRender() {
+    var f = flat();
+    if (sw.sel >= f.length) sw.sel = f.length - 1;
+    if (sw.sel < 0) sw.sel = 0;
+    var selW = f[sw.sel], i = 0;
+    shelf.innerHTML = "";
+    entries().forEach(function (e) {
+      if (e.pair) {
+        var g = el("div", "pair");
+        e.pair.forEach(function (w) {
+          var c = cardFor(w, i, i === sw.sel);
+          if (selW && selW.pair === w.id) c.classList.add("partner");
+          g.appendChild(c); i++;
+        });
+        var l = el("span", "link", '<svg aria-hidden="true"><use href="#i-link"/></svg>'); l.setAttribute("aria-hidden", "true"); g.appendChild(l);
+        shelf.appendChild(g);
+      } else { shelf.appendChild(cardFor(e.win || { id: "desktop", desktop: true }, i, i === sw.sel)); i++; }
+    });
+    shelf.setAttribute("aria-activedescendant", "swc-" + selW.id);
+    swTitle.textContent = selW.desktop ? "Desktop" : selW.title;
+    fitShelf();
+  }
+  // One to three balanced rows, like the real shelf.
+  function fitShelf() {
+    var W = swStage.clientWidth;
+    var cw = Math.max(84, Math.min(122, Math.round(W / 10.6)));
+    shelf.style.setProperty("--cw", cw + "px");
+    var n = flat().length, gap = 10, pad = 24 + 2;
+    var avail = Math.min(W - 32, 1180) - pad;
+    var per = Math.max(1, Math.floor((avail + gap) / (cw + 12 + gap)));
+    var rows = Math.min(3, Math.ceil(n / per));
+    var cols = Math.ceil(n / rows);
+    if (cols % 2 && cols < per) cols++; // keep the pair on one row
+    shelf.style.width = Math.min(avail, cols * (cw + 12) + (cols - 1) * gap) + pad + "px";
+  }
+  function swDeskRender() {
+    var mb = $("mb-app");
+    var shown = 0, front = null;
+    var pairFront = sw.wins[0] && sw.wins[0].pair ? [sw.wins[0].id, sw.wins[0].pair] : [];
+    sw.wins.forEach(function (w, i) {
+      var d = deskNodes[w.id];
+      d.style.zIndex = 20 - i;
+      var visible = !w.minimized && !w.hidden && (!w.pair || pairFront.indexOf(w.id) >= 0) && (pairFront.length ? pairFront.indexOf(w.id) >= 0 || shown < 4 : shown < 4);
+      if (pairFront.length && pairFront.indexOf(w.id) < 0) visible = false;
+      d.classList.toggle("gone", !visible);
+      if (visible) { shown++; if (!front) front = w; }
+    });
+    swDesk.classList.toggle("revealed", sw.desktop);
+    mb.textContent = sw.desktop ? "Finder" : front ? front.app : "Finder";
+  }
+  function swSelect(i) { var n = flat().length; sw.sel = (i % n + n) % n; swRender(); }
+  function swOpen() {
+    var f = flat(), w = f[sw.sel];
+    clearTimeout(sw.timer);
+    if (w.desktop) {
+      sw.desktop = true;
+      swStatus.textContent = "Showing the desktop. Other apps are hidden until you open a window.";
+    } else {
+      sw.desktop = false;
+      w.minimized = false; w.hidden = false;
+      sw.wins.splice(sw.wins.indexOf(w), 1); sw.wins.unshift(w);
+      if (w.pair) { var p = find(w.pair); if (p) { p.minimized = false; p.hidden = false; sw.wins.splice(sw.wins.indexOf(p), 1); sw.wins.splice(1, 0, p); } }
+      swStatus.textContent = "Opened " + w.title + " in " + w.app + (w.pair ? ", with its tile partner." : ".");
+      var d = deskNodes[w.id]; d.classList.remove("pop"); void d.offsetWidth; d.classList.add("pop");
+    }
+    shelf.classList.add("away"); swOverlay.classList.add("closed");
+    swDeskRender();
+    sw.timer = setTimeout(function () { sw.sel = 1; swRender(); shelf.classList.remove("away"); swOverlay.classList.remove("closed"); }, reduced() ? 900 : 1500);
+  }
+  function swAction(key) {
+    var f = flat(), w = f[sw.sel];
+    if (!w || w.desktop) { swStatus.textContent = "Window actions apply to windows, not the Desktop card."; return; }
+    var msg;
+    if (key === "w") { sw.wins.splice(sw.wins.indexOf(w), 1); unpair(w); msg = "Closed " + w.title + "."; deskNodes[w.id].classList.add("gone"); }
+    else if (key === "m") { w.minimized = true; unpair(w); msg = "Minimized " + w.title + "."; }
+    else if (key === "h") { sw.wins.forEach(function (x) { if (x.app === w.app) x.hidden = true; }); msg = "Hid " + w.app + "."; }
+    else if (key === "q") { sw.wins = sw.wins.filter(function (x) { if (x.app === w.app) { unpair(x); return false; } return true; }); msg = "Quit " + w.app + "."; }
+    swStatus.innerHTML = esc(msg) + ' The switcher stays open. <button class="reset" type="button" id="sw-reset">Reset demo</button>';
+    $("sw-reset").addEventListener("click", function () { swReset(); swStatus.textContent = "Demo reset."; shelf.focus(); });
+    swRender(); swDeskRender();
+  }
+  function unpair(w) { if (w.pair) { var p = find(w.pair); if (p) delete p.pair; delete w.pair; } }
+
+  // Spatial up/down between shelf rows.
+  function spatial(container, selector, current, dir) {
+    var items = [].slice.call(container.querySelectorAll(selector));
+    var cur = items[current]; if (!cur) return current;
+    var r = cur.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2, best = -1, bestD = Infinity;
+    items.forEach(function (it, i) {
+      if (i === current || it.classList.contains("dim")) return;
+      var q = it.getBoundingClientRect(), qx = q.left + q.width / 2, qy = q.top + q.height / 2;
+      var dx = qx - cx, dy = qy - cy;
+      var ok = dir === "up" ? dy < -4 : dir === "down" ? dy > 4 : dir === "left" ? dx < -4 : dx > 4;
+      if (!ok) return;
+      var d = (dir === "up" || dir === "down") ? Math.abs(dy) * 1 + Math.abs(dx) * 2 : Math.abs(dx) + Math.abs(dy) * 3;
+      if (d < bestD) { bestD = d; best = i; }
+    });
+    return best < 0 ? current : best;
+  }
+
+  var cmdKey = $("k-cmd"), tabKey = $("k-tab"), arrKey = $("k-arr"), retKey = $("k-ret");
+  function flash(k) { if (!k) return; k.classList.add("hit"); setTimeout(function () { k.classList.remove("hit"); }, 160); }
+  shelf.addEventListener("focus", function () { cmdKey.classList.add("held"); });
+  shelf.addEventListener("blur", function () { cmdKey.classList.remove("held"); });
+  shelf.addEventListener("keydown", function (e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    var n = flat().length, k = e.key;
+    if (shelf.classList.contains("away")) { if (k === "Tab") return; e.preventDefault(); return; }
+    if (k === "Tab") {
+      // Tab steps through the cards; past either end it leaves the demo, so the page never traps focus.
+      if (!e.shiftKey && sw.sel < n - 1) { e.preventDefault(); swSelect(sw.sel + 1); flash(tabKey); }
+      else if (e.shiftKey && sw.sel > 0) { e.preventDefault(); swSelect(sw.sel - 1); flash(tabKey); }
+      return;
+    }
+    if (k === "ArrowRight") { e.preventDefault(); swSelect(sw.sel + 1); flash(arrKey); }
+    else if (k === "ArrowLeft") { e.preventDefault(); swSelect(sw.sel - 1); flash(arrKey); }
+    else if (k === "ArrowDown" || k === "ArrowUp") { e.preventDefault(); swSelect(spatial(shelf, ".card", sw.sel, k === "ArrowUp" ? "up" : "down")); flash(arrKey); }
+    else if (k === "Enter" || k === " ") { e.preventDefault(); flash(retKey); swOpen(); }
+    else if (/^[wmhq]$/i.test(k)) { e.preventDefault(); swAction(k.toLowerCase()); }
+    else if (k === "Escape") { shelf.blur(); }
+  });
+  var lastPointer = "mouse";
+  shelf.addEventListener("pointerdown", function (e) { lastPointer = e.pointerType; });
+  shelf.addEventListener("pointerover", function (e) {
+    if (e.pointerType !== "mouse") return;
+    var c = e.target.closest(".card"); if (!c || shelf.classList.contains("away")) return;
+    var i = +c.dataset.i; if (i !== sw.sel) swSelect(i);
+  });
+  shelf.addEventListener("click", function (e) {
+    var c = e.target.closest(".card"); if (!c || shelf.classList.contains("away")) return;
+    var i = +c.dataset.i;
+    if (i !== sw.sel) { swSelect(i); if (lastPointer !== "mouse") return; }
+    swOpen();
+  });
+  var rt; window.addEventListener("resize", function () { clearTimeout(rt); rt = setTimeout(fitShelf, 80); });
+  swReset();
+
+  /* ---------- Pair illustration ---------- */
+  (function () {
+    var host = $("pair-art"), g = el("div", "pair");
+    var a = { id: "pa", title: "chapter-03.md", app: "Editor", kind: "editor" }, b = { id: "pb", title: "Field notes on tides", app: "Browser", kind: "web" };
+    var ca = el("div", "card sel"); ca.innerHTML = preview("editor") + '<div class="meta">' + chip("editor") + '<span class="tt">' + a.title + '</span><span class="an">' + a.app + '</span></div>';
+    var cb = el("div", "card partner"); cb.innerHTML = preview("web") + '<div class="meta">' + chip("web") + '<span class="tt">' + b.title + '</span><span class="an">' + b.app + '</span></div>';
+    g.style.setProperty("--cw", "150px");
+    g.appendChild(ca); g.appendChild(cb); g.appendChild(el("span", "link", '<svg><use href="#i-link"/></svg>'));
+    host.appendChild(g);
+  })();
+
+  /* ---------- Tiling demo ---------- */
+  var ZONES = { left: [0, 0, 50, 100], right: [50, 0, 50, 100], top: [0, 0, 100, 50], bottom: [0, 50, 100, 50], fill: [0, 0, 100, 100] };
+  var ZNAME = { left: "the left half", right: "the right half", top: "the top half", bottom: "the bottom half", fill: "the whole display" };
+  var TL0 = [
+    { id: "a", app: "Editor", title: "chapter-03.md", kind: "editor", frame: [6, 10, 46, 62] },
+    { id: "b", app: "Browser", title: "Field notes on tides", kind: "web", frame: [38, 22, 52, 66] },
+    { id: "c", app: "Terminal", title: "~/projects/orbit", kind: "term", frame: [58, 6, 34, 40] }
+  ];
+  var tl = { wins: {}, order: [], undo: [], nodes: {}, auto: 0, played: false };
+  var tlDesk = $("tl-desk"), tlNarr = $("tl-narr"), tlStage = $("tl-stage"), tlLink = el("span", "tl-link", '<svg aria-hidden="true"><use href="#i-link"/></svg>');
+  tlLink.setAttribute("aria-hidden", "true");
+  function same(f, g) { return f[0] === g[0] && f[1] === g[1] && f[2] === g[2] && f[3] === g[3]; }
+  function zoneOf(f) { for (var z in ZONES) if (z !== "fill" && same(f, ZONES[z])) return z; return null; }
+  var OPP = { left: "right", right: "left", top: "bottom", bottom: "top" };
+  function tlReset() {
+    tl.wins = {}; tl.order = []; tl.undo = []; tlDesk.innerHTML = ""; tl.nodes = {};
+    TL0.forEach(function (w) {
+      var c = { id: w.id, app: w.app, title: w.title, kind: w.kind, frame: w.frame.slice(), free: w.frame.slice() };
+      tl.wins[w.id] = c; tl.order.push(w.id);
+      var d = dwin(c); d.setAttribute("role", "button"); d.setAttribute("tabindex", "-1"); d.dataset.id = w.id;
+      d.setAttribute("aria-label", "Bring " + w.title + " to the front");
+      tl.nodes[w.id] = d; tlDesk.appendChild(d);
+    });
+    tlDesk.appendChild(tlLink);
+    tlFront("a", true); tlRender();
+  }
+  function tlFront(id, silent) {
+    tl.order.splice(tl.order.indexOf(id), 1); tl.order.push(id); tlRender();
+    if (!silent) tlNarr.textContent = tl.wins[id].title + " is the front window.";
+  }
+  function pairNow() {
+    var occ = {};
+    for (var id in tl.wins) { var z = zoneOf(tl.wins[id].frame); if (z) (occ[z] = occ[z] || []).push(id); }
+    if (occ.left && occ.right && occ.left.length === 1 && occ.right.length === 1) return { a: occ.left[0], b: occ.right[0], v: true };
+    if (occ.top && occ.bottom && occ.top.length === 1 && occ.bottom.length === 1) return { a: occ.top[0], b: occ.bottom[0], v: false };
+    return null;
+  }
+  function tlRender() {
+    var p = pairNow();
+    tl.order.forEach(function (id, i) {
+      var d = tl.nodes[id], w = tl.wins[id];
+      setFrame(d, w.frame); d.style.zIndex = 10 + i;
+      d.classList.toggle("front", i === tl.order.length - 1);
+      d.classList.toggle("paired", !!p && (p.a === id || p.b === id));
+    });
+    if (p) { tlLink.style.left = p.v ? "50%" : "50%"; tlLink.style.top = p.v ? "50%" : "50%"; }
+    tlLink.classList.toggle("on", !!p);
+    $("tl-app").textContent = tl.wins[tl.order[tl.order.length - 1]].app;
+  }
+  function snapshot() { var s = {}; for (var id in tl.wins) s[id] = { frame: tl.wins[id].frame.slice(), free: tl.wins[id].free.slice() }; return s; }
+  function tlTile(zone) {
+    var id = tl.order[tl.order.length - 1], w = tl.wins[id];
+    if (zone === "undo") {
+      var s = tl.undo.pop();
+      if (!s) { tlNarr.textContent = "Nothing to undo."; return; }
+      for (var k in s) { tl.wins[k].frame = s[k].frame; tl.wins[k].free = s[k].free; }
+      tlRender(); tlNarr.textContent = "Undo put back every window the last arrangement moved" + (pairNow() ? ", and the pair is back." : "."); return;
+    }
+    var target = ZONES[zone], before = pairNow(), msg = "";
+    tl.undo.push(snapshot());
+    if (!zoneOf(w.frame) && !same(w.frame, ZONES.fill)) w.free = w.frame.slice();
+    if (zone !== "fill") {
+      for (var o in tl.wins) {
+        if (o === id || !same(tl.wins[o].frame, target)) continue;
+        var other = tl.wins[o];
+        if (before && (before.a === id || before.b === id) && (before.a === o || before.b === o)) { other.frame = w.frame.slice(); msg = " The two swapped halves."; }
+        else { other.frame = other.free.slice(); msg = " " + other.title + " went back to where it was."; }
+      }
+    }
+    w.frame = target.slice();
+    tlRender();
+    var after = pairNow();
+    var text = w.title + " fills " + ZNAME[zone] + "." + msg;
+    if (after && (!before || before.a !== after.a || before.b !== after.b)) text += " " + tl.wins[after.a].title + " and " + tl.wins[after.b].title + " are now a pair.";
+    else if (before && !after) text += " The pair ended.";
+    tlNarr.textContent = text;
+    var b = $("tl-pad").querySelector('[data-zone="' + zone + '"]');
+    if (b) { b.classList.add("hit"); setTimeout(function () { b.classList.remove("hit"); }, 380); }
+  }
+  function stopAuto() { clearTimeout(tl.auto); tl.auto = 0; }
+  function play() {
+    stopAuto(); tlReset();
+    var steps = [
+      function () { tlFront("a", true); tlTile("left"); },
+      function () { tlFront("b", true); tlTile("right"); },
+      function () { tlFront("c", true); tlNarr.textContent = "Now Terminal is in front."; },
+      function () { tlTile("left"); },
+      function () { tlTile("undo"); }
+    ];
+    var i = 0;
+    (function next() { if (i >= steps.length) { tl.auto = 0; return; } steps[i++](); tl.auto = setTimeout(next, 1700); })();
+  }
+  $("tl-pad").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-zone]"); if (!b) return;
+    stopAuto(); tlTile(b.dataset.zone);
+  });
+  $("tl-replay").addEventListener("click", function () { if (reduced()) { tlReset(); tlNarr.textContent = "Reset. Click a window to bring it to the front, then use the keys."; } else play(); });
+  tlDesk.addEventListener("click", function (e) { var d = e.target.closest(".dwin"); if (!d) return; stopAuto(); tlFront(d.dataset.id); });
+  tlStage.addEventListener("keydown", function (e) {
+    var map = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "top", ArrowDown: "bottom", Enter: "fill", z: "undo", Z: "undo" };
+    var z = map[e.key];
+    if (z) { e.preventDefault(); stopAuto(); tlTile(z); return; }
+    if (/^[123]$/.test(e.key)) { e.preventDefault(); stopAuto(); tlFront(["a", "b", "c"][+e.key - 1]); }
+  });
+  tlReset();
+  if (!reduced() && "IntersectionObserver" in window) {
+    var io = new IntersectionObserver(function (es) {
+      es.forEach(function (en) { if (en.isIntersecting && !tl.played) { tl.played = true; play(); io.disconnect(); } });
+    }, { threshold: .6 });
+    io.observe(tlStage);
+  }
+
+  /* ---------- Overview demo ---------- */
+  var OV0 = [
+    { t: "desk" },
+    { id: "mail", app: "Mail", title: "Inbox", kind: "mail" },
+    { id: "notes", app: "Notes", title: "Trip to Lisbon", kind: "notes" },
+    { id: "editor", app: "Editor", title: "chapter-03.md", kind: "editor" },
+    { id: "web", app: "Browser", title: "Field notes on tides", kind: "web" },
+    { id: "term", app: "Terminal", title: "~/projects/orbit", kind: "term" },
+    { t: "free" },
+    { id: "music", app: "Music", title: "Late Night Radio", kind: "music" },
+    { id: "pdf", app: "Preview", title: "Floor plan.pdf", kind: "pdf" },
+    { id: "photos", app: "Photos", title: "Coast, 2025", kind: "photos" },
+    { t: "pin", app: "Calendar", kind: "cal" },
+    { id: "notes2", app: "Notes", title: "Groceries", kind: "notes" }
+  ];
+  var ov = { slots: OV0.slice(), sel: 1, q: "", open: true };
+  var grid = $("ov-grid"), q = $("ov-q"), veil = $("ov-veil"), ovCount = $("ov-count"), ovStatus = $("ov-status");
+  function matches(s) { if (!ov.q) return true; var n = ov.q.toLowerCase(); return s.title && (s.title.toLowerCase().indexOf(n) >= 0 || s.app.toLowerCase().indexOf(n) >= 0); }
+  function selectable(i) { var s = ov.slots[i]; return s && (s.id || s.t === "desk") && (s.t === "desk" ? !ov.q : matches(s)); }
+  function ovRender(flip) {
+    var first = {};
+    if (flip && !reduced()) [].forEach.call(grid.children, function (c) { if (c.dataset.key) first[c.dataset.key] = c.getBoundingClientRect(); });
+    grid.innerHTML = "";
+    var count = 0, shown = 0;
+    ov.slots.forEach(function (s, i) {
+      var c = el("div", "slot"); c.dataset.i = i; c.id = "ovs-" + i;
+      if (s.t === "desk") {
+        c.className = "slot desk-tile"; c.dataset.key = "desk";
+        c.innerHTML = preview("desk") + '<div class="meta">' + chip("desk") + '<span class="tt">Desktop</span></div>';
+        c.setAttribute("role", "option"); c.setAttribute("aria-label", "Desktop");
+        if (ov.q) c.classList.add("dim");
+      } else if (s.t === "free") {
+        c.className = "slot free"; c.innerHTML = '<div class="well">Free place</div><div class="meta"><span class="tt">&nbsp;</span></div>';
+        c.setAttribute("aria-hidden", "true");
+      } else if (s.t === "pin") {
+        c.className = "slot pin"; c.innerHTML = '<div class="well"><div>' + chip(s.kind) + 'Waiting for ' + esc(s.app) + '</div></div><div class="meta"><span class="tt">&nbsp;</span></div>';
+        c.setAttribute("aria-hidden", "true");
+      } else {
+        count++;
+        c.className = "slot win"; c.dataset.key = s.id;
+        c.innerHTML = preview(s.kind) + '<div class="meta">' + chip(s.kind) + '<span class="tt">' + esc(s.title) + '</span></div>';
+        c.setAttribute("role", "option"); c.setAttribute("aria-label", s.title + ", " + s.app);
+        if (!matches(s)) c.classList.add("dim"); else shown++;
+      }
+      if (i === ov.sel) { c.classList.add("sel"); c.setAttribute("aria-selected", "true"); }
+      grid.appendChild(c);
+    });
+    grid.setAttribute("aria-activedescendant", "ovs-" + ov.sel);
+    ovCount.textContent = ov.q ? shown + " of " + count + " windows" : count + " windows";
+    if (flip && !reduced()) [].forEach.call(grid.children, function (c) {
+      var a = first[c.dataset.key]; if (!a) return;
+      var b = c.getBoundingClientRect(), dx = a.left - b.left, dy = a.top - b.top;
+      if (!dx && !dy) return;
+      c.style.transition = "none"; c.style.transform = "translate(" + dx + "px," + dy + "px)";
+      requestAnimationFrame(function () { requestAnimationFrame(function () { c.style.transition = "transform .35s cubic-bezier(.2,.8,.2,1)"; c.style.transform = ""; }); });
+    });
+  }
+  function ovFirstMatch() { for (var i = 0; i < ov.slots.length; i++) if (selectable(i)) return i; return ov.sel; }
+  q.addEventListener("input", function () {
+    ov.q = q.value.trim();
+    if (!selectable(ov.sel)) ov.sel = ovFirstMatch();
+    ovRender();
+  });
+  function ovOpenSel() {
+    var s = ov.slots[ov.sel]; if (!selectable(ov.sel)) return;
+    ovStatus.textContent = s.t === "desk" ? "Showing the desktop." : "Opened " + s.title + ". Its place stays the same next time.";
+    ovSetOpen(false);
+    setTimeout(function () { ovSetOpen(true); }, reduced() ? 900 : 1600);
+  }
+  function ovSetOpen(on) {
+    ov.open = on; veil.classList.toggle("closed", !on);
+    $("ov-toggle-l").textContent = on ? "Close Overview" : "Open Overview";
+    if (on) { var s = $("swipe"); s.classList.remove("go"); void s.getBoundingClientRect(); s.classList.add("go"); }
+  }
+  $("ov-toggle").addEventListener("click", function () { ovSetOpen(!ov.open); ovStatus.textContent = ov.open ? "Overview open. Every window is back in its place." : "Overview closed. In Paneflo, Escape or a click on the background closes it."; });
+  function ovKey(e) {
+    var dirs = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
+    if (dirs[e.key] && (e.currentTarget === grid || e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      e.preventDefault();
+      var items = [].slice.call(grid.children), cur = ov.sel, next = cur;
+      // Move spatially, skipping places that can't be chosen.
+      var tries = 0, from = cur;
+      do { var n = spatialSlots(items, from, dirs[e.key]); if (n === from) break; from = n; tries++; } while (!selectable(from) && tries < 12);
+      if (selectable(from)) next = from;
+      ov.sel = next; ovRender();
+    } else if (e.key === "Enter") { e.preventDefault(); ovOpenSel(); }
+    else if (e.key === "Escape") { if (ov.q) { q.value = ""; ov.q = ""; ovRender(); } else { ovSetOpen(false); ovStatus.textContent = "Overview closed. Use the button below to open it again."; } }
+  }
+  function spatialSlots(items, current, dir) {
+    var cur = items[current], r = cur.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2, best = -1, bestD = Infinity;
+    items.forEach(function (it, i) {
+      if (i === current) return;
+      var b = it.getBoundingClientRect(), dx = b.left + b.width / 2 - cx, dy = b.top + b.height / 2 - cy;
+      var ok = dir === "up" ? dy < -4 : dir === "down" ? dy > 4 : dir === "left" ? dx < -4 && Math.abs(dy) < 4 : dx > 4 && Math.abs(dy) < 4;
+      if (!ok) return;
+      var d = (dir === "up" || dir === "down") ? Math.abs(dy) + Math.abs(dx) * 2 : Math.abs(dx);
+      if (d < bestD) { bestD = d; best = i; }
+    });
+    if (best < 0 && (dir === "left" || dir === "right")) { var j = current + (dir === "left" ? -1 : 1); if (j >= 0 && j < items.length) best = j; }
+    return best < 0 ? current : best;
+  }
+  grid.addEventListener("keydown", ovKey);
+  q.addEventListener("keydown", ovKey);
+
+  // Pointer: hover selects, click opens, drag moves or swaps.
+  var drag = null;
+  grid.addEventListener("pointerover", function (e) {
+    if (drag || e.pointerType !== "mouse") return;
+    var c = e.target.closest(".slot"); if (!c) return;
+    var i = +c.dataset.i; if (i !== ov.sel && selectable(i)) { ov.sel = i; [].forEach.call(grid.children, function (x, k) { x.classList.toggle("sel", k === i); x.setAttribute("aria-selected", k === i ? "true" : "false"); }); grid.setAttribute("aria-activedescendant", "ovs-" + i); }
+  });
+  grid.addEventListener("pointerdown", function (e) {
+    var c = e.target.closest(".slot"); if (!c || e.button > 0) return;
+    var i = +c.dataset.i;
+    drag = { i: i, node: c, x: e.clientX, y: e.clientY, moved: false, win: c.classList.contains("win"), target: -1, type: e.pointerType };
+    if (drag.win) { try { c.setPointerCapture(e.pointerId); } catch (err) {} }
+  });
+  grid.addEventListener("pointermove", function (e) {
+    if (!drag || !drag.win) return;
+    var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (!drag.moved && Math.hypot(dx, dy) < 6) return;
+    if (!drag.moved) { drag.moved = true; drag.node.classList.add("dragging"); }
+    drag.node.style.transform = "translate(" + dx + "px," + dy + "px)";
+    drag.node.style.pointerEvents = "none";
+    var under = doc.elementFromPoint(e.clientX, e.clientY), t = under && under.closest && under.closest(".slot");
+    var ti = t && t.parentNode === grid ? +t.dataset.i : -1;
+    if (ti === drag.i || (ti >= 0 && (ov.slots[ti].t === "desk" || ov.slots[ti].t === "pin"))) ti = -1;
+    if (ti !== drag.target) {
+      if (drag.target >= 0 && grid.children[drag.target]) grid.children[drag.target].classList.remove("target");
+      drag.target = ti; if (ti >= 0) grid.children[ti].classList.add("target");
+    }
+  });
+  function endDrag(e, cancel) {
+    if (!drag) return;
+    var d = drag; drag = null;
+    if (!d.moved) {
+      if (cancel) return;
+      var s = ov.slots[d.i];
+      if (selectable(d.i)) {
+        if (d.i !== ov.sel && d.type !== "mouse") { ov.sel = d.i; ovRender(); return; }
+        ov.sel = d.i; ovRender(); ovOpenSel();
+      }
+      return;
+    }
+    d.node.classList.remove("dragging"); d.node.style.pointerEvents = "";
+    if (!cancel && d.target >= 0) {
+      var a = ov.slots[d.i], b = ov.slots[d.target];
+      ov.slots[d.target] = a; ov.slots[d.i] = b;
+      ov.sel = d.target;
+      d.node.style.transform = "";
+      ovRender(true);
+      ovStatus.textContent = b.t === "free" ? a.title + " moved to the free place." : a.title + " and " + b.title + " swapped places.";
+    } else { d.node.style.transition = "transform .25s"; d.node.style.transform = ""; if (d.target >= 0) grid.children[d.target].classList.remove("target"); }
+  }
+  grid.addEventListener("pointerup", function (e) { endDrag(e, false); });
+  grid.addEventListener("pointercancel", function (e) { endDrag(e, true); });
+  ovRender();
+
+  /* ---------- Latest release ---------- */
+  // Every download link starts at the latest release page on GitHub. If the API answers (it may be rate limited,
+  // offline or blocked), the links point straight at the zip and show its version and size.
   if (!window.fetch) return;
-  fetch(api, { headers: { Accept: "application/vnd.github+json" } })
-    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-    .then(function (release) {
-      var version = String(release.tag_name || "").replace(/^v/i, "");
-      if (!/^\d+(\.\d+){0,2}$/.test(version)) return;
-      var assets = release.assets || [];
-      var name = "Paneflo-" + version + ".zip";
-      var zip = assets.filter(function (a) { return a.name === name; })[0];
-      // Only a finished upload: while one is on its way, its link isn't the whole zip yet.
-      if (!zip || (zip.state && zip.state !== "uploaded") || !ghHost.test(zip.browser_download_url)) return;
-      var links = document.querySelectorAll("[data-download]");
-      for (var i = 0; i < links.length; i++) links[i].href = zip.browser_download_url;
-      document.getElementById("download-label").textContent = "Download Paneflo " + version;
-      document.getElementById("zip-name").textContent = name;
-      if (ghHost.test(release.html_url || "")) {
-        var rel = document.querySelectorAll("[data-release]");
-        for (var j = 0; j < rel.length; j++) rel[j].href = release.html_url;
+  var gh = /^https:\/\/github\.com\//;
+  fetch("https://api.github.com/repos/Jenish-Shobhit/Paneflo/releases/latest", { headers: { Accept: "application/vnd.github+json" } })
+    .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then(function (rel) {
+      var assets = (rel && rel.assets) || [];
+      var zip = null;
+      for (var i = 0; i < assets.length; i++) {
+        var a = assets[i];
+        if (a && /^Paneflo-.*\.zip$/.test(a.name) && (!a.state || a.state === "uploaded") && gh.test(a.browser_download_url || "")) { zip = a; break; }
       }
-      var meta = "Version " + version;
-      if (release.published_at) {
-        var date = new Date(release.published_at);
-        if (!isNaN(date)) meta += ", released " + date.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
-      }
-      var mb = Number(zip.size) / 1048576;
-      meta += mb > 0 ? ". A " + (mb >= 10 ? Math.round(mb) : mb.toFixed(1)) + " MB zip" : ". A zip";
-      meta += " for macOS 26 or later on Apple silicon.";
-      document.getElementById("download-meta").textContent = meta;
+      if (!zip) return;
+      var m = /^Paneflo-(.+)\.zip$/.exec(zip.name);
+      var version = String(rel.tag_name || (m && m[1]) || "").replace(/^v/i, "");
+      if (!/^\d+(\.\d+){0,3}([-+.][0-9A-Za-z.-]+)?$/.test(version)) version = m ? m[1] : "";
+      [].forEach.call(doc.querySelectorAll("[data-download]"), function (l) { l.href = zip.browser_download_url; });
+      if (gh.test(rel.html_url || "")) [].forEach.call(doc.querySelectorAll("[data-release]"), function (l) { l.href = rel.html_url; });
+      if (version) [].forEach.call(doc.querySelectorAll(".dl-label"), function (l) { l.textContent = "Download Paneflo " + version; });
+      [].forEach.call(doc.querySelectorAll(".zip-name"), function (l) { l.textContent = zip.name; });
+      var mb = Number(zip.size) / 1048576, parts = [];
+      if (version) parts.push("Version " + version);
+      if (mb > 0) parts.push((mb >= 10 ? Math.round(mb) : mb.toFixed(1)) + " MB");
+      if (rel.published_at) { var dt = new Date(rel.published_at); if (!isNaN(dt)) parts.push("released " + dt.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })); }
+      if (parts.length) doc.querySelector(".dl-version").textContent = parts.join(", ") + ".";
     })
     .catch(function () {});
 })();
