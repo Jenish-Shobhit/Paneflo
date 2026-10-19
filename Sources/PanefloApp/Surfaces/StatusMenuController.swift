@@ -115,16 +115,21 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
     private enum Tag: Int { case header = 100, headerSeparator, finishSetup, finishSeparator, shortcuts, tile, hide }
 
-    /// Tile Front Window's items: the ⌃⌥ chords the shortcut table already routes (`AppDelegate.setShortcuts`), shown as
-    /// display-only key equivalents. Only arrangements that exist are listed.
-    static let tileItems: [(title: String, symbol: String, zone: LayoutZone?, key: String)] = [
-        ("Left Half", "rectangle.lefthalf.filled", .leftHalf, String(UnicodeScalar(NSLeftArrowFunctionKey)!)),
-        ("Right Half", "rectangle.righthalf.filled", .rightHalf, String(UnicodeScalar(NSRightArrowFunctionKey)!)),
-        ("Top Half", "rectangle.tophalf.filled", .topHalf, String(UnicodeScalar(NSUpArrowFunctionKey)!)),
-        ("Bottom Half", "rectangle.bottomhalf.filled", .bottomHalf, String(UnicodeScalar(NSDownArrowFunctionKey)!)),
-        ("Fill", "rectangle.fill", .maximize, "\r"),
-        ("Undo", "arrow.uturn.backward", nil, "z"),
+    /// Tile Front Window's items: the chords the tiling keymap routes (`AppDelegate.shortcutConfiguration`), shown as
+    /// display-only key equivalents that follow the keymap. Only arrangements that exist are listed.
+    static let tileItems: [(title: String, symbol: String, action: TilingShortcutAction)] = [
+        ("Left Half", "rectangle.lefthalf.filled", .leftHalf),
+        ("Right Half", "rectangle.righthalf.filled", .rightHalf),
+        ("Top Half", "rectangle.tophalf.filled", .topHalf),
+        ("Bottom Half", "rectangle.bottomhalf.filled", .bottomHalf),
+        ("Fill", "rectangle.fill", .maximize),
+        ("Undo", "arrow.uturn.backward", .restore),
     ]
+
+    /// The chords shown next to Tile Front Window's items. Changing it updates the open and the next menu.
+    var tilingKeymap = TilingKeymap.defaults {
+        didSet { if tilingKeymap != oldValue, let menu = statusItem?.menu { refresh(menu) } }
+    }
 
     func makeMenu() -> NSMenu {
         let menu = NSMenu()
@@ -152,9 +157,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         let tileMenu = NSMenu(title: "Tile Front Window")
         tileMenu.autoenablesItems = false
         for (index, entry) in Self.tileItems.enumerated() {
-            if entry.zone == nil { tileMenu.addItem(.separator()) }
-            tileMenu.addItem(item(entry.title, entry.symbol, #selector(tileFront(_:)), key: entry.key, modifiers: [.control, .option],
-                                  tag: index))
+            if entry.action.zone == nil { tileMenu.addItem(.separator()) }
+            tileMenu.addItem(item(entry.title, entry.symbol, #selector(tileFront(_:)), tag: index))
         }
         tile.submenu = tileMenu
         menu.addItem(tile)
@@ -183,6 +187,12 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
                 .font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.secondaryLabelColor])
             header.image = MenuBarIcon.dot(dotColor)
             header.setAccessibilityLabel("Status: \(status.title)")
+        }
+        for tileItem in menu.item(withTag: Tag.tile.rawValue)?.submenu?.items ?? [] where !tileItem.isSeparatorItem {
+            guard Self.tileItems.indices.contains(tileItem.tag) else { continue }
+            let equivalent = tilingKeymap.chord(for: Self.tileItems[tileItem.tag].action).flatMap(ShortcutKeyNames.menuKeyEquivalent)
+            tileItem.keyEquivalent = equivalent?.key ?? ""
+            tileItem.keyEquivalentModifierMask = equivalent?.modifiers ?? []
         }
         let setupNeeded = status == .setupNeeded
         menu.item(withTag: Tag.finishSetup.rawValue)?.isHidden = !setupNeeded
@@ -227,7 +237,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     @objc private func hideFromMenuBar() { onHideRequested?() }
     @objc private func tileFront(_ sender: NSMenuItem) {
         guard Self.tileItems.indices.contains(sender.tag) else { return }
-        if let zone = Self.tileItems[sender.tag].zone { onTile?(zone) } else { onUndoTile?() }
+        if let zone = Self.tileItems[sender.tag].action.zone { onTile?(zone) } else { onUndoTile?() }
     }
     @objc private func quit() { onQuit?() }
 

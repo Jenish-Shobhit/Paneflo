@@ -97,6 +97,7 @@ struct TilingPane: View {
                         .buttonStyle(.link).font(.system(size: 11))
                 }
             }
+            TilingShortcutsSection(model: model)
         }
     }
 }

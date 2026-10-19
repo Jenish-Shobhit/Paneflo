@@ -31,6 +31,8 @@ struct PanefloApplication {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let windows = WindowService()
     private let shortcuts = GlobalShortcutService()
+    /// The user's tiling shortcuts (Settings › Tiling), loaded once; `tilingKeymapChanged` keeps it and the store current.
+    private var tilingKeymap = TilingKeymapStore().load()
     private let capture = CaptureController()
     private let gestures = TrackpadGestureService.shared
     /// Show Desktop for the switcher's Desktop card and the Overview home tile.
@@ -368,6 +370,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func configureSettings(_ settings: SettingsWindowController) {
+        settings.setTilingKeymap(tilingKeymap)
+        settings.onTilingKeymapChanged = { [weak self] in self?.tilingKeymapChanged($0) }
+        settings.onShortcutRecordingChanged = { [weak self] in self?.shortcuts.dedicatedChordsSuspended = $0 }
         settings.onOpenSetup = { [weak self] in self?.showSetup(step: .permissions) }
         settings.onGrant = { [weak self] in self?.grant($0) }
         settings.onRestart = { [weak self] in self?.restartForPermissions() }
@@ -431,6 +436,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func installStatusMenu() {
         let menu = statusMenu
+        menu.tilingKeymap = tilingKeymap
         menu.onCheckForUpdates = { UpdateController.shared.checkForUpdates() } // updates hook
         menu.onOpen = { [weak self] in self?.desktop?.present(mode: $0) }
         menu.onSettings = { [weak self] in self?.showSettings(pane: nil) }
@@ -536,13 +542,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             desktop?.setStatus("Paneflo is still reading your windows. Shortcuts start as soon as it finishes.")
             return
         }
-        var tiling: [ShortcutChord: ShortcutAction] = [:]
-        let modifiers: ShortcutModifiers = [.control, .option]
-        for (key, zone) in [(UInt16(123), LayoutZone.leftHalf), (124, .rightHalf), (126, .topHalf), (125, .bottomHalf), (36, .maximize)] {
-            tiling[ShortcutChord(keyCode: key, modifiers: modifiers)] = .tile(zone)
-        }
-        tiling[ShortcutChord(keyCode: 6, modifiers: modifiers)] = .restore
-        _ = shortcuts.start(configuration: .init(switcherEnabled: true, overview: ShortcutChord(keyCode: 49, modifiers: modifiers), tiling: tiling))
+        _ = shortcuts.start(configuration: shortcutConfiguration())
+    }
+
+    private func shortcutConfiguration() -> ShortcutConfiguration {
+        .init(switcherEnabled: true, overview: TilingKeymap.overviewChord, tiling: tilingKeymap.table)
+    }
+
+    /// A shortcut changed in Settings: save it, retarget the running tap (no restart) and the menu's key equivalents.
+    private func tilingKeymapChanged(_ keymap: TilingKeymap) {
+        tilingKeymap = keymap
+        TilingKeymapStore().save(keymap)
+        statusMenu.tilingKeymap = keymap
+        shortcuts.updateConfiguration(shortcutConfiguration())
+        RuntimeDiagnostics.mark("tiling keymap changed assigned=\(keymap.chords.count)")
     }
 
     private func shortcutStateChanged(_ state: GlobalShortcutService.State) {

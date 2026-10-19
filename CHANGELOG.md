@@ -2,6 +2,14 @@
 
 All notable changes to Paneflo are listed here. Versions follow [Semantic Versioning](https://semver.org); releases before 1.0.0 are 0.x milestones.
 
+## Unreleased
+
+### Tiling
+
+- Settings › Tiling › Keyboard Shortcuts: record your own shortcut for each arrangement (halves, quarters, thirds, Fill, Center, Restore). Defaults stay ⌃⌥ with the arrows, Return and Z; the rest start unassigned. Delete clears a shortcut, Escape cancels, Reset to Defaults restores them. Changes apply at once and the menu bar's Tile Front Window shows the new keys.
+- Shortcuts need ⌘, ⌃ or ⌥ (F-keys excepted), can't use Paneflo's own keys, and move from another action rather than doubling up. System chords such as ⌘Q warn instead of blocking.
+- Shortcuts follow the physical key and are shown with the current keyboard layout's character.
+
 ## 1.1.0 — 2026-10-19
 
 ### Switcher

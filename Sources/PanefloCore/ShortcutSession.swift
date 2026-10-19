@@ -104,6 +104,8 @@ public struct ShortcutSession: Sendable {
     /// A persistent surface (Overview) holds real keyboard focus. Gates Command–Option–arrow arranging there.
     public var selectionContextActive = false
     public var compositionActive = false
+    /// A Settings recorder is capturing a key: the Overview and tiling chords pass through instead of firing.
+    public var dedicatedChordsSuspended = false
     private var ownedKeys: Set<UInt16> = []
     public init(configuration: ShortcutConfiguration) { self.configuration = configuration }
 
@@ -140,10 +142,10 @@ public struct ShortcutSession: Sendable {
             }
             return ShortcutRoute()
         }
-        // Arrow hardware may annotate navigation keys as secondary function keys.
-        // Normalize only arrows; Command–Fn–Tab remains an unrelated chord.
+        // Arrow and F-key hardware may annotate them as secondary function keys.
+        // Normalize only those; Command–Fn–Tab remains an unrelated chord.
         let isArrow = (123...126).contains(keyCode)
-        let modifiers = isArrow ? modifiers.subtracting(.function) : modifiers
+        let modifiers = isArrow || TilingShortcutRules.isFunctionKey(keyCode) ? modifiers.subtracting(.function) : modifiers
         // A key press without Command during a switch session means the Command release was
         // missed (tap interruption, secure input). Treat it as that release; never eat the key.
         if switching && !modifiers.contains(.command) && keyCode != 53 {
@@ -190,7 +192,7 @@ public struct ShortcutSession: Sendable {
             switching = false
             action = .openAlone
         }
-        if action == nil && !switching {
+        if action == nil && !switching && !dedicatedChordsSuspended {
             if configuration.overview == chord { action = .overview }
             else { action = configuration.tiling[chord] }
             // A dedicated chord fires once per physical press, unlike switch cycling.

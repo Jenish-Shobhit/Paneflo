@@ -49,6 +49,11 @@ final class GlobalShortcutService {
         get { context.compositionActive }
         set { context.compositionActive = newValue; engine?.update(context) }
     }
+    /// A Settings shortcut recorder is capturing keys: the Overview and tiling chords pass through to it.
+    var dedicatedChordsSuspended: Bool {
+        get { context.dedicatedChordsSuspended }
+        set { context.dedicatedChordsSuspended = newValue; engine?.update(context) }
+    }
 
     isolated deinit {
         engine?.stop()
@@ -68,6 +73,14 @@ final class GlobalShortcutService {
         case .installed: return true
         case .failed(let message): state = .failed(message); return false
         }
+    }
+
+    /// Swaps the chord table on the running tap (or on the one a recovery will install) without a gap or a restart.
+    /// Does nothing while shortcuts are off.
+    func updateConfiguration(_ configuration: Configuration) {
+        guard intendedConfiguration != nil else { return }
+        intendedConfiguration = configuration.isEmpty ? nil : configuration
+        engine?.update(configuration: configuration)
     }
 
     /// The user disables shortcuts: the tap goes away and no automatic retry remains.
@@ -274,6 +287,7 @@ final class ShortcutTapEngine: Sendable {
         var surfaceVisible = false
         var selectionContextActive = false
         var compositionActive = false
+        var dedicatedChordsSuspended = false
     }
     enum Event: Sendable {
         case action(ShortcutAction, ShortcutTapEngine)
@@ -297,6 +311,7 @@ final class ShortcutTapEngine: Sendable {
         router.surfaceVisible = context.surfaceVisible
         router.selectionContextActive = context.selectionContextActive
         router.compositionActive = context.compositionActive
+        router.dedicatedChordsSuspended = context.dedicatedChordsSuspended
         shared = Mutex(Shared(router: router))
         self.emit = emit
     }
@@ -306,7 +321,12 @@ final class ShortcutTapEngine: Sendable {
             $0.router.surfaceVisible = context.surfaceVisible
             $0.router.selectionContextActive = context.selectionContextActive
             $0.router.compositionActive = context.compositionActive
+            $0.router.dedicatedChordsSuspended = context.dedicatedChordsSuspended
         }
+    }
+
+    func update(configuration: ShortcutConfiguration) {
+        shared.withLock { $0.router.configuration = configuration }
     }
 
     /// Creates the tap, starts its thread and enables it. Returns the installed tap's description.

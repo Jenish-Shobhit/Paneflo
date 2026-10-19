@@ -36,6 +36,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     var onRemoveFreeSlots: (() -> Int)?
     /// Clears Overview slots and pins and places the current windows in order (after the confirmation).
     var onResetSlots: (() -> Void)?
+    /// The keymap changed (after validation); the app saves it and applies it to the running tap and the menu.
+    var onTilingKeymapChanged: ((TilingKeymap) -> Void)?
+    /// A shortcut recorder started or stopped capturing keys.
+    var onShortcutRecordingChanged: ((Bool) -> Void)?
     var onGrant: ((SetupPermission) -> Void)?
     var onRestart: (() -> Void)?
     var onReset: (() -> Void)?
@@ -101,6 +105,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     /// A one-line note under Settings › General › Menu Bar ("Menu bar icon restored"); nil clears it.
     func showMenuBarNote(_ note: String?) { model.menuBarNote = note }
     func setAutomaticUpdates(_ enabled: Bool) { model.automaticUpdates = enabled }
+    func setTilingKeymap(_ keymap: TilingKeymap) { if model.tilingKeymap != keymap { model.tilingKeymap = keymap } }
 
     // MARK: Window
 
@@ -123,7 +128,19 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         onRefreshScreenRecording?()
     }
 
-    func windowWillClose(_ notification: Notification) { poller.stop() }
+    func windowWillClose(_ notification: Notification) {
+        poller.stop()
+        endShortcutRecording()
+    }
+
+    /// A recorder can only hear keys while Settings is key, so losing key status ends it too.
+    func windowDidResignKey(_ notification: Notification) { endShortcutRecording() }
+
+    /// Always lets the global tiling chords through again, whichever way the recording ended.
+    private func endShortcutRecording() {
+        if model.recordingAction != nil { model.recordingAction = nil }
+        onShortcutRecordingChanged?(false)
+    }
 
     private func tick() {
         onRefreshScreenRecording?()
@@ -221,7 +238,42 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                 self.onResetSlots?()
                 self.model.slotNote = "Slots reset to your windows’ current order."
             }
+        case .setTilingShortcut(let action, let chord):
+            guard let chord else {
+                model.recordingAction = nil
+                onShortcutRecordingChanged?(false)
+                model.tilingNote = nil; model.tilingNoteIsProblem = false
+                applyTilingKeymap(model.tilingKeymap.clearing(action))
+                return
+            }
+            switch model.tilingKeymap.assigning(chord, to: action) {
+            case .rejected(let rejection):
+                // The recorder keeps listening so another chord can be tried.
+                model.tilingNote = "\(rejection.message) Try another shortcut."
+                model.tilingNoteIsProblem = true
+            case .assigned(let assignment):
+                model.recordingAction = nil
+                onShortcutRecordingChanged?(false)
+                model.tilingNote = assignment.note(for: action)
+                model.tilingNoteIsProblem = false
+                applyTilingKeymap(assignment.keymap)
+            }
+        case .resetTilingShortcuts:
+            model.recordingAction = nil
+            onShortcutRecordingChanged?(false)
+            model.tilingNote = nil; model.tilingNoteIsProblem = false
+            applyTilingKeymap(.defaults)
+        case .setShortcutRecording(let action):
+            if action != nil { model.tilingNote = nil; model.tilingNoteIsProblem = false }
+            model.recordingAction = action
+            onShortcutRecordingChanged?(action != nil)
         }
+    }
+
+    private func applyTilingKeymap(_ keymap: TilingKeymap) {
+        guard model.tilingKeymap != keymap else { return }
+        model.tilingKeymap = keymap
+        onTilingKeymapChanged?(keymap)
     }
 
     static let hideMessage = "Hide Paneflo from the menu bar?"

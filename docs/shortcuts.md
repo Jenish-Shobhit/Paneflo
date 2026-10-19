@@ -24,6 +24,8 @@ Everything here is also listed, searchable, in **Settings › Shortcuts & Help**
 
 ## Tiling
 
+The first four rows are defaults for the anywhere shortcuts, which you can change in **Settings › Tiling › Keyboard Shortcuts** (see below).
+
 | Keys | Action |
 | --- | --- |
 | ⌃⌥← / ⌃⌥→ | Frontmost window to the left / right half |
@@ -33,6 +35,16 @@ Everything here is also listed, searchable, in **Settings › Shortcuts & Help**
 | ⌘⌥← / ⌘⌥→ | Switcher or Overview: selected window to the left / right half (repeat moves to the next display) |
 | ⌘⌥↑ | Fill the display |
 | ⌘⌥↓ | Undo for the selected window |
+
+### Customizing the tiling shortcuts
+
+Each arrangement has a recorder: Left, Right, Top and Bottom Half; the four quarters; First, Middle and Last Third; Fill; Center; and Restore. Click one and press the keys you want. Delete clears it, Escape cancels, and **Reset to Defaults** restores the table above (quarters, thirds and Center start unassigned).
+
+- A shortcut needs ⌘, ⌃ or ⌥ (F-keys may stand alone), so it can't fire while you type.
+- Paneflo's own keys are refused: ⌘Tab, ⌘⇧Tab, ⌘`, Escape, ⌘⌥ with the arrows or Return (switcher and Overview tiling), and ⌃⌥Space (the Overview).
+- A chord already used by another tiling action moves to the new one; the old action becomes unassigned and a note says so.
+- ⌘Q, ⌘W, ⌘H, ⌘M, ⌘Space, ⌃Space and ⌘⇧3/4/5 are allowed with a warning, since macOS or most apps use them.
+- Shortcuts follow the physical key, so they keep working when you change the keyboard layout; the key is shown with the current layout's character. Changes apply immediately and the menu bar's **Tile Front Window** shows the new keys.
 
 ## Tile pairs
 

@@ -104,6 +104,12 @@ enum SettingsAction: Equatable {
     case removeFreeSlots
     /// Overview › Reset Slot Order… (asks first).
     case resetSlots
+    /// Tiling › Keyboard Shortcuts: a recorder captured a chord (nil clears the action's shortcut).
+    case setTilingShortcut(TilingShortcutAction, ShortcutChord?)
+    /// Tiling › Keyboard Shortcuts › Reset to Defaults.
+    case resetTilingShortcuts
+    /// A recorder started (an action) or stopped (nil). While one records, the global tiling chords pass through.
+    case setShortcutRecording(TilingShortcutAction?)
 }
 
 /// Settings state. Exists from launch (cheap, no views); the window and its SwiftUI views are built on first open.
@@ -132,6 +138,14 @@ final class SettingsModel {
     var surface = SurfacePreferences()
     /// What the last Remove Free Slots or Reset Slot Order did; nil until one runs.
     var slotNote: String?
+
+    // Tiling › Keyboard Shortcuts
+    var tilingKeymap = TilingKeymap.defaults
+    /// The action whose recorder is waiting for a key.
+    var recordingAction: TilingShortcutAction?
+    /// What the last assignment did or why it was refused; cleared by the next recording or reset.
+    var tilingNote: String?
+    var tilingNoteIsProblem = false
 
     // Overview & Gesture
     var gestureEnabled = false

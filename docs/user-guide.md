@@ -45,7 +45,7 @@ With ⌘ held, **W** closes the selected window, **M** minimizes it, **H** hides
 
 Tiling works in two places.
 
-- **Anywhere:** ⌃⌥ with the arrows tiles the frontmost window (Left, Right, Top, Bottom half). ⌃⌥Return fills its display and ⌃⌥Z undoes. The target is read when you press the keys; a sheet or dialog arranges its own window. The menu bar's **Tile Front Window** offers the same arrangements.
+- **Anywhere:** ⌃⌥ with the arrows tiles the frontmost window (Left, Right, Top, Bottom half). ⌃⌥Return fills its display and ⌃⌥Z undoes. The target is read when you press the keys; a sheet or dialog arranges its own window. The menu bar's **Tile Front Window** offers the same arrangements. These shortcuts are defaults: **Settings › Tiling › Keyboard Shortcuts** has a recorder for each arrangement, including the quarters, thirds and Center, which start unassigned. Click a recorder and press the keys you want (Delete clears, Escape cancels, Reset to Defaults restores); changes take effect at once. Paneflo refuses a bare key, ⌘Tab and the other switcher keys, and the Overview's ⌃⌥Space, moves a shortcut another action holds, and warns about system chords such as ⌘Q.
 - **In the picker:** ⌘⌥ with the arrows tiles the selected window: Left and Right for a half, Up to fill, Down to undo. Repeating a half moves the window to the next display.
 
 Tiling restores a minimized window and unhides a hidden app first. When nothing can be arranged (a full-screen window, Accessibility off, nothing to undo) a short note near the bottom of the display says why. A window that limits its own size keeps it and its partner takes the rest of the display.
@@ -94,7 +94,7 @@ Menu bar › **Settings…** (⌘,).
 | --- | --- |
 | General | Use Paneflo shortcuts, Launch at login (off by default), Card size, Show selected window title, Show menu bar icon |
 | Shortcuts & Help | Every key and gesture, grouped and searchable |
-| Tiling | Raise tile pairs together, Show pairs side by side, Snap assist (all on by default) |
+| Tiling | Raise tile pairs together, Show pairs side by side, Snap assist (all on by default); Keyboard Shortcuts for each arrangement |
 | Overview & Gesture | Keep empty places, Remove Free Slots, Reset Slot Order…, the gesture and its conflict status, Open Trackpad Settings… |
 | Previews | Window previews and Screen Recording status |
 | Desktop | The Desktop card; experimental macOS Show Desktop option |
