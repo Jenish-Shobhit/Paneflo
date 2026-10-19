@@ -1,6 +1,18 @@
 # Implementation status
 
-Updated for 1.1.0, released 2026-10-19. Automated checks pass; hands-on acceptance of the final bundle is pending.
+Updated for 1.2.1, released 2026-10-19. Automated checks pass; hands-on acceptance of the final bundle is pending.
+
+## 1.2.1
+
+- Fixes to custom tiling shortcuts (Home, End, Page Up/Down, Forward Delete, Enter, number pad, ⌥-only refusal) and to how tiling shortcuts mark cards while the switcher or Overview is open.
+- Snap areas: quick flicks to an edge, a pointer parked at an edge, and lock, sleep or user switch during a drag now behave correctly; the outline tracks the current zone.
+- Details in [CHANGELOG.md](../CHANGELOG.md).
+
+## 1.2.0
+
+- Snap areas: drag a window by its title bar to the top edge to fill, to the left or right edge for that half, or into a corner for a quarter. A translucent outline shows the landing zone; release to place it. On by default.
+- Custom tiling shortcuts: Settings › Tiling › Keyboard Shortcuts records a shortcut for each arrangement. Defaults stay ⌃⌥ with the arrows, Return and Z.
+- Details in [CHANGELOG.md](../CHANGELOG.md) and [user-guide.md](user-guide.md).
 
 ## 1.1.0
 
@@ -34,7 +46,7 @@ Milestone numbers follow the order the work landed.
 
 ## Pending
 
-- Owner hands-on acceptance of the final 1.1.0 bundle, including Stage Manager and windows on other Spaces (not yet exercised by hand): three-finger up and down, Escape across input contexts, tiling (including across displays), search and Return, previews on real windows, Desktop entry.
+- Owner hands-on acceptance of the final 1.2.1 bundle, including Stage Manager and windows on other Spaces (not yet exercised by hand): three-finger up and down, Escape across input contexts, tiling (including across displays), snap areas on real windows, custom tiling shortcuts, search and Return, previews on real windows, Desktop entry.
 - Break-testing: permission revocation, protected and minimized windows, cache stress, multi-display recovery, input methods, VoiceOver.
 - Repeatable memory, CPU, energy and latency measurements, including against other tools. No comparative performance claim is made until those exist.
 
@@ -46,7 +58,10 @@ Milestone numbers follow the order the work landed.
 - Not notarized: first launch needs Open Anyway. Locally built copies signed ad hoc cannot verify updates and lose permissions on rebuild.
 - Shortcut precedence over other tools that also hook ⌘Tab is not guaranteed; Pause Shortcuts in the menu bar menu is the recovery path.
 - While a Paneflo surface is visible and another app has keyboard focus, an Escape meant to end input-method composition in that app is taken by Paneflo.
-- Window matching does not yet survive app relaunches. Pointer-edge snapping and multi-window layouts are out of scope.
+- Snap areas: a window already flush under the menu bar, dragged perfectly straight up, can't move, so it isn't recognized as a drag and doesn't fill. Any sideways motion works.
+- Snap areas: for windows that limit their own size, the outline shows the nominal zone, not the size the window will land at.
+- Snap areas: macOS's own edge tiling, if turned on, also acts on the drag.
+- Window matching does not yet survive app relaunches. Multi-window layouts are out of scope.
 - Results apply to the hosts tested; the supported matrix is macOS 26+ on Apple silicon.
 
 Product acceptance criteria are in [000-product.md](specs/000-product.md), with architecture and capability gates in [001-engineering.md](specs/001-engineering.md).
