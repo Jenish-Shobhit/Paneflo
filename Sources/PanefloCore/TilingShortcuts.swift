@@ -71,12 +71,15 @@ public enum ShortcutRejection: Equatable, Sendable {
     /// ⌘Tab, ⌘⇧Tab, ⌘`, Escape and ⌘⌥ arrows/Return belong to the switcher and its surfaces.
     case reservedBySwitcher
     case overviewChord
+    /// ⌥ (with or without ⇧) on a key that types a character would swallow typing system-wide.
+    case optionTypesCharacters
 
     public var message: String {
         switch self {
         case .needsModifier: "Include ⌘, ⌃ or ⌥ so the shortcut doesn’t fire while you type."
         case .reservedBySwitcher: "Paneflo’s switcher uses that shortcut."
         case .overviewChord: "That opens the Overview."
+        case .optionTypesCharacters: "Option alone types characters; add ⌃ or ⌘."
         }
     }
 }
@@ -110,6 +113,14 @@ public enum TilingShortcutRules {
 
     public static func isFunctionKey(_ keyCode: UInt16) -> Bool { functionKeyCodes.contains(keyCode) }
 
+    /// Keys that print nothing, so ⌥ with them is safe: Return, Enter, Tab, Delete, Forward Delete, Escape, Home, End,
+    /// Page Up/Down, the arrows and the F-keys. Every other key (letters, digits, punctuation, Space, keypad) types.
+    static let nonCharacterKeyCodes: Set<UInt16> = [36, 76, 48, 51, 117, 53, 115, 119, 116, 121, 123, 124, 125, 126]
+
+    public static func producesCharacter(_ keyCode: UInt16) -> Bool {
+        !nonCharacterKeyCodes.contains(keyCode) && !isFunctionKey(keyCode)
+    }
+
     public static func rejection(of chord: ShortcutChord, overview: ShortcutChord?) -> ShortcutRejection? {
         let chord = normalized(chord)
         let modifiers = chord.modifiers
@@ -121,6 +132,7 @@ public enum TilingShortcutRules {
         if modifiers == [.command, .option] && (isArrow || chord.keyCode == 36 || chord.keyCode == 76) { return .reservedBySwitcher }
         if let overview, normalized(overview) == chord { return .overviewChord }
         if modifiers.isDisjoint(with: [.command, .control, .option]) && !isFunctionKey(chord.keyCode) { return .needsModifier }
+        if modifiers.subtracting(.shift) == .option && producesCharacter(chord.keyCode) { return .optionTypesCharacters }
         return nil
     }
 
@@ -303,6 +315,16 @@ public enum ShortcutChordFormat {
         39: "'", 40: "K", 41: ";", 42: "\\", 43: ",", 44: "/", 45: "N", 46: "M", 47: ".", 50: "`",
     ]
 
+    /// Number-pad keys by physical code. They print the same characters as the top row, so they get their own names:
+    /// "Num1" on screen, "Keypad 1" spoken.
+    private static let keypad: [UInt16: String] = [
+        82: "0", 83: "1", 84: "2", 85: "3", 86: "4", 87: "5", 88: "6", 89: "7", 91: "8", 92: "9",
+        65: ".", 67: "*", 69: "+", 71: "Clear", 75: "/", 78: "-", 81: "=",
+    ]
+
+    /// True for number-pad keys other than Enter (which already has its own name).
+    public static func isKeypadKey(_ keyCode: UInt16) -> Bool { keypad[keyCode] != nil }
+
     /// 1 to 20 for F1 to F20.
     public static func functionKeyNumber(_ keyCode: UInt16) -> Int? { functionNumbers[keyCode] }
 
@@ -310,6 +332,7 @@ public enum ShortcutChordFormat {
     public static func fixedKey(_ keyCode: UInt16) -> (glyph: String, spoken: String)? {
         if let key = fixed[keyCode] { return key }
         if let number = functionNumbers[keyCode] { return ("F\(number)", "F\(number)") }
+        if let name = keypad[keyCode] { return ("Num\(name)", "Keypad \(name)") }
         return nil
     }
 

@@ -6,7 +6,6 @@ import SwiftUI
 /// Escape cancels. The global tiling chords pass through while one records (`SettingsAction.setShortcutRecording`).
 struct TilingShortcutsSection: View {
     let model: SettingsModel
-    private var monitor: ShortcutRecordingMonitor { .shared }
 
     var body: some View {
         Section {
@@ -25,13 +24,6 @@ struct TilingShortcutsSection: View {
                 .font(.system(size: 11))
                 .foregroundStyle(model.tilingNoteIsProblem ? Color(nsColor: .systemOrange) : .secondary)
                 .fixedSize(horizontal: false, vertical: true)
-        }
-        .onChange(of: model.recordingAction) { _, action in
-            if action == nil { monitor.stop() } else { monitor.start(model: model) }
-        }
-        .onDisappear {
-            monitor.stop()
-            if model.recordingAction != nil { model.perform(.setShortcutRecording(nil)) }
         }
     }
 }

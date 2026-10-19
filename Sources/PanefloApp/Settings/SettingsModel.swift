@@ -145,8 +145,14 @@ final class SettingsModel {
 
     // Tiling › Keyboard Shortcuts
     var tilingKeymap = TilingKeymap.defaults
-    /// The action whose recorder is waiting for a key.
-    var recordingAction: TilingShortcutAction?
+    /// The action whose recorder is waiting for a key. The key listener follows it here, not in a view, so scrolling a
+    /// recorder off screen never ends a recording; the window controller clears it on close, resign key and pane change.
+    var recordingAction: TilingShortcutAction? {
+        didSet {
+            if recordingAction == nil { ShortcutRecordingMonitor.shared.stop() }
+            else if recordingAction != oldValue { ShortcutRecordingMonitor.shared.start(model: self) }
+        }
+    }
     /// What the last assignment did or why it was refused; cleared by the next recording or reset.
     var tilingNote: String?
     var tilingNoteIsProblem = false

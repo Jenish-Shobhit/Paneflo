@@ -51,8 +51,10 @@ enum ShortcutKeyNames {
         return modifiers
     }
 
-    /// A menu item's key equivalent and modifier mask for a chord, or nil when the key has no menu character.
+    /// A menu item's key equivalent and modifier mask for a chord, or nil when the key has no menu character. Number-pad
+    /// keys have none: a menu equivalent would match the top-row key instead, so the menu shows no key for them.
     static func menuKeyEquivalent(_ chord: ShortcutChord) -> (key: String, modifiers: NSEvent.ModifierFlags)? {
+        if ShortcutChordFormat.isKeypadKey(chord.keyCode) { return nil }
         var mask: NSEvent.ModifierFlags = []
         if chord.modifiers.contains(.command) { mask.insert(.command) }
         if chord.modifiers.contains(.shift) { mask.insert(.shift) }

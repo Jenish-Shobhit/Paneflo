@@ -42,12 +42,40 @@ struct TilingShortcutsTests {
 
     // MARK: Validation
 
+    @Test func optionAloneOnCharacterKeysIsRejected() {
+        for key: UInt16 in [0, 18, 29, 27, 49, 41, 82] {
+            #expect(TilingShortcutRules.rejection(of: chord(key, .option), overview: nil) == .optionTypesCharacters)
+            #expect(TilingShortcutRules.rejection(of: chord(key, [.option, .shift]), overview: nil) == .optionTypesCharacters)
+            #expect(TilingShortcutRules.rejection(of: chord(key, [.option, .control]), overview: nil) == nil)
+            #expect(TilingShortcutRules.rejection(of: chord(key, [.option, .command]), overview: nil) == nil)
+        }
+        for key: UInt16 in [123, 126, 36, 76, 53, 51, 117, 115, 119, 116, 121, 122, 96, 48] {
+            #expect(TilingShortcutRules.rejection(of: chord(key, .option), overview: nil) != .optionTypesCharacters)
+        }
+        #expect(TilingShortcutRules.rejection(of: chord(123, [.option, .shift]), overview: nil) == nil)
+        #expect(TilingShortcutRules.rejection(of: chord(122, .option), overview: nil) == nil)
+        #expect(ShortcutRejection.optionTypesCharacters.message == "Option alone types characters; add ⌃ or ⌘.")
+        #expect(TilingKeymap.defaults.assigning(chord(37, .option), to: .center) == .rejected(.optionTypesCharacters))
+    }
+
+    @Test func keypadKeysReadDifferentlyFromTopRowNumbers() {
+        #expect(ShortcutChordFormat.glyphs(chord(83, .control)) == "⌃Num1")
+        #expect(ShortcutChordFormat.glyphs(chord(18, .control), layoutLabel: "1") == "⌃1")
+        #expect(ShortcutChordFormat.spoken(chord(83, [.control, .option]), layoutLabel: "1") == "Control Option Keypad 1")
+        #expect(ShortcutChordFormat.glyphs(chord(69, .command)) == "⌘Num+")
+        #expect(ShortcutChordFormat.spoken(chord(71, .command)) == "Command Keypad Clear")
+        #expect(ShortcutChordFormat.isKeypadKey(92))
+        #expect(!ShortcutChordFormat.isKeypadKey(25))
+        #expect(!ShortcutChordFormat.isKeypadKey(76))
+        #expect(ShortcutChordFormat.glyphs(chord(76, .control)) == "⌃⌤")
+    }
+
     @Test func requiresCommandControlOrOption() {
         #expect(TilingShortcutRules.rejection(of: chord(0, []), overview: nil) == .needsModifier)
         #expect(TilingShortcutRules.rejection(of: chord(0, .shift), overview: nil) == .needsModifier)
         #expect(TilingShortcutRules.rejection(of: chord(0, [.function]), overview: nil) == .needsModifier)
         #expect(TilingShortcutRules.rejection(of: chord(0, .control), overview: nil) == nil)
-        #expect(TilingShortcutRules.rejection(of: chord(0, .option), overview: nil) == nil)
+        #expect(TilingShortcutRules.rejection(of: chord(123, .option), overview: nil) == nil)
         #expect(TilingShortcutRules.rejection(of: chord(0, [.command, .shift]), overview: nil) == nil)
     }
 
@@ -179,15 +207,15 @@ struct TilingShortcutsTests {
           {"action":"teleport","keyCode":5,"modifiers":8},
           {"action":"center","keyCode":0,"modifiers":0},
           {"action":"firstThird","keyCode":48,"modifiers":1},
-          {"action":"lastThird","keyCode":0,"modifiers":4},
-          {"action":"middleThird","keyCode":0,"modifiers":4},
+          {"action":"lastThird","keyCode":123,"modifiers":4},
+          {"action":"middleThird","keyCode":123,"modifiers":4},
           {"action":"leftHalf","keyCode":49,"modifiers":12}
         ]}
         """.utf8)
         let keymap = TilingKeymap.decode(data)
         #expect(keymap.chord(for: .center) == nil)
         #expect(keymap.chord(for: .firstThird) == nil)
-        #expect(keymap.chord(for: .lastThird) == chord(0, .option))
+        #expect(keymap.chord(for: .lastThird) == chord(123, .option))
         #expect(keymap.chord(for: .middleThird) == nil)
         #expect(keymap.chord(for: .leftHalf) == nil)
         #expect(Set(keymap.chords.values).count == keymap.chords.count)
@@ -233,9 +261,10 @@ struct TilingShortcutsTests {
 
     /// The menu bar's Tile Front Window shows the same chord Settings does: every key Settings names without the keyboard
     /// layout (Escape, arrows, F-keys, ...) has a menu key equivalent, so ⌥⎋ is not shown in Settings and missing from
-    /// the menu.
+    /// the menu. Number-pad keys are the exception: a menu can't tell them from the top row, so they show no key.
     @Test func everyFixedKeyHasAMenuKeyEquivalent() {
-        for keyCode in UInt16(0)...UInt16(127) where ShortcutChordFormat.fixedKey(keyCode) != nil {
+        for keyCode in UInt16(0)...UInt16(127)
+        where ShortcutChordFormat.fixedKey(keyCode) != nil && !ShortcutChordFormat.isKeypadKey(keyCode) {
             #expect(ShortcutChordFormat.menuKeyEquivalent(keyCode) != nil, "key \(keyCode)")
         }
         #expect(ShortcutChordFormat.menuKeyEquivalent(53) == "\u{1b}")
