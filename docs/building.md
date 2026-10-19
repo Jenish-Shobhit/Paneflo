@@ -39,12 +39,17 @@ Tile (`--only tile`): `tileToFinalFrame`, `tileCompletion`, and `releaseToFocus`
 
 Capture (`--only capture`): snapshot and live-frame latencies, teardown time, cache size, and footprint start and end against fixture windows, from `CaptureBench`. It needs Screen Recording for the terminal; without it the bench is recorded as skipped. Values ending in `Ms` are milliseconds, `MiB` are mebibytes, and the rest are counts.
 
+The `churn50` result runs 50 rapid open/select/close cycles. `settledMs` is the time from the last close until zero live streams and zero outstanding snapshots; the last cycle closes while a live stream is running, so it is measured under that condition, and it is omitted when nothing was pending at that close. `pendingAtClose` is the number of live streams plus outstanding snapshots at that final close. `maxLiveStreams` is the highest live-stream count seen during the run; it must not exceed 1.
+
 Launch (`launch`): launches a bench copy of the app, never `/Applications/Paneflo.app`. The copy has the bundle identifier `dev.paneflo.Paneflo.bench`, so its settings and permissions stay apart from the installed app's, and it runs with `--diagnostics --bench-no-input`. `--bench-no-input` is a benchmark-only launch flag: no event tap, no trackpad listener, no setup window, no update check. Metrics:
 
 - `launch.processEntryMark`: milliseconds from spawning the process to the `entry` startup mark.
 - `launch.menuReady`: milliseconds from spawning to the `menuReady=true` startup mark.
-- `idle5s.physicalFootprint`: physical footprint (MiB) of the app 5 s after it was ready, with no permissions granted to the bench copy and no windows scanned.
+- `launch.firstIdle`: milliseconds from spawning to the `startup firstIdle` mark: the launch work, including what it queued on the main queue, has finished and the first frame has been drawn. Recorded only when the build emits the mark; older builds lack it.
+- `idle5s.physicalFootprint`: physical footprint (MiB) of the app 5 s after it was ready. The bench copy inherits the launching terminal's permissions, so it can read the window list when the terminal has them; that metadata stays on the machine and nothing is uploaded.
 - `idle5s.cpuTimeOver1s`: CPU milliseconds used during the 1 s sampling window at that point.
+
+The first launch of a freshly built binary is much slower (about 600 ms before `main`, measured on one Mac); exclude it or report it separately from the warm runs. All numbers from these benches are synthetic and apply only to the machine they were measured on.
 
 Footprint after surface presentations is measured by the surface bench (the footprint metrics above), not by the launched app, because presenting surfaces needs the native-check hooks that exist only in the bench build.
 
