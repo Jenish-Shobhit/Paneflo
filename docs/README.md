@@ -1,5 +1,18 @@
 # Docs
 
+## Guides
+
+- [User guide](user-guide.md): every feature and setting.
+- [Keyboard shortcuts](shortcuts.md): the complete list.
+- [Troubleshooting](troubleshooting.md): permissions, gestures, previews, updates.
+- [Architecture](architecture.md): modules, threads, performance invariants.
+- [Building](building.md): build, test, release and benchmarks.
+- [Manual QA](QA.md): release acceptance checklist.
+- [Status](status.md): verification record and known limits.
+- [Specifications](specs/000-product.md) and [engineering spec](specs/001-engineering.md).
+
+## Site files
+
 What is public here (everything in this folder is served when GitHub Pages is on):
 
 - `index.html` is the download page. It is self-contained (no external scripts), asks the GitHub API for the latest release and links `Paneflo-<version>.zip`, and falls back to the releases page.

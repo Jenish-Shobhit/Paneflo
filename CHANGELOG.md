@@ -112,3 +112,6 @@ First release. Paneflo is a menu-bar app for macOS 26 or later on Apple silicon,
 - Previews keep working after screenshot or window-list requests that macOS never answers.
 - The trackpad gesture recovers from a missing built-in trackpad (for example a closed lid) without restarting Paneflo.
 - Unreadable or newer Overview arrangement data is kept as a backup instead of being overwritten.
+
+[1.1.0]: https://github.com/Jenish-Shobhit/Paneflo/releases/tag/v1.1.0
+[1.0.0]: https://github.com/Jenish-Shobhit/Paneflo/releases/tag/v1.1.0

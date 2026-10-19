@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated for 1.1.0 (source at `e5be2c1` plus release-docs edits). Automated checks pass; hands-on acceptance of the final bundle is pending.
+Updated for 1.1.0, released 2026-10-19. Automated checks pass; hands-on acceptance of the final bundle is pending.
 
 ## 1.1.0
 

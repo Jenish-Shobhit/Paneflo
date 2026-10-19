@@ -1,6 +1,40 @@
-# Building and benchmarking
+# Building, testing and releasing
 
-`scripts/build.sh` and `scripts/test.sh` are described in the README. This page covers `scripts/bench.sh`.
+Requires macOS 26 or later on Apple silicon and Swift 6.2 or newer (Xcode Command Line Tools are enough). No third-party packages.
+
+## Build
+
+```sh
+./scripts/make-signing-identity.sh   # once: creates the self-signed "Paneflo Dev" code-signing certificate
+./scripts/build.sh --install --run   # build, sign, replace /Applications/Paneflo.app, open it
+```
+
+`scripts/build.sh [--debug] [--install] [--run] [--zip]`:
+
+- `--debug` builds a debug configuration (default is release).
+- `--install` quits a running Paneflo and replaces `/Applications/Paneflo.app`; run the installed copy so permissions persist.
+- `--run` opens the result.
+- `--zip` writes `dist/Paneflo-<version>.zip` (release builds only).
+
+The app lands in `build/Paneflo.app`. Without the "Paneflo Dev" identity the bundle is signed ad hoc: macOS asks for permissions again after every rebuild and the copy cannot verify updates. The certificate is local and self-signed; releases are signed with the same one so installed copies accept updates.
+
+`open build/Paneflo.app --args --diagnostics` prints title-free startup phases. If an executor blocks SwiftPM's manifest sandbox, prefix a script with `PANEFLO_SPM_DISABLE_SANDBOX=1`.
+
+## Test
+
+```sh
+./scripts/test.sh
+```
+
+Runs the Swift Testing suites for `PanefloCore` (shortcut routing, sessions, layout, gesture recognition with synthetic replays, snapshot cache and scheduler, window matching, update parsing and verification). Builds and tests can use a lot of memory; run them one at a time. CI runs the same script on `macos-26` ([workflow](../.github/workflows/macos.yml)). Own-process checks live in `Tools/` (`build-native-ui-check.sh`, `test-capture-ownership.sh` and the bench builders); they use synthetic windows. Hands-on acceptance is the checklist in [QA.md](QA.md).
+
+## Release
+
+1. Add a `## <version> — <date>` section to the top of `CHANGELOG.md` and add its link at the bottom.
+2. Commit it on a clean `main`.
+3. Run `scripts/release.sh <version>`. It needs the "Paneflo Dev" identity, the `gh` CLI signed in, and no other uncommitted changes. It bumps the bundle version, builds and zips the signed release app, commits, tags `v<version>`, pushes, and creates the GitHub release with the zip; the notes are every CHANGELOG section since the last tag.
+
+The download page at `docs/index.html` asks the GitHub API for the latest release, so it needs no edit per release.
 
 ## Benchmarks
 

@@ -3,3 +3,6 @@ contact_links:
   - name: Report a security vulnerability
     url: https://github.com/Jenish-Shobhit/Paneflo/security/advisories/new
     about: Please report security problems privately, not as a public issue.
+  - name: Questions and troubleshooting
+    url: https://github.com/Jenish-Shobhit/Paneflo/blob/main/docs/troubleshooting.md
+    about: Permissions, gestures, previews and updates are covered in the troubleshooting guide.

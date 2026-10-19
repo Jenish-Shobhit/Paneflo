@@ -66,6 +66,12 @@ body:
     attributes:
       label: Setup
       description: Number and kind of displays, apps involved, Spaces or full-screen use, which permissions are granted, and Reduce Motion or Reduce Transparency.
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics (startup, permission or shortcut problems)
+      description: Output of `/Applications/Paneflo.app/Contents/MacOS/Paneflo --diagnostics` run in Terminal. It lists startup phases only, no window titles.
+      render: text
   - type: checkboxes
     id: checks
     attributes:
