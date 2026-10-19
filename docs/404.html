@@ -7,38 +7,38 @@
 <meta name="robots" content="noindex">
 <title>Page not found — Paneflo</title>
 <link rel="icon" type="image/png" href="/Paneflo/favicon.png">
-<meta name="theme-color" content="#eef5f3" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#061412" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f7f7f8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0b0c" media="(prefers-color-scheme: dark)">
 <style>
 :root {
-  --paper: #eef5f3; --ink: #062522; --ink-2: #24413d; --teal: #0c7a6e; --teal-hi: #0a6a60; --on-teal: #fff; --coral: #ef6a4a;
-  --sky-1: #a8ddd2; --sky-2: #f7d3c2; --sun-1: #ffb497; --sun-2: rgba(255, 180, 151, 0);
-  --d1: #8fd7c8; --d2: #36a493; --d3: #0f6f64; --d4: #0a4f48; --rib: #f58a6b;
-  --glass-hi: rgba(255, 255, 255, .55); --glass-lo: rgba(255, 255, 255, .22); --glass-edge: rgba(255, 255, 255, .65);
-  --well: rgba(6, 37, 34, .28);
+  --paper: #f7f7f8; --ink: #111113; --ink-2: #3a3a40; --accent: #4f46e5; --accent-hi: #4338ca; --on-accent: #fff; --focus: #4f46e5;
+  --sky-1: #d9dce8; --sky-2: #f6d9cd; --sun-1: #ffae94; --sun-2: rgba(255, 174, 148, 0); --glow: rgba(124, 132, 255, .38);
+  --d1: #c4c8d8; --d2: #8d93aa; --d3: #575d75; --d4: #31354a; --rib: #f58a6b;
+  --glass-hi: rgba(255, 255, 255, .58); --glass-lo: rgba(255, 255, 255, .26); --glass-edge: rgba(255, 255, 255, .65);
+  --well: rgba(17, 17, 19, .26);
   --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Segoe UI", system-ui, Roboto, sans-serif;
   --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper: #061412; --ink: #e6f3f0; --ink-2: #c1d7d2; --teal: #3cc1ad; --teal-hi: #5fd3c0; --on-teal: #031d19; --coral: #ff7d5c;
-    --sky-1: #041a18; --sky-2: #17403b; --sun-1: #e0684a; --sun-2: rgba(224, 104, 74, 0);
-    --d1: #1d6b60; --d2: #13534a; --d3: #0b3c36; --d4: #062a26; --rib: #c9583d;
-    --glass-hi: rgba(40, 70, 66, .6); --glass-lo: rgba(10, 28, 26, .45); --glass-edge: rgba(255, 255, 255, .16);
-    --well: rgba(230, 243, 240, .3);
+    --paper: #0b0b0c; --ink: #f2f2f3; --ink-2: #c9c9ce; --accent: #8b8ff8; --accent-hi: #a5a8fb; --on-accent: #0b0b14; --focus: #8b8ff8;
+    --sky-1: #0c0d12; --sky-2: #262838; --sun-1: #e0684a; --sun-2: rgba(224, 104, 74, 0); --glow: rgba(108, 114, 255, .3);
+    --d1: #3b3f54; --d2: #2b2e3f; --d3: #1e2030; --d4: #131420; --rib: #c9583d;
+    --glass-hi: rgba(64, 64, 76, .6); --glass-lo: rgba(16, 16, 20, .45); --glass-edge: rgba(255, 255, 255, .16);
+    --well: rgba(242, 242, 243, .28);
   }
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body { margin: 0; background: var(--paper); color: var(--ink); font: 17px/1.55 var(--sans); -webkit-font-smoothing: antialiased; }
 .wall { position: fixed; inset: 0; width: 100%; height: 100%; z-index: -1; }
-.s1 { stop-color: var(--sky-1); } .s2 { stop-color: var(--sky-2); } .u1 { stop-color: var(--sun-1); } .u2 { stop-color: var(--sun-2); }
+.s1 { stop-color: var(--sky-1); } .g1 { stop-color: var(--glow); } .s2 { stop-color: var(--sky-2); } .u1 { stop-color: var(--sun-1); } .u2 { stop-color: var(--sun-2); }
 .d1 { fill: var(--d1); } .d2 { fill: var(--d2); } .d3 { fill: var(--d3); } .d4 { fill: var(--d4); } .rib { fill: var(--rib); opacity: .55; }
 main { min-height: 100%; display: grid; place-items: center; padding: 32px 16px; }
 .panel {
   width: min(460px, 100%); padding: 28px; border-radius: 28px; text-align: center;
   background: linear-gradient(170deg, var(--glass-hi), var(--glass-lo) 70%); border: 1px solid var(--glass-edge);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, .6) inset, 0 30px 60px -20px rgba(3, 40, 35, .5);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .6) inset, 0 30px 60px -20px rgba(12, 12, 24, .45);
   -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
 }
 .well {
@@ -50,10 +50,10 @@ h1 { margin: 26px 0 0; font: 700 clamp(30px, 6vw, 40px)/1.05 var(--display); let
 p { margin: 12px 0 0; color: var(--ink-2); }
 a.btn {
   display: inline-flex; align-items: center; justify-content: center; min-height: 44px; margin-top: 24px; padding: 0 22px; border-radius: 999px;
-  background: var(--teal); color: var(--on-teal); font: 600 16px/1 var(--sans); text-decoration: none;
+  background: var(--accent); color: var(--on-accent); font: 600 16px/1 var(--sans); text-decoration: none;
 }
-a.btn:hover { background: var(--teal-hi); }
-a:focus-visible { outline: 3px solid var(--coral); outline-offset: 3px; }
+a.btn:hover { background: var(--accent-hi); }
+a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 @media (prefers-reduced-transparency: reduce) { .panel { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--paper); } }
 </style>
 </head>
@@ -62,9 +62,11 @@ a:focus-visible { outline: 3px solid var(--coral); outline-offset: 3px; }
   <defs>
     <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="s1"/><stop offset="1" class="s2"/></linearGradient>
     <radialGradient id="sun"><stop offset="0" class="u1"/><stop offset="1" class="u2"/></radialGradient>
+    <radialGradient id="glow"><stop offset="0" class="g1"/><stop offset="1" stop-color="#7c84ff" stop-opacity="0"/></radialGradient>
   </defs>
   <rect width="1600" height="1000" fill="url(#sky)"/>
   <circle cx="1120" cy="300" r="400" fill="url(#sun)"/>
+  <circle cx="300" cy="220" r="360" fill="url(#glow)"/>
   <path class="d1" d="M0 440C260 360 470 405 710 460C990 524 1230 370 1600 415V1000H0Z"/>
   <path class="rib" d="M0 530C300 468 540 508 820 548C1100 588 1320 488 1600 500V538C1320 526 1100 628 820 588C540 550 300 506 0 566Z"/>
   <path class="d2" d="M0 590C300 513 560 553 820 613C1080 673 1300 553 1600 571V1000H0Z"/>
