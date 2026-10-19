@@ -217,11 +217,14 @@ my ($bin, $err, $mp, $mpout, $result) = @ARGV;
 my $t0 = time;
 my $pid = fork();
 if (!$pid) { open STDERR, '>', $err; open STDOUT, '>', '/dev/null'; exec($bin, '--diagnostics', '--bench-no-input') or exit 127; }
-my ($entry, $ready);
+my ($entry, $ready, $idle);
 while (time - $t0 < 30) {
   if (open my $f, '<', $err) { local $/; my $t = <$f>; close $f;
     $entry //= (time - $t0) * 1000 if $t =~ /startup: entry/;
-    if ($t =~ /menuReady=true/) { $ready = (time - $t0) * 1000; last } }
+    $ready //= (time - $t0) * 1000 if $t =~ /menuReady=true/;
+    # firstIdle: the launch turn (and whatever it queued on the main queue) is done and committed. Older builds lack it.
+    $idle //= (time - $t0) * 1000 if $t =~ /startup: firstIdle/;
+    last if defined $ready && (defined $idle || time - $t0 > ($ready / 1000) + 2); }
   sleep 0.005;
 }
 if (defined $ready) {
@@ -230,7 +233,7 @@ if (defined $ready) {
 }
 kill 'TERM', $pid; my $d = time; while (time - $d < 3 && waitpid($pid, 1) == 0) { sleep 0.05 } kill 'KILL', $pid; waitpid($pid, 0);
 open my $o, '>', $result;
-printf $o "{\"entryMs\":%s,\"readyMs\":%s}\n", defined $entry ? sprintf("%.1f", $entry) : 'null', defined $ready ? sprintf("%.1f", $ready) : 'null';
+printf $o "{\"entryMs\":%s,\"readyMs\":%s,\"idleMs\":%s}\n", defined $entry ? sprintf("%.1f", $entry) : 'null', defined $ready ? sprintf("%.1f", $ready) : 'null', defined $idle ? sprintf("%.1f", $idle) : 'null';
 PERL
 )
 
@@ -251,6 +254,8 @@ cmd_launch() {
     if [[ "$ready" == null ]]; then skip "$build" launch "menuReady mark not seen within 30 s"; continue; fi
     emit "$build" launch launch.processEntryMark ms "$i" "$entry"
     emit "$build" launch launch.menuReady ms "$i" "$ready"
+    local idle; idle=$(jq '.idleMs' "$tmp/result.json")
+    [[ "$idle" == null ]] || emit "$build" launch launch.firstIdle ms "$i" "$idle"
     emit "$build" launch idle5s.physicalFootprint MiB "$i" "$(jq '.samples[-1].physicalFootprintBytes / 1048576' "$tmp/mp.json")"
     emit "$build" launch idle5s.cpuTimeOver1s ms "$i" "$(jq '(.samples[-1].totalCPUTimeNanoseconds - .samples[0].totalCPUTimeNanoseconds) / 1e6' "$tmp/mp.json")"
     rm -f "$tmp/err.txt" "$tmp/mp.json" "$tmp/result.json"

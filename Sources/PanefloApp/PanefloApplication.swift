@@ -14,6 +14,17 @@ struct PanefloApplication {
         application.setActivationPolicy(.accessory)
         withExtendedLifetime(delegate) { application.run() }
     }
+
+    /// Runs `work` on the main queue once the main run loop is next about to wait, after Core Animation has committed
+    /// the current turn (the observer is ordered after the commit observer). Launch uses it so deferred warm-up never
+    /// delays the first frame. With `--diagnostics` it also marks `startup firstIdle`.
+    static func afterFirstCommit(_ work: @escaping @MainActor @Sendable () -> Void) {
+        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, false, CFIndex.max) { _, _ in
+            RuntimeDiagnostics.mark("startup firstIdle")
+            DispatchQueue.main.async { work() }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+    }
 }
 
 @MainActor
@@ -131,6 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // Pay both panels' first-display cost now, so the first ⌘Tab and Overview are warm.
         DispatchQueue.main.async { [weak controller] in controller?.prewarm() }
+        if RuntimeDiagnostics.isEnabled { PanefloApplication.afterFirstCommit {} }
         // Warm ScreenCaptureKit (first request ~1 s) after startup, off the launch and input paths.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
             guard let self, self.previewsEnabled else { return }
