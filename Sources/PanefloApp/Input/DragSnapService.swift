@@ -18,6 +18,8 @@ final class DragSnapService {
     private var tracker = SnapDragTracker()
     private var monitor: Any?
     private var releaseCheck: Timer?
+    /// Samples the pressed window on time while it has not been seen moving (`SnapDragTracker.awaitsMovement`).
+    private var sampleTimer: Timer?
     private var observers: [NSObjectProtocol] = []
     /// Displays in `WindowService.displayAreas()` order, and the primary display's height; nil after a display change.
     private var displayCache: (areas: [DisplayArea], primaryHeight: Double)?
@@ -54,6 +56,7 @@ final class DragSnapService {
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         if let monitor { NSEvent.removeMonitor(monitor) }
         releaseCheck?.invalidate()
+        sampleTimer?.invalidate()
     }
 
     /// The latest Accessibility reading (from the app's permission reconcile, never from the input path).
@@ -133,6 +136,31 @@ final class DragSnapService {
             case let .snap(number, target): snap(number, to: target)
             }
         }
+        updateSampleTimer()
+    }
+
+    /// A flick can park the pointer at an edge before the window was seen to follow, and a parked pointer sends no
+    /// drag events: while the decision is open the window is sampled on a timer too.
+    private func updateSampleTimer() {
+        guard tracker.awaitsMovement else {
+            sampleTimer?.invalidate()
+            sampleTimer = nil
+            return
+        }
+        guard sampleTimer == nil else { return }
+        let timer = Timer(timeInterval: tracker.settings.sampleInterval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                guard NSEvent.pressedMouseButtons & 1 != 0 else {
+                    self.sampleTimer?.invalidate()
+                    self.sampleTimer = nil
+                    return
+                }
+                self.apply(self.tracker.tick(now: ProcessInfo.processInfo.systemUptime))
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        sampleTimer = timer
     }
 
     // MARK: Window-server reads (background queue)

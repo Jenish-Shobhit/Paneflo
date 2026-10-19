@@ -190,6 +190,39 @@ struct SnapAreasTests {
         #expect(effects == [.showPreview(SnapTarget(zone: .leftHalf, display: 0))])
     }
 
+    /// A flick: the only sample came back before the window followed, then the pointer parks at the edge and no more
+    /// drag events arrive. Time passing still samples the window, so the edge arms and the release snaps.
+    @Test
+    func aFlickThatParksAtAnEdgeStillArms() {
+        var tracker = SnapDragTracker()
+        _ = tracker.mouseDown(at: SnapPoint(x: 700, y: 210), displays: [Self.primary])
+        _ = tracker.windowResolved(Self.window, press: tracker.press, now: 0)
+        #expect(tracker.mouseDragged(to: SnapPoint(x: 700, y: 120), now: 0.01) == [.sampleFrame(window: 42, press: tracker.press)])
+        #expect(tracker.mouseDragged(to: SnapPoint(x: 700, y: 0), now: 0.02) == [], "a sample is outstanding")
+        #expect(tracker.frameSampled(Self.window.frame, press: tracker.press, now: 0.03) == [], "the window has not followed yet")
+        #expect(tracker.awaitsMovement)
+        #expect(tracker.tick(now: 0.035) == [], "within the sample interval")
+        #expect(tracker.tick(now: 0.08) == [.sampleFrame(window: 42, press: tracker.press)])
+        let moved = WindowRect(x: 300, y: 24, width: 800, height: 500)
+        #expect(tracker.frameSampled(moved, press: tracker.press, now: 0.09) == [.showPreview(SnapTarget(zone: .maximize, display: 0))])
+        #expect(!tracker.awaitsMovement)
+        #expect(tracker.tick(now: 0.2) == [])
+        #expect(tracker.mouseUp() == [.hidePreview, .snap(window: 42, target: SnapTarget(zone: .maximize, display: 0))])
+    }
+
+    @Test
+    func ticksDoNothingOutsideAPendingDrag() {
+        var tracker = SnapDragTracker()
+        #expect(tracker.tick(now: 1) == [])
+        _ = tracker.mouseDown(at: SnapPoint(x: 700, y: 210), displays: [Self.primary])
+        #expect(tracker.tick(now: 1.1) == [], "the window is not known yet")
+        _ = tracker.windowResolved(Self.window, press: tracker.press, now: 1.2)
+        #expect(tracker.tick(now: 1.3) == [], "a press that has not moved yet is not sampled")
+        _ = tracker.cancel()
+        #expect(!tracker.awaitsMovement)
+        #expect(tracker.tick(now: 1.4) == [])
+    }
+
     @Test
     func aResizeIsNeverASnap() {
         for resized in [WindowRect(x: 300, y: 200, width: 830, height: 500),   // right edge

@@ -335,6 +335,20 @@ public struct SnapDragTracker: Sendable {
         return effects + evaluate(window, current: nil)
     }
 
+    /// True while the window under the press is known but not yet seen moving. The caller then calls `tick` every
+    /// `settings.sampleInterval`, so the decision does not wait for a drag event that may never come.
+    public var awaitsMovement: Bool {
+        if case .pending = phase { return true }
+        return false
+    }
+
+    /// Time passing while the button is down. A flick can park the pointer at an edge before the window was seen to
+    /// follow it; with no further drag events the window is sampled from here.
+    public mutating func tick(now: Double) -> [Effect] {
+        guard case let .pending(window) = phase else { return [] }
+        return sampleIfDue(window, now: now)
+    }
+
     public mutating func mouseUp() -> [Effect] {
         defer { phase = .idle; sampleOutstanding = false }
         if case let .armed(window, target) = phase { return [.hidePreview, .snap(window: window.number, target: target)] }

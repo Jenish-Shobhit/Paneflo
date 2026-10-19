@@ -14,6 +14,7 @@ All notable changes to Paneflo are listed here. Versions follow [Semantic Versio
 - Tiling shortcuts recorded on the number pad now read "Num1" (spoken "Keypad 1") instead of looking like the top-row key, and the menu bar shows no key for them rather than a misleading one.
 - Tiling shortcuts: ⌥ (or ⌥⇧) alone on a letter, digit, punctuation or Space key is refused, because it would swallow typing; add ⌃ or ⌘. ⌥ with arrows, Return, Escape, Delete, Home/End, Page Up/Down and F-keys is still fine.
 - Snap areas: a window grabbed and flung toward an edge right away now snaps. The press was read where the pointer had already moved to, so a quick flick could miss the title bar and the whole drag was ignored.
+- Snap areas: a flick that stops at an edge before the window has caught up now shows the outline and snaps on release. The window was only checked for movement on pointer moves, so a pointer parked at the edge left the drag undecided.
 
 ## 1.2.0 — 2026-10-19
 
