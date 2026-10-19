@@ -58,6 +58,18 @@ struct TilingShortcutsTests {
         #expect(TilingKeymap.defaults.assigning(chord(37, .option), to: .center) == .rejected(.optionTypesCharacters))
     }
 
+    @Test func keypadKeysReadDifferentlyFromTopRowNumbers() {
+        #expect(ShortcutChordFormat.glyphs(chord(83, .control)) == "⌃Num1")
+        #expect(ShortcutChordFormat.glyphs(chord(18, .control), layoutLabel: "1") == "⌃1")
+        #expect(ShortcutChordFormat.spoken(chord(83, [.control, .option]), layoutLabel: "1") == "Control Option Keypad 1")
+        #expect(ShortcutChordFormat.glyphs(chord(69, .command)) == "⌘Num+")
+        #expect(ShortcutChordFormat.spoken(chord(71, .command)) == "Command Keypad Clear")
+        #expect(ShortcutChordFormat.isKeypadKey(92))
+        #expect(!ShortcutChordFormat.isKeypadKey(25))
+        #expect(!ShortcutChordFormat.isKeypadKey(76))
+        #expect(ShortcutChordFormat.glyphs(chord(76, .control)) == "⌃⌤")
+    }
+
     @Test func requiresCommandControlOrOption() {
         #expect(TilingShortcutRules.rejection(of: chord(0, []), overview: nil) == .needsModifier)
         #expect(TilingShortcutRules.rejection(of: chord(0, .shift), overview: nil) == .needsModifier)

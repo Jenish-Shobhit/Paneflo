@@ -314,6 +314,16 @@ public enum ShortcutChordFormat {
         39: "'", 40: "K", 41: ";", 42: "\\", 43: ",", 44: "/", 45: "N", 46: "M", 47: ".", 50: "`",
     ]
 
+    /// Number-pad keys by physical code. They print the same characters as the top row, so they get their own names:
+    /// "Num1" on screen, "Keypad 1" spoken.
+    private static let keypad: [UInt16: String] = [
+        82: "0", 83: "1", 84: "2", 85: "3", 86: "4", 87: "5", 88: "6", 89: "7", 91: "8", 92: "9",
+        65: ".", 67: "*", 69: "+", 71: "Clear", 75: "/", 78: "-", 81: "=",
+    ]
+
+    /// True for number-pad keys other than Enter (which already has its own name).
+    public static func isKeypadKey(_ keyCode: UInt16) -> Bool { keypad[keyCode] != nil }
+
     /// 1 to 20 for F1 to F20.
     public static func functionKeyNumber(_ keyCode: UInt16) -> Int? { functionNumbers[keyCode] }
 
@@ -321,6 +331,7 @@ public enum ShortcutChordFormat {
     public static func fixedKey(_ keyCode: UInt16) -> (glyph: String, spoken: String)? {
         if let key = fixed[keyCode] { return key }
         if let number = functionNumbers[keyCode] { return ("F\(number)", "F\(number)") }
+        if let name = keypad[keyCode] { return ("Num\(name)", "Keypad \(name)") }
         return nil
     }
 
