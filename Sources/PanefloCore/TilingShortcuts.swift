@@ -71,12 +71,15 @@ public enum ShortcutRejection: Equatable, Sendable {
     /// ⌘Tab, ⌘⇧Tab, ⌘`, Escape and ⌘⌥ arrows/Return belong to the switcher and its surfaces.
     case reservedBySwitcher
     case overviewChord
+    /// ⌥ (with or without ⇧) on a key that types a character would swallow typing system-wide.
+    case optionTypesCharacters
 
     public var message: String {
         switch self {
         case .needsModifier: "Include ⌘, ⌃ or ⌥ so the shortcut doesn’t fire while you type."
         case .reservedBySwitcher: "Paneflo’s switcher uses that shortcut."
         case .overviewChord: "That opens the Overview."
+        case .optionTypesCharacters: "Option alone types characters; add ⌃ or ⌘."
         }
     }
 }
@@ -109,6 +112,14 @@ public enum TilingShortcutRules {
 
     public static func isFunctionKey(_ keyCode: UInt16) -> Bool { functionKeyCodes.contains(keyCode) }
 
+    /// Keys that print nothing, so ⌥ with them is safe: Return, Enter, Tab, Delete, Forward Delete, Escape, Home, End,
+    /// Page Up/Down, the arrows and the F-keys. Every other key (letters, digits, punctuation, Space, keypad) types.
+    static let nonCharacterKeyCodes: Set<UInt16> = [36, 76, 48, 51, 117, 53, 115, 119, 116, 121, 123, 124, 125, 126]
+
+    public static func producesCharacter(_ keyCode: UInt16) -> Bool {
+        !nonCharacterKeyCodes.contains(keyCode) && !isFunctionKey(keyCode)
+    }
+
     public static func rejection(of chord: ShortcutChord, overview: ShortcutChord?) -> ShortcutRejection? {
         let chord = normalized(chord)
         let modifiers = chord.modifiers
@@ -120,6 +131,7 @@ public enum TilingShortcutRules {
         if modifiers == [.command, .option] && (isArrow || chord.keyCode == 36 || chord.keyCode == 76) { return .reservedBySwitcher }
         if let overview, normalized(overview) == chord { return .overviewChord }
         if modifiers.isDisjoint(with: [.command, .control, .option]) && !isFunctionKey(chord.keyCode) { return .needsModifier }
+        if modifiers.subtracting(.shift) == .option && producesCharacter(chord.keyCode) { return .optionTypesCharacters }
         return nil
     }
 

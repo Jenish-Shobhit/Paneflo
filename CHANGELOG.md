@@ -2,6 +2,12 @@
 
 All notable changes to Paneflo are listed here. Versions follow [Semantic Versioning](https://semver.org); releases before 1.0.0 are 0.x milestones.
 
+## Unreleased
+
+### Fixes
+
+- Tiling shortcuts: ⌥ (or ⌥⇧) alone on a letter, digit, punctuation or Space key is refused, because it would swallow typing; add ⌃ or ⌘. ⌥ with arrows, Return, Escape, Delete, Home/End, Page Up/Down and F-keys is still fine.
+
 ## 1.2.0 — 2026-10-19
 
 ### Tiling
