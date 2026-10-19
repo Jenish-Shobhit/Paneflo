@@ -9,7 +9,7 @@ import PanefloCore
 /// path does arithmetic only: the window under the press is found once from the window list (no Accessibility call),
 /// and its frame is read a few times on a background queue only until it is clear the window moves (origin changed,
 /// size unchanged) or not (a resize, a selection, a file drag). The decisions are `SnapDragTracker`'s. The monitor
-/// exists only while the setting is on and Accessibility is granted; the preview panel exists from the first snap.
+/// exists only while the setting is on and Accessibility is granted; the preview panel exists from the first window drag.
 @MainActor
 final class DragSnapService {
     private let service: WindowService
@@ -18,8 +18,9 @@ final class DragSnapService {
     private var tracker = SnapDragTracker()
     private var monitor: Any?
     private var releaseCheck: Timer?
-    /// Samples the pressed window on time while it has not been seen moving (`SnapDragTracker.awaitsMovement`).
+    /// Samples the pressed window on time while it has not been seen moving (`SnapDragTracker.nextSampleAt`).
     private var sampleTimer: Timer?
+    private var sampleDue: Double?
     private var observers: [NSObjectProtocol] = []
     private var workspaceObservers: [NSObjectProtocol] = []
     private var distributedObservers: [NSObjectProtocol] = []
@@ -153,26 +154,30 @@ final class DragSnapService {
             case let .snap(number, target): snap(number, to: target)
             }
         }
+        // A window seen moving may reach an edge next: have the outline ready so arming it only orders it in.
+        if case .moving = tracker.phase { preview.prepare() }
         updateSampleTimer()
     }
 
     /// A flick can park the pointer at an edge before the window was seen to follow, and a parked pointer sends no
-    /// drag events: while the decision is open the window is sampled on a timer too.
+    /// drag events: while the decision is open the window is also sampled on time, by one timer set for exactly when
+    /// the next check is due (`SnapDragTracker.nextSampleAt`).
     private func updateSampleTimer() {
-        guard tracker.awaitsMovement else {
+        guard let due = tracker.nextSampleAt else {
             sampleTimer?.invalidate()
             sampleTimer = nil
+            sampleDue = nil
             return
         }
-        guard sampleTimer == nil else { return }
-        let timer = Timer(timeInterval: tracker.settings.sampleInterval, repeats: true) { [weak self] _ in
+        guard due != sampleDue else { return }
+        sampleTimer?.invalidate()
+        sampleDue = due
+        let timer = Timer(timeInterval: max(0, due - ProcessInfo.processInfo.systemUptime), repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                guard NSEvent.pressedMouseButtons & 1 != 0 else {
-                    self.sampleTimer?.invalidate()
-                    self.sampleTimer = nil
-                    return
-                }
+                self.sampleTimer = nil
+                self.sampleDue = nil
+                guard NSEvent.pressedMouseButtons & 1 != 0 else { return }
                 self.apply(self.tracker.tick(now: ProcessInfo.processInfo.systemUptime))
             }
         }

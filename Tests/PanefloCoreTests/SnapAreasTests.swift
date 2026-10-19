@@ -199,13 +199,16 @@ struct SnapAreasTests {
         _ = tracker.windowResolved(Self.window, press: tracker.press, now: 0)
         #expect(tracker.mouseDragged(to: SnapPoint(x: 700, y: 120), now: 0.01) == [.sampleFrame(window: 42, press: tracker.press)])
         #expect(tracker.mouseDragged(to: SnapPoint(x: 700, y: 0), now: 0.02) == [], "a sample is outstanding")
-        #expect(tracker.frameSampled(Self.window.frame, press: tracker.press, now: 0.03) == [], "the window has not followed yet")
+        #expect(tracker.frameSampled(Self.window.frame, press: tracker.press, now: 0.015) == [], "the window has not followed yet")
         #expect(tracker.awaitsMovement)
-        #expect(tracker.tick(now: 0.035) == [], "within the sample interval")
-        #expect(tracker.tick(now: 0.08) == [.sampleFrame(window: 42, press: tracker.press)])
+        #expect(tracker.nextSampleAt == 0.01 + tracker.settings.sampleInterval, "due one interval after the last check")
+        #expect(tracker.tick(now: 0.02) == [], "within the sample interval")
+        #expect(tracker.tick(now: 0.03) == [.sampleFrame(window: 42, press: tracker.press)])
+        #expect(tracker.nextSampleAt == nil, "a sample is outstanding")
         let moved = WindowRect(x: 300, y: 24, width: 800, height: 500)
-        #expect(tracker.frameSampled(moved, press: tracker.press, now: 0.09) == [.showPreview(SnapTarget(zone: .maximize, display: 0))])
+        #expect(tracker.frameSampled(moved, press: tracker.press, now: 0.04) == [.showPreview(SnapTarget(zone: .maximize, display: 0))])
         #expect(!tracker.awaitsMovement)
+        #expect(tracker.nextSampleAt == nil, "nothing to check once the window moves")
         #expect(tracker.tick(now: 0.2) == [])
         #expect(tracker.mouseUp() == [.hidePreview, .snap(window: 42, target: SnapTarget(zone: .maximize, display: 0))])
     }
@@ -218,6 +221,7 @@ struct SnapAreasTests {
         #expect(tracker.tick(now: 1.1) == [], "the window is not known yet")
         _ = tracker.windowResolved(Self.window, press: tracker.press, now: 1.2)
         #expect(tracker.tick(now: 1.3) == [], "a press that has not moved yet is not sampled")
+        #expect(tracker.nextSampleAt == nil, "no timer before the cursor travels")
         _ = tracker.cancel()
         #expect(!tracker.awaitsMovement)
         #expect(tracker.tick(now: 1.4) == [])
@@ -270,7 +274,7 @@ struct SnapAreasTests {
         #expect(tracker.mouseDragged(to: SnapPoint(x: 510, y: 400), now: 0.02) == [.sampleFrame(window: 42, press: tracker.press)])
         _ = tracker.frameSampled(Self.window.frame, press: tracker.press, now: 0.025)
         #expect(tracker.mouseDragged(to: SnapPoint(x: 520, y: 400), now: 0.03) == [], "within the sample interval")
-        #expect(tracker.mouseDragged(to: SnapPoint(x: 530, y: 400), now: 0.07) == [.sampleFrame(window: 42, press: tracker.press)])
+        #expect(tracker.mouseDragged(to: SnapPoint(x: 530, y: 400), now: 0.04) == [.sampleFrame(window: 42, press: tracker.press)])
     }
 
     @Test

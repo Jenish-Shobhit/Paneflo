@@ -2,8 +2,8 @@ import AppKit
 import PanefloCore
 
 /// The translucent outline of where a dragged window will land when it is released on a screen edge. A borderless,
-/// non-activating panel that ignores the mouse, joins every Space and sits above normal windows. Built on first use;
-/// ordered out (never destroyed) when hidden, so a hidden preview does no work.
+/// non-activating panel that ignores the mouse, joins every Space and sits above normal windows. Built when a dragged
+/// window is first seen moving (`prepare`); ordered out (never destroyed) when hidden, so a hidden preview does no work.
 ///
 /// Accent tint over a glass material, a 12 pt continuous corner and a thin accent border. Increase Contrast makes the
 /// fill and border stronger; Reduce Transparency drops the material for a flat tint; Reduce Motion makes every change
@@ -16,12 +16,22 @@ final class SnapPreviewPanel {
     private var tint: NSView?
     var isVisible: Bool { panel?.isVisible ?? false }
 
+    /// Builds the panel ahead of the first `show`, so the first outline of a drag costs what later ones do. Called once
+    /// a dragged window is seen moving (before it reaches an edge); a no-op after that.
+    func prepare() {
+        guard panel == nil else { return }
+        let panel = makePanel()
+        self.panel = panel
+        applyStyle(PanefloStyle.Accessibility.current)
+        panel.contentView?.layoutSubtreeIfNeeded()
+    }
+
     /// `frame` in Accessibility coordinates (top-left origin at the primary display).
     func show(_ frame: WindowRect) {
         guard let primary = NSScreen.screens.first else { return }
         let rect = NSRect(x: frame.x, y: primary.frame.height - frame.maxY, width: frame.width, height: frame.height)
-        let panel = self.panel ?? makePanel()
-        self.panel = panel
+        prepare()
+        guard let panel else { return }
         applyStyle(PanefloStyle.Accessibility.current)
         let duration = PanefloStyle.Motion.duration(0.12)
         if panel.isVisible {

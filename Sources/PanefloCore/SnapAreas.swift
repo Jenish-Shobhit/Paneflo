@@ -28,11 +28,14 @@ public struct SnapAreaSettings: Equatable, Sendable {
     public var bottomZone: LayoutZone? = nil
     /// Cursor travel from the press before the window's frame is first checked for movement.
     public var dragThreshold: Double = 3
-    /// Minimum seconds between two frame checks while deciding whether the window moves.
-    public var sampleInterval: Double = 0.04
+    /// Minimum seconds between two frame checks while deciding whether the window moves: about one display frame.
+    /// A check is one window's bounds from the window list (well under a millisecond, off the main thread), and
+    /// checks stop as soon as the window is seen moving, so a short interval costs little and arms an edge sooner
+    /// when the first check came back before the window followed the cursor.
+    public var sampleInterval: Double = 0.016
     /// Frame checks that see the window standing still (while the cursor moves) before the drag is treated as
-    /// something else (a text selection, a file drag, a click-and-hold).
-    public var maxStillSamples = 12
+    /// something else (a text selection, a file drag, a click-and-hold): about half a second of checks.
+    public var maxStillSamples = 30
     /// Points a frame may differ by and still count as unchanged.
     public var frameTolerance: Double = 1
 
@@ -335,11 +338,20 @@ public struct SnapDragTracker: Sendable {
         return effects + evaluate(window, current: nil)
     }
 
-    /// True while the window under the press is known but not yet seen moving. The caller then calls `tick` every
-    /// `settings.sampleInterval`, so the decision does not wait for a drag event that may never come.
+    /// True while the window under the press is known but not yet seen moving. The caller then calls `tick` at
+    /// `nextSampleAt`, so the decision does not wait for a drag event that may never come.
     public var awaitsMovement: Bool {
         if case .pending = phase { return true }
         return false
+    }
+
+    /// When the caller should next call `tick` (same clock as `now`), or nil while no check is due without a new
+    /// event: the window is not pending, a check is outstanding, or the cursor has not travelled far enough. The caller
+    /// schedules one timer for this moment, so a check never waits for a timer running on another phase.
+    public var nextSampleAt: Double? {
+        guard case .pending = phase, !sampleOutstanding, pressPoint.distance(to: lastPoint) >= settings.dragThreshold
+        else { return nil }
+        return lastSample + settings.sampleInterval
     }
 
     /// Time passing while the button is down. A flick can park the pointer at an edge before the window was seen to
