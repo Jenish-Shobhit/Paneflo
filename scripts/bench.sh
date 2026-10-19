@@ -223,7 +223,7 @@ while (time - $t0 < 30) {
     $entry //= (time - $t0) * 1000 if $t =~ /startup: entry/;
     $ready //= (time - $t0) * 1000 if $t =~ /menuReady=true/;
     # firstIdle: the launch turn (and whatever it queued on the main queue) is done and committed. Older builds lack it.
-    $idle //= (time - $t0) * 1000 if $t =~ /startup: firstIdle/;
+    $idle //= (time - $t0) * 1000 if $t =~ /startup firstIdle/;
     last if defined $ready && (defined $idle || time - $t0 > ($ready / 1000) + 2); }
   sleep 0.005;
 }
