@@ -2,7 +2,7 @@
 
 All notable changes to Paneflo are listed here. Versions follow [Semantic Versioning](https://semver.org); releases before 1.0.0 are 0.x milestones.
 
-## 1.1.0 — Unreleased
+## 1.1.0 — 2026-10-19
 
 ### Switcher
 
@@ -40,7 +40,13 @@ All notable changes to Paneflo are listed here. Versions follow [Semantic Versio
 - **Hide from Menu Bar** (menu item or Settings › General) asks once; Paneflo, its shortcuts and the gesture keep running. Open Paneflo again from Spotlight, Launchpad or Applications to bring the icon back. The icon can't be hidden while setup is needed or macOS has stopped the shortcuts.
 - VoiceOver labels on every control and keyboard navigation in setup.
 
-## 1.0.0 — Unreleased
+### Performance
+
+- The Overview opens faster (about 20% in a synthetic benchmark on one Mac).
+- Moving the selection in the picker and Overview is lighter.
+- The menu bar item is ready earlier after launch.
+
+## 1.0.0 — Not released separately (included in 1.1.0)
 
 First release. Paneflo is a menu-bar app for macOS 26 or later on Apple silicon, signed with a self-signed certificate (not notarized yet).
 
