@@ -78,9 +78,13 @@ final class DragSnapService {
         let active = wanted && accessibility && !RuntimeDiagnostics.benchNoInput
         if active, monitor == nil {
             monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { [weak self] event in
-                // Global monitors run on the main thread; the event is only read.
+                // Global monitors run on the main thread; the event is only read. Its own location (screen
+                // coordinates, as it has no window) is where the button went down or the drag was, even when the
+                // monitor runs late and the cursor has moved on (a quick flick): `NSEvent.mouseLocation` would be
+                // the cursor now, and a press read there can miss the title bar and ignore the whole drag.
                 let type = event.type
-                MainActor.assumeIsolated { self?.handle(type) }
+                let location = event.locationInWindow
+                MainActor.assumeIsolated { self?.handle(type, at: location) }
             }
             RuntimeDiagnostics.mark("dragSnap monitor=on")
         } else if !active, let monitor {
@@ -93,9 +97,8 @@ final class DragSnapService {
 
     // MARK: Input (main thread, arithmetic only)
 
-    private func handle(_ type: NSEvent.EventType) {
+    private func handle(_ type: NSEvent.EventType, at location: NSPoint) {
         let displays = currentDisplays()
-        let location = NSEvent.mouseLocation
         let point = SnapPoint(x: location.x, y: displays.primaryHeight - location.y)
         if desktop?.isVisible == true { cancel(); return }
         switch type {
