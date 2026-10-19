@@ -19,7 +19,8 @@ Everything in this folder is public and is served when GitHub Pages is on.
 
 | Path | What it is |
 |---|---|
-| `index.html` | The download page. One self-contained file: inline CSS and JavaScript, no frameworks, web fonts or external scripts. It asks the GitHub API for the latest release to link `Paneflo-<version>.zip` with its version and size, and falls back to the releases page. |
+| `index.html` | The download page. One self-contained file: inline CSS and JavaScript, no frameworks, web fonts or external scripts. It asks the GitHub API for the latest release to link `Paneflo-<version>.zip` with its version and size, and falls back to the releases page. The Auto / Light / Dark control in the nav sets `data-theme` on `<html>` and remembers the choice in `localStorage`; `?theme=light`, `dark` or `auto` overrides it for one visit. |
+| `install.sh` | The one-line installer: `curl -fsSL https://jenish-shobhit.github.io/Paneflo/install.sh \| bash`. It installs or updates from the latest release after checking the zip's size and SHA-256, the bundle ID, version and signing certificate. `PANEFLO_APP=<path>` and `PANEFLO_NO_OPEN=1` let you test it without touching `/Applications`. Keep its `REQUIREMENT` in step with the release signing identity (`codesign -dr - Paneflo.app`). |
 | `404.html` | The Pages not-found page. |
 | `favicon.png`, `icon.png`, `og.png`, `assets/` | Icons and the social preview image. |
 | `images/` | Illustrations for the README, drawn from synthetic mockups (no real windows or desktops). |

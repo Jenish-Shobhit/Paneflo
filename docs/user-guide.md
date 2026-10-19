@@ -17,7 +17,7 @@ Paneflo is a menu-bar app with three modules that share one list of your windows
 
 ## First run
 
-Move **Paneflo.app** to `/Applications` and open it. Because Paneflo is not notarized yet, choose **Open Anyway** in System Settings › Privacy & Security the first time. **Set up Paneflo** then opens while something required is missing: a short Welcome on the very first run, **Give Paneflo access**, an optional gesture step, and **You're set**.
+Move **Paneflo.app** to `/Applications` and open it. Because Paneflo is not notarized yet, choose **Open Anyway** in System Settings › Privacy & Security the first time. To skip that step, install from Terminal instead with `curl -fsSL https://jenish-shobhit.github.io/Paneflo/install.sh | bash`; it verifies the download's checksum and signing certificate before installing ([read the script](install.sh)). **Set up Paneflo** then opens while something required is missing: a short Welcome on the very first run, **Give Paneflo access**, an optional gesture step, and **You're set**.
 
 | Permission | Required | Used for |
 | --- | --- | --- |

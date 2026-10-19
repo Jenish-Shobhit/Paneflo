@@ -84,6 +84,16 @@ Hold ⌘ and press Tab to pick a **window**, not an app, with a live preview of 
 
 ## Install
 
+**Quickest:** paste this into Terminal and press Return:
+
+```sh
+curl -fsSL https://jenish-shobhit.github.io/Paneflo/install.sh | bash
+```
+
+It downloads the latest release from GitHub, checks the zip's size and SHA-256 against what GitHub lists, checks that the app is Paneflo at that version and signed with Paneflo's certificate, then moves any older copy to the Trash, puts the new one in `/Applications` and opens it. If a check fails, nothing is installed. A file curl downloads isn't quarantined, so there's no Open Anyway step; the script's checks take its place. If Paneflo is running, it asks you to quit it from the menu bar icon first. Run it again to update. [Read the script](docs/install.sh) before you run it.
+
+**Or download the zip:**
+
 1. Download `Paneflo-<version>.zip` from [Paneflo's website](https://jenish-shobhit.github.io/Paneflo/) or the [latest release](https://github.com/Jenish-Shobhit/Paneflo/releases/latest).
 2. Unzip it and move **Paneflo.app** to `/Applications`. Keep it there: macOS ties the permissions to that copy.
 3. Open Paneflo. It isn't notarized yet, so macOS blocks the first launch:
