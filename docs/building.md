@@ -38,7 +38,7 @@ The download page at `docs/index.html` asks the GitHub API for the latest releas
 
 ## Benchmarks
 
-`scripts/bench.sh` is one entry point for Paneflo's own benches in `Tools/` (`SurfaceBench`, `TileBench`, `CaptureBench`, `MeasureProcess`, `PanefloFixture`).
+`scripts/bench.sh` is one entry point for Paneflo's own benches in `Tools/` (`SurfaceBench`, `TileBench`, `CaptureBench`, `SnapBench`, `MeasureProcess`, `PanefloFixture`).
 
 Read the numbers with these limits:
 
@@ -50,7 +50,7 @@ Read the numbers with these limits:
 
 ```sh
 scripts/bench.sh build [<ref>] [--app]    # build the bench tools (and Paneflo.app with --app) for this tree or a git ref
-scripts/bench.sh run [--runs N] [--cards 20,60] [--only surface|tile|capture]
+scripts/bench.sh run [--runs N] [--cards 20,60] [--only surface|tile|capture|snap]
 scripts/bench.sh ab <refA> <refB> [--runs N] [--cards 20,60] [--only ...]
 scripts/bench.sh launch [--runs N]
 scripts/bench.sh report <file.jsonl>...
@@ -68,12 +68,15 @@ Surface (`--only surface`; each run launches the bench once per card count throu
 - `*.turn`: milliseconds until the main queue drains after the call, so the first frame's layout, drawing, and commit are included.
 - `hidden.*.busy*`: main-thread busy milliseconds in the stated window while no surface is visible. Idle should be near zero.
 - `footprint.beforeSurfaces.MiB`, `footprint.afterSurfaces.MiB`: physical footprint of the bench process before the first presentation and after the whole presentation scenario. It is the bench process, so it only shows growth caused by presenting surfaces.
+- `snap.*`: the drag-to-edge outline (`SnapPreviewPanel`), shown and hidden directly with no drag. `snap.firstShow` is the first outline of the process, `snap.show` a later one, `snap.zoneChange.turn` a move to another zone while shown, and `snap.prepare.call` building the panel ahead of time (builds that have `prepare()`; the app calls it once a dragged window is seen moving). The outline then fades in over 120 ms, which these numbers do not include.
 
 Tile (`--only tile`): `tileToFinalFrame`, `tileCompletion`, and `releaseToFocus` medians and p90s per invocation of `tile-bench` (10 iterations each), plus end-state failure counts, which must be zero. It moves Paneflo fixture windows through Accessibility and needs Accessibility for the terminal; without it the bench is recorded as skipped.
 
-Capture (`--only capture`): snapshot and live-frame latencies, teardown time, cache size, and footprint start and end against fixture windows, from `CaptureBench`. It needs Screen Recording for the terminal; without it the bench is recorded as skipped. Values ending in `Ms` are milliseconds, `MiB` are mebibytes, and the rest are counts.
+Capture (`--only capture`): snapshot and live-frame latencies, teardown time, cache size, and footprint start and end against fixture windows, from `CaptureBench`. It needs Screen Recording for the terminal; without it the bench is recorded as skipped. Values ending in `Ms` are milliseconds, `MiB` are mebibytes, and the rest are counts. Latencies are stamped by the preview callbacks while the bench waits idly (it checks every 25 ms): a process woken every millisecond gets its timers fired almost on time, which an idle app does not. Teardown times (`liveStreamsZeroAfterMs`, `settledMs`) come from a 1 ms poll. `cold` is the first open of the process (empty cache, first window-list query); `warm` reopens 1.2 s after a dismissal; `afterIdle` reopens after the window-list reuse age (5 s) has passed, as a ⌘Tab minutes after the previous one does. `firstLiveFrameMs` includes the 100 ms stable-selection delay before the live stream starts.
 
 The `churn50` result runs 50 rapid open/select/close cycles. `settledMs` is the time from the last close until zero live streams and zero outstanding snapshots; the last cycle closes while a live stream is running, so it is measured under that condition, and it is omitted when nothing was pending at that close. `pendingAtClose` is the number of live streams plus outstanding snapshots at that final close. `maxLiveStreams` is the highest live-stream count seen during the run; it must not exceed 1.
+
+Snap (`--only snap`, `SnapBench`): drag-to-edge decisions without dragging anything. `reads.resolveMs` and `reads.frameMs` time the two window-list reads the drag path makes (the window under the press, one window's frame) against a fixture window; no titles are read and no permission is needed. `model.<scenario>` replays a synthetic drag through the build's `SnapDragTracker` on a simulated clock: drag events every 8 ms while the pointer travels to the left edge in `travel` ms and then parks, the window starting to follow `lag` ms after the first drag event, each read taking the measured time plus a 1 ms main-queue hop, and the sampling timer emulated as that build's `DragSnapService` drives it. `armDelayMs` is the time from the moment the pointer is in the zone and the window has started moving until the tracker asks for the outline; `samples` counts frame reads. The model values are deterministic for a given read time; they are a model of the decision path, not a measurement of a real drag, and exclude drawing the outline (see `snap.*` in the surface bench).
 
 Launch (`launch`): launches a bench copy of the app, never `/Applications/Paneflo.app`. The copy has the bundle identifier `dev.paneflo.Paneflo.bench`, so its settings and permissions stay apart from the installed app's, and it runs with `--diagnostics --bench-no-input`. `--bench-no-input` is a benchmark-only launch flag: no event tap, no trackpad listener, no setup window, no update check. Metrics:
 

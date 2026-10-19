@@ -2,6 +2,16 @@
 
 All notable changes to Paneflo are listed here. Versions follow [Semantic Versioning](https://semver.org); releases before 1.0.0 are 0.x milestones.
 
+## Unreleased
+
+### Performance
+
+Measured with `scripts/bench.sh ab` on one Apple M2 MacBook (8 GB, macOS 27.0.1), against 1.2.1, interleaved, with memory pressure at "warning" throughout, so the numbers are noisy. They are synthetic and apply to that machine only.
+
+- The selected window's live preview starts on time. The 100 ms wait before it starts let macOS fire it late (6–10 ms on that Mac); it now fires on its deadline. First live frame, median of 12 runs: warm open 169.4 → 158.6 ms, selection change 164.6 → 159.0 ms, open after 6 s idle 168.3 → 163.5 ms (an 8-run repeat: 161.2 → 158.5, 168.8 → 160.9, 166.8 → 157.8 ms). The 100 ms wait itself is unchanged.
+- Snap areas arm sooner after a quick drag. While Paneflo is still checking whether a dragged window moves, it checks every 16 ms instead of 40 ms, and on a timer set for when the next check is due. In the snap bench (synthetic drags replayed through the real decision code; no window is moved), the delay from "pointer at the edge and window moving" to showing the outline fell from a mean of 15.5 ms and a worst case of 64.4 ms to 2.2 ms and 11.1 ms across 12 drag shapes. Each check reads one window's bounds (about 0.1 ms).
+- The first snap outline after launch shows faster: the outline is built when a dragged window starts moving instead of when it reaches an edge. First outline, median of 5 runs: 12.9 → 11.2 ms (surface bench, 20 cards) and 15.0 → 6.7 ms (60 cards).
+
 ## 1.2.1 — 2026-10-19
 
 ### Fixes
