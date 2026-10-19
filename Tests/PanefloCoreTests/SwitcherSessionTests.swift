@@ -60,6 +60,18 @@ struct SwitcherSessionTests {
     }
 
     @Test
+    func testBlankQueryMatchesEverythingAndFoldingStillApplies() {
+        var session = SwitcherSession(snapshot: snapshot)
+        session.setSearchQuery("   ")
+        #expect(session.filteredIDs == [windowID(1), windowID(2), windowID(3)])
+        session.setSearchQuery("  BRÓWSER  rese ")
+        #expect(session.filteredIDs == [windowID(3)])
+        #expect(SwitcherSession.desktopMatches(""))
+        #expect(SwitcherSession.desktopMatches(" dèsk "))
+        #expect(!SwitcherSession.desktopMatches("browser"))
+    }
+
+    @Test
     func testExplicitRefreshSeedsAsyncDiscoveryAndPreservesQuerySelection() {
         var session = SwitcherSession(snapshot: WindowSnapshot(records: []))
         session.setSearchQuery("browser")

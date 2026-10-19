@@ -14,6 +14,17 @@ struct PanefloApplication {
         application.setActivationPolicy(.accessory)
         withExtendedLifetime(delegate) { application.run() }
     }
+
+    /// Runs `work` on the main queue once the main run loop is next about to wait, after Core Animation has committed
+    /// the current turn (the observer is ordered after the commit observer). Launch uses it so deferred warm-up never
+    /// delays the first frame. With `--diagnostics` it also marks `startup firstIdle`.
+    static func afterFirstCommit(_ work: @escaping @MainActor @Sendable () -> Void) {
+        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, false, CFIndex.max) { _, _ in
+            RuntimeDiagnostics.mark("startup firstIdle")
+            DispatchQueue.main.async { work() }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+    }
 }
 
 @MainActor
@@ -113,7 +124,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         gestures.onDiagnostics = { counts in
             RuntimeDiagnostics.mark("gesture frames=\(counts.frames) contacts=\(counts.contacts) rejectedFrames=\(counts.rejectedFrames) gestures=\(counts.gestures) up=\(counts.upGestures) down=\(counts.downGestures) palmOrRimContacts=\(counts.palmOrRimContacts)")
         }
-        installApplicationMenu()
         installStatusMenu()
         let permissions = readPermissions()
         RuntimeDiagnostics.mark("permissions accessibility=\(permissions.accessibility) inputMonitoring=\(permissions.inputMonitoring) screenRecording=\(permissions.screenRecording)")
@@ -129,8 +139,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             setupPreferences.welcomeSeen = true
             showSetup(step: step)
         }
-        // Pay both panels' first-display cost now, so the first ⌘Tab and Overview are warm.
-        DispatchQueue.main.async { [weak controller] in controller?.prewarm() }
+        // After the launch turn has committed (the menu bar item is on screen): install the main menu, which matters
+        // only once a Paneflo window is key, and pay both panels' first-display cost, so the first ⌘Tab and Overview
+        // are warm. Neither delays the menu bar item.
+        PanefloApplication.afterFirstCommit { [weak self, weak controller] in
+            self?.installApplicationMenu()
+            controller?.prewarm()
+        }
         // Warm ScreenCaptureKit (first request ~1 s) after startup, off the launch and input paths.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
             guard let self, self.previewsEnabled else { return }

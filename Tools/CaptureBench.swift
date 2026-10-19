@@ -163,17 +163,34 @@ import PanefloCore
         _ = await waitUntil(3) { capture.liveStreamCount == 0 }
         capture.applyPressure(realLevel)
 
-        // Rapid churn: 50 open/select/close cycles faster than capture.
+        // Rapid churn: 50 open/select/close cycles faster than capture. Every third cycle (and the last one)
+        // holds the selection past the stable delay so a live stream is starting or running when the
+        // selection moves or the surface closes; the snapshot cache is let go stale first so refreshes are
+        // in flight too. `settledMs` is the time from the last close until zero streams and zero outstanding
+        // snapshots; it is only reported when something was still pending at that close (`pendingAtClose`).
+        try? await Task.sleep(for: .milliseconds(Int(CaptureController.snapshotFreshAge * 1000) + 100))
+        var maxStreams = 0
+        var pendingAtClose = 0
+        var closedAt = 0.0
         for cycle in 0..<50 {
+            let holds = cycle % 3 == 0 || cycle == 49
             open(selected: cycle % cards.count)
-            try? await Task.sleep(for: .milliseconds(cycle % 3 == 0 ? 150 : 20))
-            open(selected: (cycle + 1) % cards.count)
-            try? await Task.sleep(for: .milliseconds(10))
+            try? await Task.sleep(for: .milliseconds(holds ? 150 : 20))
+            maxStreams = max(maxStreams, capture.liveStreamCount)
+            // The last cycle closes straight from the held selection, so its live stream is still running.
+            if cycle < 49 {
+                open(selected: (cycle + 1) % cards.count)
+                try? await Task.sleep(for: .milliseconds(10))
+                maxStreams = max(maxStreams, capture.liveStreamCount)
+            }
+            closedAt = ProcessInfo.processInfo.systemUptime
             close(); recorder.frames.removeAll()
+            pendingAtClose = capture.liveStreamCount + capture.outstandingSnapshotCount
         }
-        let settled = await waitUntil(5) { capture.liveStreamCount == 0 && capture.outstandingSnapshotCount == 0 }
+        let settledDone = await waitUntil(5) { capture.liveStreamCount == 0 && capture.outstandingSnapshotCount == 0 } != nil
+        let settled: Double? = settledDone && pendingAtClose > 0 ? ProcessInfo.processInfo.systemUptime - closedAt : nil
         let footprintEnd = footprint()
-        print("RESULT churn50 settledMs=\(ms(settled)) liveStreams=\(capture.liveStreamCount) outstandingSnapshots=\(capture.outstandingSnapshotCount) cacheEntries=\(capture.cacheCount) cacheMiB=\(mib(capture.cacheBytes)) footprintStartMiB=\(mib(Int(footprintStart))) footprintEndMiB=\(mib(Int(footprintEnd)))")
+        print("RESULT churn50 settledMs=\(ms(settled)) pendingAtClose=\(pendingAtClose) settled=\(settledDone ? 1 : 0) maxLiveStreams=\(maxStreams) liveStreams=\(capture.liveStreamCount) outstandingSnapshots=\(capture.outstandingSnapshotCount) cacheEntries=\(capture.cacheCount) cacheMiB=\(mib(capture.cacheBytes)) footprintStartMiB=\(mib(Int(footprintStart))) footprintEndMiB=\(mib(Int(footprintEnd)))")
 
         capture.stop()
         print("RESULT stop cacheEntries=\(capture.cacheCount) cacheBytes=\(capture.cacheBytes)")

@@ -255,8 +255,16 @@ class SurfacePanelController: NSObject, NSSearchFieldDelegate, NSWindowDelegate 
     func orderFront(searchFocused: Bool) {
         cancelPrewarm()
         panel.makeKeyAndOrderFront(nil)
-        if searchFocused { panel.makeFirstResponder(search) }
+        // The search field keeps its field editor across a dismissal; re-focusing it would end and restart
+        // editing (field-editor teardown, select-all, input-context churn) on every open.
+        if searchFocused { if !searchIsEditing { panel.makeFirstResponder(search) } }
         else if panel.firstResponder is NSText || panel.firstResponder === search { panel.makeFirstResponder(nil) }
+    }
+
+    /// The search field is first responder through its field editor.
+    var searchIsEditing: Bool {
+        guard let editor = search.currentEditor() else { return false }
+        return panel.firstResponder === editor
     }
 
     /// Shows the panel above other windows without taking key focus from the frontmost app.

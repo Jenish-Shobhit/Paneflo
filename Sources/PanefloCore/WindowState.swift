@@ -222,19 +222,26 @@ public struct WindowRegistry: Sendable {
 }
 
 enum WindowSearch {
+    /// An empty (or blank) query matches everything without folding any window text: the held switcher evaluates the
+    /// filter for every card on every present and Tab step, almost always with no query.
     static func matches(_ query: String, record: WindowRecord) -> Bool {
         let terms = normalized(query).split(whereSeparator: \.isWhitespace)
+        guard !terms.isEmpty else { return true }
         let text = normalized(record.appName + " " + record.title)
         return terms.allSatisfy { text.contains($0) }
     }
 
     static func matches(_ query: String, text: String) -> Bool {
+        let terms = normalized(query).split(whereSeparator: \.isWhitespace)
+        guard !terms.isEmpty else { return true }
         let haystack = normalized(text)
-        return normalized(query).split(whereSeparator: \.isWhitespace).allSatisfy { haystack.contains($0) }
+        return terms.allSatisfy { haystack.contains($0) }
     }
 
+    private static let locale = Locale(identifier: "en_US_POSIX")
+
     private static func normalized(_ string: String) -> String {
-        string.folding(options: [.caseInsensitive, .diacriticInsensitive],
-                       locale: Locale(identifier: "en_US_POSIX"))
+        if string.isEmpty { return string }
+        return string.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: locale)
     }
 }
