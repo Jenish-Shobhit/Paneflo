@@ -193,6 +193,9 @@ public struct ShortcutSession: Sendable {
             action = .openAlone
         }
         if action == nil && !switching && !dedicatedChordsSuspended {
+            // Dedicated chords are recorded without Fn, which the keyboard also sets on Home, End, Page Up/Down,
+            // Forward Delete and any key typed with Fn held; match them the same way.
+            let chord = TilingShortcutRules.normalized(chord)
             if configuration.overview == chord { action = .overview }
             else { action = configuration.tiling[chord] }
             // A dedicated chord fires once per physical press, unlike switch cycling.

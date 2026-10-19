@@ -134,7 +134,8 @@ struct FuzzShortcutSessionTests {
                     if !config.switcherEnabled { #expect(!session.switching, "switching with switcher disabled; \(describe)") }
                     // Idle session: only owned chords are suppressed.
                     if !pre.switching && !pre.visible && !pre.selection && route.suppress && !route.action.isNil {
-                        let chord = ShortcutChord(keyCode: key, modifiers: eff)
+                        // Dedicated chords are recorded without Fn and match with or without it.
+                        let chord = ShortcutChord(keyCode: key, modifiers: eff.subtracting(.function))
                         let tabStart = config.switcherEnabled && key == Self.tab && (eff == Self.cmd || eff == [.command, .shift])
                         #expect(tabStart || config.overview == chord || config.tiling[chord] != nil, "suppressed foreign chord; \(describe)")
                     }

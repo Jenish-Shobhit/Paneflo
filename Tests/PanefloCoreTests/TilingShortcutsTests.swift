@@ -264,4 +264,32 @@ struct TilingShortcutsTests {
             Issue.record("F5"); return
         }
     }
+
+    /// The recorder never keeps Fn, but the keyboard sets it on Home, End, Page Up/Down, Forward Delete and Help (and on
+    /// any key while Fn is held, e.g. Fn–Return for Enter on a laptop). Such a recorded chord must still fire.
+    @Test func navigationKeyShortcutsMatchWithTheFunctionBit() {
+        let table: [ShortcutChord: ShortcutAction] = [
+            chord(115, [.control, .option]): .tile(.leftHalf), chord(119, [.control, .option]): .tile(.rightHalf),
+            chord(116, [.control, .option]): .tile(.topHalf), chord(121, [.control, .option]): .tile(.bottomHalf),
+            chord(117, [.control, .option]): .tile(.center), chord(76, [.control, .option]): .tile(.maximize),
+        ]
+        var router = ShortcutSession(configuration: .init(switcherEnabled: true, overview: TilingKeymap.overviewChord, tiling: table))
+        for (chord, expected) in table {
+            let route = router.route(kind: .down, keyCode: chord.keyCode, modifiers: [.control, .option, .function])
+            guard case .tile(let zone)? = route.action, case .tile(let wanted) = expected, zone == wanted else {
+                Issue.record("key \(chord.keyCode) with Fn did not fire"); continue
+            }
+            #expect(route.suppress)
+            #expect(router.route(kind: .up, keyCode: chord.keyCode, modifiers: [.control, .option, .function]).suppress)
+        }
+        guard case .overview? = router.route(kind: .down, keyCode: 49, modifiers: [.control, .option, .function]).action else {
+            Issue.record("Overview with Fn"); return
+        }
+    }
+
+    @Test func fnTabIsStillNotTheSwitcher() {
+        var router = ShortcutSession(configuration: .init(switcherEnabled: true))
+        #expect(router.route(kind: .down, keyCode: 48, modifiers: [.command, .function]).action == nil)
+        #expect(!router.switching)
+    }
 }

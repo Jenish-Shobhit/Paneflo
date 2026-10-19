@@ -99,7 +99,8 @@ public enum SystemChordWarning: Equatable, Sendable {
 }
 
 public enum TilingShortcutRules {
-    /// Fn is added by the keyboard to arrows and F-keys; it never takes part in a chord.
+    /// Fn is added by the keyboard to arrows, F-keys and the navigation keys (and to any key typed with Fn held); it
+    /// never takes part in a chord.
     public static func normalized(_ chord: ShortcutChord) -> ShortcutChord {
         ShortcutChord(keyCode: chord.keyCode, modifiers: chord.modifiers.subtracting(.function))
     }

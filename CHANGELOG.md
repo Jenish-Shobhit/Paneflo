@@ -2,6 +2,12 @@
 
 All notable changes to Paneflo are listed here. Versions follow [Semantic Versioning](https://semver.org); releases before 1.0.0 are 0.x milestones.
 
+## Unreleased
+
+### Fixes
+
+- Tiling shortcuts recorded on Home, End, Page Up, Page Down, Forward Delete or Enter now work; the keyboard's Fn flag on those keys no longer stops them matching.
+
 ## 1.2.0 — 2026-10-19
 
 ### Tiling
