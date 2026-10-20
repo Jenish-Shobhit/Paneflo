@@ -78,7 +78,7 @@ struct UpdatesPane: View {
 struct AboutPane: View {
     let model: SettingsModel
 
-    static let website = URL(string: "https://jenish-shobhit.github.io/Paneflo/")!
+    static let website = URL(string: "https://jenish-shobhit.github.io/paneflo/")!
     static let source = URL(string: "https://github.com/Jenish-Shobhit/Paneflo")!
     static let issues = URL(string: "https://github.com/Jenish-Shobhit/Paneflo/issues/new")!
 

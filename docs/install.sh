@@ -1,7 +1,7 @@
 #!/bin/bash
 # Installs Paneflo, or updates it, from its latest GitHub release. Paste into Terminal:
 #
-#   curl -fsSL https://jenish-shobhit.github.io/Paneflo/install.sh | bash
+#   curl -fsSL https://jenish-shobhit.github.io/paneflo/install.sh | bash
 #
 # A file curl downloads isn't quarantined, so Paneflo opens without the "Not Opened" dialog and the Open Anyway
 # step that a browser download gets while Paneflo isn't notarized. This script does the checking instead: the zip

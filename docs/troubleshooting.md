@@ -17,7 +17,7 @@ If yours isn't here, [open an issue](https://github.com/Jenish-Shobhit/Paneflo/i
 
 macOS says Paneflo could not be verified, because it is not notarized yet. Click **Done**, open **System Settings › Privacy & Security**, scroll to **Security** and choose **Open Anyway** next to Paneflo. This is needed once per download.
 
-To avoid it, install from Terminal with `curl -fsSL https://jenish-shobhit.github.io/Paneflo/install.sh | bash` ([read the script](install.sh)). A copy curl downloads isn't quarantined, so macOS doesn't ask; the script checks the download's size, SHA-256 and signing certificate instead, and installs nothing if a check fails. If it stops with "the app isn't signed with Paneflo's certificate", don't work around it: [open an issue](https://github.com/Jenish-Shobhit/Paneflo/issues/new/choose).
+To avoid it, install from Terminal with `curl -fsSL https://jenish-shobhit.github.io/paneflo/install.sh | bash` ([read the script](install.sh)). A copy curl downloads isn't quarantined, so macOS doesn't ask; the script checks the download's size, SHA-256 and signing certificate instead, and installs nothing if a check fails. If it stops with "the app isn't signed with Paneflo's certificate", don't work around it: [open an issue](https://github.com/Jenish-Shobhit/Paneflo/issues/new/choose).
 
 ## Permissions are on but nothing happens
 
