@@ -4,24 +4,24 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<title>Paneflo: every window, in its place</title>
+<title>Paneflo: a better ⌘Tab for your Mac</title>
 <meta name="description" content="Paneflo is a free, open-source menu bar app for macOS: a ⌘Tab switcher for windows with a live preview, drag-to-edge snap areas and keyboard tiling, tile pairs, and an organized Overview.">
 <link rel="canonical" href="https://jenish-shobhit.github.io/Paneflo/">
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="apple-touch-icon" href="assets/icon-256.png">
-<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f7f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0d0d" media="(prefers-color-scheme: dark)">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Paneflo">
 <meta property="og:url" content="https://jenish-shobhit.github.io/Paneflo/">
-<meta property="og:title" content="Paneflo: every window, in its place">
+<meta property="og:title" content="Paneflo: a better ⌘Tab for your Mac">
 <meta property="og:description" content="A ⌘Tab switcher for windows, snap areas and keyboard tiling, tile pairs and an organized Overview. A free, open-source menu bar app for macOS.">
 <meta property="og:image" content="https://jenish-shobhit.github.io/Paneflo/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="The Paneflo icon and the words A better ⌘Tab for your Mac., above a glass window switcher of window cards.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Paneflo: every window, in its place">
+<meta name="twitter:title" content="Paneflo: a better ⌘Tab for your Mac">
 <meta name="twitter:description" content="A ⌘Tab switcher for windows, snap areas and keyboard tiling, tile pairs and an organized Overview. Free and open source.">
 <meta name="twitter:image" content="https://jenish-shobhit.github.io/Paneflo/og.png">
 <script>
@@ -37,7 +37,7 @@
     if (cs) cs.setAttribute("content", v === "auto" ? "light dark" : v);
     [].forEach.call(document.querySelectorAll('meta[name="theme-color"]'), function (m) {
       var dark = v === "auto" ? /dark/.test(m.getAttribute("media") || "") : v === "dark";
-      m.setAttribute("content", dark ? "#000000" : "#fbfbfd");
+      m.setAttribute("content", dark ? "#0b0d0d" : "#f6f7f7");
     });
     return v;
   }
@@ -52,11 +52,17 @@
 :root[data-theme="light"]{color-scheme:light}
 :root[data-theme="dark"]{color-scheme:dark}
 :root{
-  --bg:#fbfbfd;--band:#f5f5f7;--surface:#fff;--ink:#1d1d1f;--ink2:#424245;--mute:#6e6e73;
-  --line:rgba(0,0,0,.1);--hair:rgba(0,0,0,.06);
+  --bg:#f6f7f7;--surface:#fff;--panel:#eceff0;--ink:#0f1413;--ink2:#3c4442;--mute:#636c6a;
+  --line:rgba(15,20,19,.11);--hair:rgba(15,20,19,.06);
   --acc:#0b7563;--acc-ink:#fff;--acc-hi:#086253;--acc-soft:rgba(11,117,99,.12);
-  --nav:rgba(251,251,253,.74);
+  --nav:rgba(246,247,247,.75);--glow:color-mix(in srgb,var(--acc) 14%,transparent);
   --key:linear-gradient(#fff,#f4f4f6);--key-edge:rgba(0,0,0,.14);--key-ink:#1d1d1f;
+  --key-hi:rgba(255,255,255,.95);--key-drop:0 .1em .24em -.06em rgba(0,40,34,.3);--key-drop-dn:0 .03em .08em -.02em rgba(0,40,34,.24);
+  --cap:linear-gradient(#eef0f1,#d9dddf);--cap-face:linear-gradient(#fff,#f2f4f5);--cap-wall:#bfc5c8;--cap-hi:#fff;--cap-edge:rgba(0,0,0,.09);--cap-shade:rgba(0,44,37,.26);
+  --aurora:radial-gradient(40% 34% at 50% 52%,rgba(67,209,182,.5),rgba(67,209,182,0) 100%),radial-gradient(26% 40% at 24% 46%,rgba(11,117,99,.28),rgba(11,117,99,0) 100%),radial-gradient(28% 40% at 77% 58%,rgba(92,194,172,.5),rgba(92,194,172,0) 100%);
+  --pane:rgba(255,255,255,.5);--pane-edge:rgba(15,20,19,.08);
+  --shelf:rgba(255,255,255,.56);--shelf-edge:rgba(255,255,255,.9);--shelf-drop:0 1px 2px rgba(0,40,34,.08),0 40px 90px -34px rgba(0,50,42,.5);
+  --h-grad:linear-gradient(180deg,#0f1413 40%,#2f3b38);
   --wall:radial-gradient(90% 80% at 18% 8%,#a9e3d5 0,rgba(169,227,213,0) 60%),radial-gradient(70% 90% at 100% 100%,#0e5a4e 0,rgba(14,90,78,0) 70%),linear-gradient(150deg,#5cc2ac,#1e8a77 55%,#13705f);
   --win:#fff;--win-bar:#f6f6f8;--win-line:rgba(0,0,0,.08);--skel:rgba(0,0,0,.08);--skel2:rgba(0,0,0,.05);
   --glass:rgba(255,255,255,.52);--glass-edge:rgba(255,255,255,.8);--well:rgba(0,0,0,.08);
@@ -65,14 +71,23 @@
   --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro",system-ui,"Helvetica Neue",Arial,sans-serif;
   --disp:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro",system-ui,"Helvetica Neue",Arial,sans-serif;
   --ease:cubic-bezier(.22,.7,.2,1);
+  /* type scale: every text role on the page uses one of these */
+  --fs-display:clamp(36px,min(13.4vw,12.6vh),120px);--fs-h2:clamp(34px,4.6vw,54px);--fs-h3:20px;
+  --fs-lead:clamp(18px,1.9vw,21px);--fs-body:17px;--fs-small:15px;--fs-micro:13px;
 }
 /* Dark: from the system unless Light is chosen, or when Dark is chosen. Every dark rule below uses the same pair. */
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --bg:#000;--band:#0f0f11;--surface:#1c1c1e;--ink:#f5f5f7;--ink2:#c7c7cc;--mute:#9a9aa0;
-  --line:rgba(255,255,255,.13);--hair:rgba(255,255,255,.08);
+  --bg:#0b0d0d;--surface:#141817;--panel:#1b201f;--ink:#f2f5f4;--ink2:#bcc4c2;--mute:#8d9693;
+  --line:rgba(255,255,255,.13);--hair:rgba(255,255,255,.07);
   --acc:#43d1b6;--acc-ink:#00261f;--acc-hi:#6fe0ca;--acc-soft:rgba(67,209,182,.14);
-  --nav:rgba(10,10,12,.72);
+  --nav:rgba(11,13,13,.75);--glow:color-mix(in srgb,var(--acc) 9%,transparent);
   --key:linear-gradient(#3a3a3e,#2c2c30);--key-edge:rgba(255,255,255,.12);--key-ink:#f5f5f7;
+  --key-hi:rgba(255,255,255,.1);--key-drop:0 .1em .26em -.04em rgba(0,0,0,.75);--key-drop-dn:0 .03em .08em 0 rgba(0,0,0,.6);
+  --cap:linear-gradient(#2a2b2f,#1b1c1f);--cap-face:linear-gradient(#3e3f44,#2c2d31);--cap-wall:#0f1012;--cap-hi:rgba(255,255,255,.16);--cap-edge:rgba(255,255,255,.07);--cap-shade:rgba(0,0,0,.75);
+  --aurora:radial-gradient(40% 34% at 50% 52%,rgba(67,209,182,.34),rgba(67,209,182,0) 100%),radial-gradient(26% 40% at 24% 46%,rgba(31,140,120,.55),rgba(31,140,120,0) 100%),radial-gradient(28% 40% at 77% 58%,rgba(18,110,94,.7),rgba(18,110,94,0) 100%);
+  --pane:rgba(255,255,255,.035);--pane-edge:rgba(255,255,255,.09);
+  --shelf:rgba(30,33,35,.5);--shelf-edge:rgba(255,255,255,.12);--shelf-drop:0 0 0 .5px rgba(0,0,0,.7),0 50px 110px -30px rgba(0,0,0,.9);
+  --h-grad:linear-gradient(180deg,#fff 35%,#aab7b4);
   --wall:radial-gradient(90% 80% at 18% 8%,#1f6e60 0,rgba(31,110,96,0) 60%),radial-gradient(70% 90% at 100% 100%,#021714 0,rgba(2,23,20,0) 70%),linear-gradient(150deg,#14574c,#0b3b33 55%,#072b25);
   --win:#2a2a2d;--win-bar:#323236;--win-line:rgba(255,255,255,.08);--skel:rgba(255,255,255,.12);--skel2:rgba(255,255,255,.07);
   --glass:rgba(40,40,44,.58);--glass-edge:rgba(255,255,255,.16);--well:rgba(0,0,0,.34);
@@ -80,11 +95,17 @@
   --depth:0 2px 4px rgba(0,0,0,.5),0 30px 70px -30px rgba(0,0,0,.9);
 }}
 :root[data-theme="dark"]{
-  --bg:#000;--band:#0f0f11;--surface:#1c1c1e;--ink:#f5f5f7;--ink2:#c7c7cc;--mute:#9a9aa0;
-  --line:rgba(255,255,255,.13);--hair:rgba(255,255,255,.08);
+  --bg:#0b0d0d;--surface:#141817;--panel:#1b201f;--ink:#f2f5f4;--ink2:#bcc4c2;--mute:#8d9693;
+  --line:rgba(255,255,255,.13);--hair:rgba(255,255,255,.07);
   --acc:#43d1b6;--acc-ink:#00261f;--acc-hi:#6fe0ca;--acc-soft:rgba(67,209,182,.14);
-  --nav:rgba(10,10,12,.72);
+  --nav:rgba(11,13,13,.75);--glow:color-mix(in srgb,var(--acc) 9%,transparent);
   --key:linear-gradient(#3a3a3e,#2c2c30);--key-edge:rgba(255,255,255,.12);--key-ink:#f5f5f7;
+  --key-hi:rgba(255,255,255,.1);--key-drop:0 .1em .26em -.04em rgba(0,0,0,.75);--key-drop-dn:0 .03em .08em 0 rgba(0,0,0,.6);
+  --cap:linear-gradient(#2a2b2f,#1b1c1f);--cap-face:linear-gradient(#3e3f44,#2c2d31);--cap-wall:#0f1012;--cap-hi:rgba(255,255,255,.16);--cap-edge:rgba(255,255,255,.07);--cap-shade:rgba(0,0,0,.75);
+  --aurora:radial-gradient(40% 34% at 50% 52%,rgba(67,209,182,.34),rgba(67,209,182,0) 100%),radial-gradient(26% 40% at 24% 46%,rgba(31,140,120,.55),rgba(31,140,120,0) 100%),radial-gradient(28% 40% at 77% 58%,rgba(18,110,94,.7),rgba(18,110,94,0) 100%);
+  --pane:rgba(255,255,255,.035);--pane-edge:rgba(255,255,255,.09);
+  --shelf:rgba(30,33,35,.5);--shelf-edge:rgba(255,255,255,.12);--shelf-drop:0 0 0 .5px rgba(0,0,0,.7),0 50px 110px -30px rgba(0,0,0,.9);
+  --h-grad:linear-gradient(180deg,#fff 35%,#aab7b4);
   --wall:radial-gradient(90% 80% at 18% 8%,#1f6e60 0,rgba(31,110,96,0) 60%),radial-gradient(70% 90% at 100% 100%,#021714 0,rgba(2,23,20,0) 70%),linear-gradient(150deg,#14574c,#0b3b33 55%,#072b25);
   --win:#2a2a2d;--win-bar:#323236;--win-line:rgba(255,255,255,.08);--skel:rgba(255,255,255,.12);--skel2:rgba(255,255,255,.07);
   --glass:rgba(40,40,44,.58);--glass-edge:rgba(255,255,255,.16);--well:rgba(0,0,0,.34);
@@ -94,30 +115,39 @@
 *,*::before,*::after{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%;text-size-adjust:100%;scroll-padding-top:64px}
 @media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
-body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.47 var(--sans);letter-spacing:-.022em;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+body{margin:0;background:var(--bg);color:var(--ink);font:var(--fs-body)/1.5 var(--sans);letter-spacing:-.012em;-webkit-font-smoothing:antialiased;overflow-x:hidden}
 img,svg{display:block}
 a{color:var(--acc);text-decoration:none}
 a:hover{text-decoration:underline}
 :focus-visible{outline:3px solid var(--acc);outline-offset:3px;border-radius:6px}
 h1,h2,h3{font-family:var(--disp);margin:0;text-wrap:balance}
 p{margin:0;text-wrap:pretty}
+/* type roles */
+.hero h1{font-size:var(--fs-display);line-height:.98;font-weight:700;letter-spacing:-.047em}
+.head h2,.split h2{font-size:var(--fs-h2);line-height:1.06;font-weight:700;letter-spacing:-.03em}
+.points h3,.legend strong,.plist strong,.steps h3,.quick h3,.perm h3,.faq summary{font-family:var(--disp);font-size:var(--fs-h3);line-height:1.3;font-weight:600;letter-spacing:-.018em}
+.sub,.head h2~p,.split .intro{font-size:var(--fs-lead);line-height:1.45;letter-spacing:-.016em;color:var(--ink2)}
+.note,.term-r,.stage figcaption,.pad .hint{font-size:var(--fs-small);line-height:1.45;letter-spacing:-.006em;color:var(--mute)}
+.fine,footer,.nav ul{font-size:var(--fs-micro);line-height:1.4;letter-spacing:0}
+.head h2~p,.note,.perm>p,.quick>p{text-wrap:balance}
 .nw{white-space:nowrap}
 .sr{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
 .skip{position:absolute;left:16px;top:-80px;z-index:20;background:var(--acc);color:var(--acc-ink);padding:10px 16px;border-radius:10px;font-weight:600}
 .skip:focus{top:10px;text-decoration:none}
-.wrap{width:100%;max-width:1024px;margin:0 auto;padding:0 max(16px,env(safe-area-inset-left))}
+.wrap{width:100%;max-width:1024px;margin:0 auto;padding:0 max(clamp(16px,3vw,32px),env(safe-area-inset-left))}
+.wrap.wide{max-width:1232px}
 
 /* nav */
 .nav{position:sticky;top:0;z-index:10;background:var(--nav);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);border-bottom:1px solid var(--hair)}
 .nav .wrap{display:flex;align-items:center;gap:24px;height:52px}
-.brand{display:flex;align-items:center;gap:9px;color:var(--ink);font-weight:600;font-size:17px;letter-spacing:-.02em}
+.brand{display:flex;align-items:center;gap:9px;color:var(--ink);font-weight:600;font-size:var(--fs-body);letter-spacing:-.018em}
 .brand:hover{text-decoration:none}
 .brand img{width:24px;height:24px}
 .nav nav{margin-left:auto}
-.nav ul{display:flex;gap:22px;list-style:none;margin:0;padding:0;font-size:13px}
+.nav ul{display:flex;gap:22px;list-style:none;margin:0;padding:0}
 .nav li a{color:var(--ink2)}
 .nav li a:hover{color:var(--ink);text-decoration:none}
-.pill{display:inline-flex;align-items:center;min-height:30px;padding:0 14px;border-radius:999px;background:var(--acc);color:var(--acc-ink);font-size:13px;font-weight:600;letter-spacing:-.01em}
+.pill{display:inline-flex;align-items:center;min-height:30px;padding:0 14px;border-radius:999px;background:var(--acc);color:var(--acc-ink);font-size:var(--fs-micro);font-weight:600;letter-spacing:0}
 .pill:hover{background:var(--acc-hi);text-decoration:none}
 .theme{display:none;gap:2px;padding:2px;border-radius:999px;background:var(--hair);box-shadow:inset 0 0 0 1px var(--hair)}
 .js .theme{display:flex}
@@ -129,31 +159,48 @@ p{margin:0;text-wrap:pretty}
 
 /* the one-line install command */
 .term{max-width:720px;margin:28px auto 0}
-.term-l{font-size:15px;color:var(--ink2);margin-bottom:10px}
-.cmd{display:flex;align-items:center;gap:10px;padding:6px 6px 6px 18px;border-radius:16px;background:var(--surface);box-shadow:0 0 0 1px var(--line),0 12px 32px -22px rgba(0,0,0,.4);text-align:left}
-.cmd code{flex:1;min-width:0;padding:10px 0;font:14px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:0;color:var(--ink);white-space:nowrap;overflow-x:auto;scrollbar-width:none}
+.cmd{display:flex;align-items:center;gap:10px;min-height:44px;padding:4px 4px 4px 16px;border-radius:14px;background:var(--surface);box-shadow:0 0 0 1px var(--hair);text-align:left}
+.cmd code{flex:1;min-width:0;padding:8px 0;font:var(--fs-micro)/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:0;color:var(--ink);white-space:nowrap;overflow-x:auto;scrollbar-width:none}
 .cmd code::-webkit-scrollbar{display:none}
 .cmd .prompt{color:var(--mute);-webkit-user-select:none;user-select:none}
-.copy{display:none;flex:none;align-items:center;gap:6px;min-height:36px;padding:0 14px;border:0;border-radius:11px;background:var(--acc-soft);color:var(--acc-hi);font:600 14px/1 var(--sans);letter-spacing:-.01em;cursor:pointer;transition:background .2s}
+.copy{display:none;flex:none;align-items:center;justify-content:center;gap:6px;min-height:36px;padding:0 14px;border:0;border-radius:10px;background:var(--acc-soft);color:var(--acc-hi);font:600 var(--fs-micro)/1 var(--sans);letter-spacing:0;cursor:pointer;transition:background .2s}
 .js .copy{display:inline-flex}
 .copy:hover{background:color-mix(in srgb,var(--acc) 22%,transparent)}
 .copy svg{width:14px;height:14px}
-.term-r{margin-top:10px;font-size:14px;color:var(--mute)}
+.term-r{margin-top:10px}
 
-/* hero */
-.hero{text-align:center;padding:72px 0 0}
-.hero .icon{width:128px;height:128px;margin:0 auto;filter:drop-shadow(0 14px 26px rgba(8,80,68,.28))}
-.hero h1{margin-top:22px;font-size:clamp(56px,9.4vw,96px);line-height:1;font-weight:700;letter-spacing:-.045em}
-.tagline{margin-top:10px;font-family:var(--disp);font-size:clamp(28px,4.6vw,48px);line-height:1.08;font-weight:600;letter-spacing:-.035em;color:var(--ink2)}
-.lede{max-width:32em;margin:22px auto 0;font-size:clamp(19px,2.2vw,21px);line-height:1.42;color:var(--ink2)}
-.cta{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:14px 26px;margin-top:34px}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:52px;padding:0 28px;border-radius:999px;background:var(--acc);color:var(--acc-ink);font-size:17px;font-weight:600;letter-spacing:-.015em;transition:background .2s,transform .2s var(--ease)}
+/* hero: one centered composition. The headline is the brand moment, the switcher below it is the object on stage. */
+.hero{position:relative;padding:clamp(44px,7.5vh,96px) 0 0;text-align:center;overflow-x:clip}
+.hero-copy{display:flex;flex-direction:column;align-items:center}
+.hero h1{max-width:none;color:var(--ink)}
+.hero h1 .ln{display:block}
+.g{background:var(--h-grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;padding-bottom:.06em}
+@media (forced-colors:active){.g{background:none;-webkit-text-fill-color:CanvasText;color:CanvasText}}
+.sub{max-width:27em;margin-top:clamp(18px,2.6vh,28px)}
+.cta{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:10px 12px;margin-top:clamp(26px,3.6vh,36px)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:9px;min-height:52px;padding:0 26px;border-radius:999px;background:var(--acc);color:var(--acc-ink);font-size:var(--fs-body);font-weight:600;letter-spacing:-.012em;box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 1px 2px rgba(0,0,0,.18),0 14px 34px -14px color-mix(in srgb,var(--acc) 80%,transparent);transition:background .2s,box-shadow .2s,transform .2s var(--ease)}
 .btn:hover{background:var(--acc-hi);text-decoration:none}
 .btn:active{transform:scale(.97)}
+.btn:focus-visible{border-radius:999px}
 .btn svg{width:18px;height:18px;flex:none}
-.textlink{font-size:17px;font-weight:500}
-.meta{margin-top:16px;font-size:14px;color:var(--mute)}
-.meta strong{font-weight:500;color:var(--ink2)}
+.btn.ghost{background:transparent;color:var(--ink);box-shadow:inset 0 0 0 1px var(--line)}
+.btn.ghost:hover{background:var(--panel)}
+.btn.quiet{background:transparent;color:var(--ink2);box-shadow:none;padding:0 20px}
+.btn.quiet:hover{background:var(--hair);color:var(--ink)}
+.btn.quiet svg{width:17px;height:17px;color:var(--mute)}
+.fine{margin-top:16px;color:var(--mute)}
+.hero .fine{margin-top:18px;max-width:46em;text-wrap:balance}
+
+/* headline keycaps: a sculpted cap (body, wall and a lighter top face) sitting on the baseline.
+   .down presses it: the cap drops onto its wall and picks up the accent. */
+.hk{position:relative;display:inline-block;overflow:hidden;vertical-align:baseline;margin-bottom:-.05em;height:.8em;min-width:.98em;padding:0 .26em;border-radius:.19em;background:var(--cap);color:var(--key-ink);text-align:center;font-weight:500;letter-spacing:0;-webkit-text-fill-color:currentColor;box-shadow:inset 0 0 0 .012em var(--cap-edge),0 .07em 0 var(--cap-wall),0 .09em 0 var(--cap-edge),0 .26em .4em -.14em var(--cap-shade);transform:translateY(-.07em);transition:transform .22s var(--ease),box-shadow .22s var(--ease),color .22s}
+.hk::before{content:"";position:absolute;inset:.035em .05em .085em;border-radius:.15em;background:var(--cap-face);box-shadow:inset 0 .012em 0 var(--cap-hi)}
+.hk+.hk{margin-left:.08em}
+.hk>span{position:relative;display:flex;align-items:center;justify-content:center;height:100%;padding-bottom:.05em;font-size:.44em;line-height:1}
+.hk.tab{min-width:1.7em}
+.hk.tab>span{font-size:.32em;letter-spacing:0}
+.hk.down{color:var(--acc);transform:translateY(-.01em);box-shadow:inset 0 0 0 .012em color-mix(in srgb,var(--acc) 45%,var(--cap-edge)),0 .014em 0 var(--cap-wall),0 .03em 0 var(--cap-edge),0 0 .42em -.08em color-mix(in srgb,var(--acc) 55%,transparent);transition-duration:.07s}
+.hero h1 .hk{margin-left:.04em}
 
 /* shared screen (a synthetic display) */
 .screen{position:relative;aspect-ratio:16/10;border-radius:clamp(10px,1.8vw,20px);overflow:hidden;background:var(--wall);box-shadow:var(--depth),inset 0 0 0 1px var(--hair);isolation:isolate;contain:paint}
@@ -171,36 +218,41 @@ p{margin:0;text-wrap:pretty}
 .win.side::after{inset:max(10px,9%) 0 0 0;background:linear-gradient(var(--skel2),var(--skel2)) 0 0/26% 100% no-repeat,linear-gradient(var(--skel),var(--skel)) 34% 12%/40% 7% no-repeat,linear-gradient(var(--skel2),var(--skel2)) 34% 26%/58% 5% no-repeat,linear-gradient(var(--skel2),var(--skel2)) 34% 36%/52% 5% no-repeat,linear-gradient(135deg,rgba(94,190,170,.55),rgba(30,138,119,.45)) 92% 74%/62% 30% no-repeat}
 
 /* sections */
-.sec{padding:clamp(88px,11vw,136px) 0}
-.band{background:var(--band)}
+/* one canvas: sections are separated by space alone, so each adds only its top padding */
+.sec{padding:clamp(88px,10vw,128px) 0 0}
 .head{max-width:44rem;margin:0 auto;text-align:center}
-.head h2,.split h2{font-size:clamp(36px,5.6vw,60px);line-height:1.05;font-weight:700;letter-spacing:-.036em}
-.head p,.split .intro{margin-top:18px;font-size:clamp(19px,2.1vw,21px);line-height:1.45;color:var(--ink2)}
+.head h2~p,.split .intro{margin-top:16px}
 .head .keys{justify-content:center;margin-top:22px}
 .visual{margin:clamp(44px,6vw,64px) auto 0}
 .points{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:40px;margin-top:clamp(44px,6vw,64px)}
-.points h3{font-size:19px;line-height:1.25;font-weight:600;letter-spacing:-.022em}
-.points p{margin-top:8px;color:var(--ink2);font-size:16px;line-height:1.5}
+.points p{margin-top:8px;color:var(--ink2)}
 .points .keys{margin-top:14px}
-.note{margin:28px auto 0;max-width:44rem;text-align:center;font-size:14px;color:var(--mute)}
+.note{margin:28px auto 0;max-width:44rem;text-align:center}
 
 /* keycaps */
 .keys{display:flex;flex-wrap:wrap;align-items:center;gap:5px}
-kbd,.key{display:inline-grid;place-items:center;min-width:30px;height:30px;padding:0 8px;border-radius:7px;background:var(--key);box-shadow:inset 0 0 0 1px var(--key-edge),0 1.5px 0 var(--key-edge);font:500 14px/1 var(--sans);letter-spacing:0;color:var(--key-ink);white-space:nowrap}
-.keys .or{margin:0 6px;font-size:13px;color:var(--mute)}
+kbd,.key{display:inline-grid;place-items:center;min-width:30px;height:30px;padding:0 8px;border-radius:7px;background:var(--key);box-shadow:inset 0 0 0 1px var(--key-edge),0 1.5px 0 var(--key-edge);font:500 var(--fs-small)/1 var(--sans);letter-spacing:0;color:var(--key-ink);white-space:nowrap}
+.keys .or{margin:0 6px;font-size:var(--fs-micro);color:var(--mute)}
 
-/* hero switcher stage */
-.stage{position:relative;margin:64px auto 0;max-width:1024px}
-.stage .screen{display:grid;place-items:center;aspect-ratio:16/9.4;padding:6% 4% 4%}
-.stage .w1{left:5%;top:13%;width:47%;height:64%}
-.stage .w2{right:6%;top:20%;width:40%;height:62%}
+/* hero switcher stage: no display frame. An aurora with two quiet panes sets the depth; the glass shelf sits in front. */
+.stage{position:relative;margin:clamp(8px,1.6vh,20px) auto 0}
+.stage .screen{display:grid;place-items:center;aspect-ratio:auto;min-height:clamp(260px,36vh,400px);padding:clamp(28px,4.4vh,48px) 0;background:none;border-radius:0;box-shadow:none;overflow:visible;contain:none}
+.ambient{position:absolute;left:0;right:0;top:-14%;bottom:-10%;z-index:0;background:var(--aurora);-webkit-mask-image:radial-gradient(50% 50% at 50% 50%,#000 30%,transparent 100%);mask-image:radial-gradient(50% 50% at 50% 50%,#000 30%,transparent 100%);pointer-events:none;transition:opacity .5s var(--ease),filter .5s var(--ease)}
+.stage .screen.desk .ambient{filter:saturate(1.25) brightness(1.25)}
 .shelf{position:relative;z-index:2;padding:12px 12px 10px;border-radius:26px;background:var(--glass);-webkit-backdrop-filter:blur(30px) saturate(1.6);backdrop-filter:blur(30px) saturate(1.6);box-shadow:inset 0 0 0 1px var(--glass-edge),0 30px 70px -24px rgba(0,30,26,.55);max-width:100%;text-align:left}
+.stage .shelf{padding:14px 14px 10px;border-radius:30px;background:var(--shelf);-webkit-backdrop-filter:blur(40px) saturate(1.8);backdrop-filter:blur(40px) saturate(1.8);box-shadow:inset 0 0 0 1px var(--shelf-edge),inset 0 1px 0 var(--shelf-edge),var(--shelf-drop)}
 .cards{display:grid;grid-template-columns:repeat(6,minmax(0,136px));gap:6px}
+.stage .shelf::before{content:"";position:absolute;left:12%;right:12%;top:-1px;height:1px;background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--acc) 85%,#fff),transparent);opacity:.8;pointer-events:none}
+.stage .cards{grid-template-columns:repeat(6,minmax(0,160px));gap:8px}
 .pair{grid-column:span 2;display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.stage .pair{gap:8px}
 .card{position:relative;padding:7px;border-radius:15px;min-width:0;transition:box-shadow .3s,background .3s}
+.stage .card{padding:8px;border-radius:18px}
 .card.sel{background:rgba(255,255,255,.22);box-shadow:inset 0 0 0 2.5px var(--acc)}
+.stage .card.sel{background:color-mix(in srgb,var(--acc) 10%,rgba(255,255,255,.12));box-shadow:inset 0 0 0 2px var(--acc),0 0 28px -8px color-mix(in srgb,var(--acc) 70%,transparent)}
 .card.mate{box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--acc) 50%,transparent)}
 .pv{position:relative;aspect-ratio:16/10;border-radius:9px;background:var(--well);box-shadow:inset 0 1px 3px rgba(0,0,0,.16)}
+.stage .pv{border-radius:11px}
 .pv b{position:absolute;inset:11% 9%;border-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,.2);overflow:hidden}
 .pv i{position:absolute;opacity:0}
 .sel .pv i{animation:blink 1.06s steps(1) infinite}
@@ -215,19 +267,57 @@ kbd,.key{display:inline-grid;place-items:center;min-width:30px;height:30px;paddi
 .c-term i{left:10%;top:72%;width:6%;height:12%;background:#e5e5ea}
 .c-desk .pv{background:var(--wall)}
 .link{position:absolute;right:-17px;top:50%;width:22px;height:22px;margin-top:-11px;border-radius:50%;background:var(--surface);box-shadow:0 1px 3px rgba(0,0,0,.25),0 0 0 .5px var(--line);display:grid;place-items:center;z-index:2;color:var(--ink2)}
+.stage .link{right:-19px}
 .link svg{width:12px;height:12px}
 .lb{display:flex;gap:6px;align-items:center;margin-top:7px;min-width:0}
+.stage .lb{gap:8px;margin-top:9px;padding:0 2px}
 .ic{width:15px;height:15px;border-radius:4px;flex:none;background:var(--c);box-shadow:inset 0 0 0 .5px rgba(0,0,0,.2)}
+.stage .ic{width:17px;height:17px;border-radius:5px}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .ic{box-shadow:inset 0 0 0 .5px rgba(255,255,255,.28)}}
+:root[data-theme="dark"] .ic{box-shadow:inset 0 0 0 .5px rgba(255,255,255,.28)}
 .lb span{min-width:0;line-height:1.2}
 .lb strong,.lb small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.01em}
 .lb strong{font-size:12px;font-weight:600;color:var(--ink)}
 .lb small{font-size:11px;color:var(--ink2)}
+.stage .lb strong{font-size:13px}
+.stage .lb small{font-size:12px;color:var(--mute)}
 .cap{margin:9px 0 1px;text-align:center;font-size:13px;font-weight:600;color:var(--ink);min-height:1.5em}
-.stage figcaption{margin-top:18px;text-align:center;font-size:14px;color:var(--mute)}
+.stage .cap{margin:10px 0 2px;font-size:14px;letter-spacing:-.01em}
+.stage figcaption{margin-top:6px;text-align:center}
+.try{display:none}
+.js .try{display:inline}
+/* driving the hero switcher */
+.shelf{transition:opacity .25s var(--ease),transform .25s var(--ease)}
+.shelf.away{opacity:0;transform:scale(.97);pointer-events:none}
+.js .stage .card{cursor:pointer}
+.js .stage .card:not(.sel):hover{background:var(--hair)}
+.stage .cards:focus{outline:none}
+.stage .cards:focus-visible{outline:3px solid var(--acc);outline-offset:9px;border-radius:20px}
+.stage .win{transition:opacity .3s var(--ease)}
+.stage .screen.desk .win{opacity:0}
+.fore{position:absolute;inset:0;z-index:1}
+.stage .fw{animation:fore .42s var(--ease) both;box-shadow:0 0 0 .5px rgba(0,0,0,.3),0 30px 70px -24px rgba(0,0,0,.6)}
+.fw.c-notes{background:#fffcf3;--win-bar:#f5f0e1;--win-line:rgba(0,0,0,.07);--skel:rgba(160,120,20,.28);--skel2:rgba(0,0,0,.07)}
+.fw.c-term{background:#141416}
+.fw.c-term::before{background:radial-gradient(circle at 10px 50%,#ff5f57 3.5px,transparent 4px),radial-gradient(circle at 22px 50%,#febc2e 3.5px,transparent 4px),radial-gradient(circle at 34px 50%,#28c840 3.5px,transparent 4px),#26262a}
+.fw.c-term::after{filter:grayscale(1) brightness(1.15);opacity:.75}
+.fw.solo{left:31%;top:8%;width:38%;height:84%}
+.fw.l{left:19%;top:8%;width:30.6%;height:84%}
+.fw.r{left:50.4%;top:8%;width:30.6%;height:84%}
+@keyframes fore{from{opacity:0;transform:scale(.965)}}
+
+/* the one entrance: copy rises, then the stage tilts up and settles */
+@media (prefers-reduced-motion:no-preference){
+  .rise{animation:rise .9s var(--ease) both}
+  .rise.d1{animation-delay:.07s}.rise.d2{animation-delay:.16s}.rise.d3{animation-delay:.24s}.rise.d4{animation-delay:.3s}
+  .stage{animation:settle 1.25s cubic-bezier(.16,.84,.24,1) .3s both;transform-origin:50% 0}
+}
+@keyframes rise{from{opacity:0;transform:translateY(16px)}}
+@keyframes settle{from{opacity:0;transform:perspective(1400px) rotateX(16deg) translateY(44px) scale(.97)}}
 
 /* switcher detail */
 .trio{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(10px,2vw,22px);align-items:end;max-width:820px;margin-left:auto;margin-right:auto}
-.trio .tc{padding:clamp(8px,1.2vw,12px);border-radius:clamp(14px,2vw,22px);background:var(--surface);box-shadow:0 0 0 1px var(--hair),0 20px 40px -26px rgba(0,0,0,.35)}
+.trio .tc{padding:clamp(8px,1.2vw,12px);border-radius:clamp(14px,2vw,22px);background:var(--surface);box-shadow:0 0 0 1px var(--hair),0 20px 40px -28px rgba(0,0,0,.3)}
 .trio .tc.sel{box-shadow:0 0 0 3px var(--acc),0 26px 50px -24px rgba(0,60,50,.45)}
 .trio .pv{aspect-ratio:4/3;border-radius:clamp(8px,1.2vw,12px);background:var(--wall);overflow:hidden}
 .trio .pv .win{left:9%;top:11%;right:9%;bottom:0;border-radius:6px 6px 0 0}
@@ -285,10 +375,10 @@ kbd,.key{display:inline-grid;place-items:center;min-width:30px;height:30px;paddi
   78.5%,100%{opacity:0;left:50.6%;top:5.6%;width:48.8%;height:46.3%;transform:none}
 }
 .legend{list-style:none;padding:0;margin:32px auto 0;max-width:880px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px}
-.legend li{position:relative;padding-top:18px;color:var(--ink2);font-size:16px;line-height:1.45}
+.legend li{position:relative;padding-top:18px;color:var(--ink2)}
 .legend li::before{content:"";position:absolute;left:0;right:0;top:0;height:3px;border-radius:2px;background:var(--line);overflow:hidden}
 .legend li::after{content:"";position:absolute;left:0;top:0;height:3px;width:100%;border-radius:2px;background:var(--acc);transform-origin:left;transform:scaleX(0)}
-.legend strong{display:block;color:var(--ink);font-size:19px;font-weight:600;letter-spacing:-.022em;margin-bottom:4px}
+.legend strong{display:block;color:var(--ink);margin-bottom:4px}
 .legend .z{display:block;width:44px;height:28px;margin-bottom:12px;border-radius:5px;box-shadow:inset 0 0 0 1.5px var(--line);background:linear-gradient(var(--acc),var(--acc)) var(--p)/var(--s) no-repeat;background-origin:content-box;padding:3px}
 .legend li:nth-child(1)::after{animation:lg1 13s linear infinite}
 .legend li:nth-child(2)::after{animation:lg2 13s linear infinite}
@@ -302,41 +392,40 @@ kbd,.key{display:inline-grid;place-items:center;min-width:30px;height:30px;paddi
 .kb{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:clamp(28px,5vw,64px);align-items:center}
 .pad{display:flex;flex-direction:column;align-items:center;gap:22px}
 .pad .row{display:flex;align-items:flex-end;justify-content:center;gap:10px}
-.held{min-width:64px;height:58px;font-size:20px;border-radius:12px;color:var(--acc);box-shadow:inset 0 0 0 2px var(--acc),0 2px 0 var(--key-edge)}
-.plus{font-size:22px;color:var(--mute);padding:0 2px 16px}
+.held{min-width:64px;height:58px;font-size:var(--fs-h3);border-radius:12px;color:var(--acc);box-shadow:inset 0 0 0 2px var(--acc),0 2px 0 var(--key-edge)}
+.plus{font-size:var(--fs-h3);color:var(--mute);padding:0 2px 16px}
 .arrows{display:grid;grid-template-columns:repeat(3,58px);grid-template-rows:repeat(2,44px);gap:6px}
 .arrows button:nth-child(1){grid-column:2;grid-row:1}
 .arrows button:nth-child(2){grid-column:1;grid-row:2}
 .arrows button:nth-child(3){grid-column:2;grid-row:2}
 .arrows button:nth-child(4){grid-column:3;grid-row:2}
-.tk{appearance:none;border:0;margin:0;cursor:pointer;display:grid;place-items:center;min-width:58px;height:44px;padding:0 12px;border-radius:9px;background:var(--key);box-shadow:inset 0 0 0 1px var(--key-edge),0 2px 0 var(--key-edge);font:500 17px/1 var(--sans);color:var(--key-ink);transition:transform .12s,box-shadow .12s}
+.tk{appearance:none;border:0;margin:0;cursor:pointer;display:grid;place-items:center;min-width:58px;height:44px;padding:0 12px;border-radius:9px;background:var(--key);box-shadow:inset 0 0 0 1px var(--key-edge),0 2px 0 var(--key-edge);font:500 var(--fs-body)/1 var(--sans);color:var(--key-ink);transition:transform .12s,box-shadow .12s}
 .tk:hover{box-shadow:inset 0 0 0 1px var(--acc),0 2px 0 var(--key-edge)}
 .tk:active{transform:translateY(2px);box-shadow:inset 0 0 0 1px var(--key-edge),0 0 0 var(--key-edge)}
 .tk[aria-pressed="true"]{background:var(--acc);color:var(--acc-ink);box-shadow:0 2px 0 var(--acc-hi)}
-.tk small{font-size:12px;font-weight:500;margin-left:4px}
-.pad .hint{font-size:14px;color:var(--mute);text-align:center;min-height:1.5em}
+.tk small{font-size:var(--fs-micro);font-weight:500;margin-left:4px}
+.pad .hint{text-align:center;min-height:1.5em}
 .pad .hint strong{color:var(--ink);font-weight:600}
 .mini .screen{aspect-ratio:16/10}
 .mini .mw{z-index:2;transition:left .45s var(--ease),top .45s var(--ease),width .45s var(--ease),height .45s var(--ease)}
-.recorder{margin:clamp(44px,6vw,64px) auto 0;max-width:620px;padding:8px 20px;border-radius:18px;background:var(--surface);box-shadow:0 0 0 1px var(--hair),0 20px 50px -30px rgba(0,0,0,.4)}
-.recorder h3{font-size:13px;font-weight:600;color:var(--mute);padding:12px 0 6px;letter-spacing:-.005em}
+.recorder{margin:clamp(44px,6vw,64px) auto 0;max-width:620px;padding:8px 20px;border-radius:18px;background:var(--surface);box-shadow:0 0 0 1px var(--hair)}
+.recorder h3{font-size:var(--fs-micro);font-weight:600;color:var(--mute);padding:12px 0 6px;letter-spacing:0}
 .recorder dl{margin:0}
 .recorder div{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:11px 0;border-top:1px solid var(--hair)}
-.recorder dt{font-size:15px}
+.recorder dt{font-size:var(--fs-small);letter-spacing:-.006em}
 .recorder dd{margin:0;display:flex;gap:4px}
-.recorder dd kbd{min-width:26px;height:26px;font-size:13px;border-radius:6px}
-.recorder .empty{display:inline-flex;align-items:center;height:26px;padding:0 12px;border-radius:6px;font-size:13px;color:var(--mute);box-shadow:inset 0 0 0 1px var(--line)}
+.recorder dd kbd{min-width:26px;height:26px;font-size:var(--fs-micro);border-radius:6px}
+.recorder .empty{display:inline-flex;align-items:center;height:26px;padding:0 12px;border-radius:6px;font-size:var(--fs-micro);color:var(--mute);box-shadow:inset 0 0 0 1px var(--line)}
 .recorder .empty.rec{color:var(--acc);box-shadow:inset 0 0 0 1.5px var(--acc);background:var(--acc-soft)}
 
 /* tile pairs */
 .split{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:clamp(32px,6vw,80px);align-items:center}
-.split h2{font-size:clamp(36px,5vw,52px)}
 .split .intro{margin-top:16px}
 .facts{list-style:none;padding:0;margin:28px 0 0}
-.facts li{padding:14px 0;border-top:1px solid var(--line);font-size:16px;color:var(--ink2);line-height:1.45}
+.facts li{padding:14px 0;border-top:1px solid var(--line);color:var(--ink2)}
 .facts li strong{color:var(--ink);font-weight:600}
 .facts .keys{display:inline-flex;vertical-align:middle;margin:0 2px}
-.facts kbd{min-width:24px;height:24px;font-size:12px;padding:0 6px;border-radius:6px}
+.facts kbd{min-width:24px;height:24px;font-size:var(--fs-micro);padding:0 6px;border-radius:6px}
 .pairvis .screen{overflow:hidden}
 .pairvis .pl{left:0;top:5%;width:50%;height:95%;border-radius:0}
 .pairvis .pr{left:50%;top:5%;width:50%;height:95%;border-radius:0;box-shadow:-1px 0 0 rgba(0,0,0,.25)}
@@ -372,74 +461,71 @@ kbd,.key{display:inline-grid;place-items:center;min-width:30px;height:30px;paddi
 .slot.desk .pv{background:var(--wall)}
 
 /* privacy */
-.privacy{text-align:center}
-.privacy .shield{width:56px;height:56px;margin:0 auto 22px;color:var(--acc)}
+.privacy .panel{text-align:center;padding:clamp(48px,7vw,80px) clamp(20px,5vw,64px);border-radius:28px;background:var(--surface);box-shadow:0 0 0 1px var(--hair)}
+.privacy .shield{width:40px;height:40px;margin:0 auto 20px;color:var(--acc)}
 .plist{list-style:none;padding:0;margin:clamp(40px,5vw,56px) auto 0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:40px;text-align:left}
-.plist strong{display:block;font-size:19px;font-weight:600;letter-spacing:-.022em;margin-bottom:6px}
-.plist span{color:var(--ink2);font-size:16px}
+.plist strong{display:block;margin-bottom:6px}
+.plist span{color:var(--ink2)}
 
 /* install */
 .steps{list-style:none;padding:0;margin:clamp(44px,6vw,64px) 0 0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;counter-reset:s}
 .steps li{counter-increment:s;padding:28px 26px 30px;border-radius:22px;background:var(--surface);box-shadow:0 0 0 1px var(--hair)}
-.steps li::before{content:counter(s);display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:var(--acc-soft);color:var(--acc);font-weight:700;font-size:15px;margin-bottom:20px}
-.steps h3{font-size:21px;font-weight:600;letter-spacing:-.025em}
-.steps p{margin-top:8px;color:var(--ink2);font-size:16px}
+.steps li::before{content:counter(s);display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:var(--acc-soft);color:var(--acc);font-weight:700;font-size:var(--fs-small);margin-bottom:20px}
+.steps p{margin-top:8px;color:var(--ink2)}
 .steps p+p{margin-top:8px}
 .perm{margin:56px auto 0;max-width:820px}
-.perm h3{font-size:24px;font-weight:600;letter-spacing:-.03em;text-align:center}
+.perm h3{text-align:center}
 .perm>p{margin:10px auto 0;text-align:center;color:var(--ink2);max-width:36em}
-.tbl{width:100%;border-collapse:collapse;margin-top:26px;font-size:16px}
+.tbl{width:100%;border-collapse:collapse;margin-top:26px}
 .tbl th,.tbl td{text-align:left;padding:14px 12px;border-bottom:1px solid var(--line);vertical-align:top}
-.tbl thead th{font-size:13px;font-weight:600;color:var(--mute);padding-top:0}
+.tbl thead th{font-size:var(--fs-micro);letter-spacing:0;font-weight:600;color:var(--mute);padding-top:0}
 .tbl tbody th{font-weight:600;white-space:nowrap}
 .tbl td{color:var(--ink2)}
-.tag{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap;background:var(--acc-soft);color:var(--acc)}
+.tag{display:inline-block;padding:2px 9px;border-radius:999px;font-size:var(--fs-micro);letter-spacing:0;font-weight:600;white-space:nowrap;background:var(--acc-soft);color:var(--acc)}
 .tag.opt{background:transparent;color:var(--mute);box-shadow:inset 0 0 0 1px var(--line)}
 .quick{margin:20px auto 0;padding:28px 26px 26px;border-radius:22px;background:var(--surface);box-shadow:0 0 0 1px var(--hair);text-align:center}
-.quick h3{font-size:21px;font-weight:600;letter-spacing:-.025em}
-.quick>p{margin:8px auto 0;max-width:40em;color:var(--ink2);font-size:16px}
+.quick>p{margin:8px auto 0;max-width:40em;color:var(--ink2)}
 .quick .term{margin-top:20px}
-.quick .cmd{background:var(--band);box-shadow:0 0 0 1px var(--line)}
+.quick .cmd{background:var(--panel);box-shadow:none}
 @media (min-width:901px){.quick{padding:32px 40px 30px}}
 
 /* shortcuts */
 .sc{max-width:820px;margin:clamp(44px,6vw,64px) auto 0}
 .sc .tbl{margin-top:0}
-.sc .tbl tbody th[scope=rowgroup]{padding-top:34px;font-size:13px;color:var(--mute);font-weight:600;border-bottom:1px solid var(--line)}
+.sc .tbl tbody th[scope=rowgroup]{padding-top:34px;font-size:var(--fs-micro);letter-spacing:0;color:var(--mute);font-weight:600;border-bottom:1px solid var(--line)}
 .sc .tbl tbody:first-child th[scope=rowgroup]{padding-top:0}
 .sc .tbl td{color:var(--ink)}
 .sc .tbl td:first-child{width:46%}
 .sc .tbl td:last-child{color:var(--ink2)}
-.sc kbd{min-width:28px;height:28px;font-size:13px}
-.more{text-align:center;margin-top:28px;font-size:17px}
+.sc kbd{min-width:28px;height:28px;font-size:var(--fs-micro)}
+.more{text-align:center;margin-top:28px}
 
 /* faq */
 .faq{max-width:820px;margin:clamp(44px,6vw,64px) auto 0}
 .faq details{border-bottom:1px solid var(--line)}
 .faq details:first-child{border-top:1px solid var(--line)}
-.faq summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:20px;padding:22px 4px;font-size:19px;font-weight:600;letter-spacing:-.022em}
+.faq summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:20px;padding:22px 4px}
 .faq summary::-webkit-details-marker{display:none}
 .faq summary::after{content:"";flex:none;width:11px;height:11px;margin-right:6px;border-right:2px solid var(--mute);border-bottom:2px solid var(--mute);transform:translateY(-3px) rotate(45deg);transition:transform .3s var(--ease)}
 .faq details[open] summary::after{transform:translateY(3px) rotate(-135deg)}
 .faq summary:hover{color:var(--acc)}
 .faq .ans{padding:0 4px 24px;color:var(--ink2);max-width:42em}
 .faq .ans p+p{margin-top:10px}
-.faq code{font:14px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;padding:2px 6px;border-radius:5px;background:var(--band);color:var(--ink);overflow-wrap:anywhere}
+.faq code{font:var(--fs-small)/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:0;padding:2px 6px;border-radius:5px;background:var(--panel);color:var(--ink);overflow-wrap:anywhere}
 
 /* closing + footer */
-.closing{text-align:center;padding-top:0}
-.closing .icon{width:96px;height:96px;margin:0 auto 26px}
-footer{border-top:1px solid var(--hair);background:var(--band);padding:28px 0 40px;font-size:13px;color:var(--mute)}
+.closing{position:relative;isolation:isolate;text-align:center;padding-bottom:clamp(96px,11vw,144px)}
+.closing::before{content:"";position:absolute;left:0;right:0;top:30%;bottom:0;z-index:-1;background:var(--aurora);-webkit-mask-image:radial-gradient(50% 50% at 50% 50%,#000 20%,transparent 100%);mask-image:radial-gradient(50% 50% at 50% 50%,#000 20%,transparent 100%);opacity:.7;pointer-events:none}
+.closing .head{max-width:52rem}
+.closing h2{font-size:clamp(30px,min(8.6vw,10vh),96px);line-height:1;letter-spacing:-.046em}
+.closing .head h2~p{margin-top:22px}
+.closing .cta{justify-content:center;margin-top:32px}
+footer{border-top:1px solid var(--hair);background:var(--bg);padding:28px 0 40px;color:var(--mute)}
 footer .wrap{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px 32px}
 footer nav ul{display:flex;flex-wrap:wrap;gap:8px 22px;list-style:none;margin:0;padding:0}
 footer nav a{color:var(--ink2)}
 footer .legal{flex-basis:100%;padding-top:16px;border-top:1px solid var(--hair);line-height:1.6}
 
-/* reveal: only visuals, once, and only with JS and motion allowed */
-@media (prefers-reduced-motion:no-preference){
-  .js .reveal{opacity:0;transform:translateY(36px) scale(.985);transition:opacity 1s var(--ease),transform 1.1s var(--ease)}
-  .js .reveal.in{opacity:1;transform:none}
-}
 .static{display:none}
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important}
@@ -456,34 +542,36 @@ footer .legal{flex-basis:100%;padding-top:16px;border-top:1px solid var(--hair);
   .split .text{max-width:560px;margin:0 auto;text-align:center}
   .split .facts{text-align:left}
   .steps{grid-template-columns:1fr;max-width:560px;margin-left:auto;margin-right:auto}
-  .cards{grid-template-columns:repeat(6,minmax(0,1fr))}
+  .cards,.stage .cards{grid-template-columns:repeat(6,minmax(0,1fr))}
 }
 @media (max-width:760px){
   .nav ul{display:none}
   .nav .wrap{gap:12px}
   .nav .theme{margin-left:auto}
   html:not(.js) .nav .pill{margin-left:auto}
-  .cmd code{white-space:normal;overflow-wrap:break-word;font-size:13px}
-  .hero{padding-top:48px}
-  .hero .icon{width:104px;height:104px}
-  .stage{margin-top:44px}
-  .stage .screen{aspect-ratio:auto;padding:22% 3% 10%}
-  .cards{grid-template-columns:repeat(3,minmax(0,1fr))}
-  .shelf{padding:8px;border-radius:20px;width:100%}
+  .cmd code{white-space:normal;overflow-wrap:break-word}
+  .stage .screen{min-height:0;padding:32px 0 28px}
+  .cards,.stage .cards{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .shelf,.stage .shelf{padding:8px;border-radius:22px;width:100%}
+  .stage .card{padding:6px;border-radius:15px}
+  .fw.solo{left:14%;width:72%}
+  .fw.l{left:4%;width:45.4%}
+  .fw.r{left:50.6%;width:45.4%}
   .legend{grid-template-columns:1fr;gap:18px;max-width:420px}
   .static{grid-template-columns:1fr;max-width:420px}
   .trio .lb small,.trio .state{display:none}
   .pairvis .mshelf{width:78%}
   .ov .slots{grid-template-columns:repeat(3,minmax(0,1fr))}
   .ov .slot:nth-child(n+7){display:none}
-  .tbl{font-size:15px}
+  .tbl{font-size:var(--fs-small);letter-spacing:-.006em}
   .sc .tbl td:first-child{width:auto}
 }
 @media (max-width:480px){
   .lb small{display:none}
   .cmd{flex-wrap:wrap;gap:4px;padding:6px}
-  .cmd code{flex-basis:100%;padding:10px 10px 6px}
-  .copy{flex:1;justify-content:center}
+  .cmd code{flex-basis:100%;padding:8px 8px 4px}
+  .copy{flex:1}
+  .cta{flex-direction:column;align-items:center}
   .quick{padding:24px 16px 20px}
   .arrows{grid-template-columns:repeat(3,52px)}
   .tk{min-width:52px}
@@ -497,6 +585,17 @@ footer .legal{flex-basis:100%;padding-top:16px;border-top:1px solid var(--hair);
   .perm .tbl th,.perm .tbl td{border:0;padding:0 4px}
   .perm .tbl td:last-child{grid-column:1/-1}
 }
+/* the narrowest phones: the nav and the tiling keypad give up a few pixels so nothing scrolls sideways */
+@media (max-width:380px){
+  .nav .wrap{gap:8px}
+  .theme button{width:26px}
+  .pill{padding:0 12px}
+  .pad .row{gap:8px}
+  .arrows{grid-template-columns:repeat(3,46px);gap:5px}
+  .tk{min-width:46px;padding:0 8px}
+  .held{min-width:44px;height:46px}
+  .plus{padding:0 0 12px}
+}
 </style>
 </head>
 <body>
@@ -504,7 +603,7 @@ footer .legal{flex-basis:100%;padding-top:16px;border-top:1px solid var(--hair);
 <p class="sr" id="copy-live" aria-live="polite"></p>
 
 <header class="nav">
-  <div class="wrap">
+  <div class="wrap wide">
     <a class="brand" href="./"><img src="assets/icon-64.png" alt="" width="24" height="24">Paneflo</a>
     <nav aria-label="Sections">
       <ul>
@@ -526,51 +625,40 @@ footer .legal{flex-basis:100%;padding-top:16px;border-top:1px solid var(--hair);
 
 <main id="main">
   <section class="hero" aria-labelledby="top-h">
-    <div class="wrap">
-      <picture>
-        <source srcset="assets/icon-256.webp" type="image/webp">
-        <img class="icon" src="assets/icon-256.png" width="128" height="128" alt="Paneflo app icon: three tiled glass panes on teal, one in coral" fetchpriority="high">
-      </picture>
-      <h1 id="top-h">Paneflo</h1>
-      <p class="tagline">Every window. In its place.</p>
-      <p class="lede">Switch between windows, not apps. Snap them to the edges of the screen, arrange them from the keyboard, and see them all in an Overview that stays in order. One small menu bar app.</p>
-      <div class="cta">
-        <a class="btn" data-download href="https://github.com/Jenish-Shobhit/Paneflo/releases/latest">
-          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10m-4.2-4.2L10 13l4.2-4.2M4 16.5h12"/></svg>Download for Mac
-        </a>
-        <a class="textlink" href="https://github.com/Jenish-Shobhit/Paneflo">View the source on GitHub</a>
-      </div>
-      <p class="meta"><strong class="dl-meta">Latest release</strong>. Free and open source. Requires macOS 26 or later on Apple silicon.</p>
-      <div class="term">
-        <p class="term-l">Or paste one line into Terminal to install it without the Open Anyway step.</p>
-        <div class="cmd">
-          <code><span class="prompt">$ </span><span data-cmd>curl -fsSL https://<wbr>jenish-shobhit.github.io/<wbr>Paneflo/<wbr>install.sh | bash</span></code>
-          <button class="copy" type="button" data-copy aria-label="Copy the install command"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M5 2.5A1.5 1.5 0 0 1 6.5 1h6A1.5 1.5 0 0 1 14 2.5v8a1.5 1.5 0 0 1-1.5 1.5H11v1.5A1.5 1.5 0 0 1 9.5 15h-6A1.5 1.5 0 0 1 2 13.5v-8A1.5 1.5 0 0 1 3.5 4H5V2.5ZM6.5 2.5V4h3A1.5 1.5 0 0 1 11 5.5v5h1.5v-8h-6Zm-3 3v8h6v-8h-6Z"/></svg><span>Copy</span></button>
+    <div class="wrap wide">
+      <div class="hero-copy">
+        <h1 id="top-h"><span class="ln rise"><span class="g">A better</span> <span class="nw"><span class="hk" id="k-cmd" aria-hidden="true"><span>⌘</span></span><span class="hk tab" id="k-tab" aria-hidden="true"><span>Tab</span></span></span><span class="sr">Command Tab</span></span> <span class="ln rise d1"><span class="g">for your Mac.</span></span></h1>
+        <p class="sub rise d2">Switch between windows, not apps. Snap them to an edge or tile them from the keyboard.</p>
+        <div class="cta rise d3">
+          <a class="btn" data-download href="https://github.com/Jenish-Shobhit/Paneflo/releases/latest">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10m-4.2-4.2L10 13l4.2-4.2M4 16.5h12"/></svg>Download for Mac
+          </a>
+          <a class="btn quiet" href="#terminal"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="13" rx="3"/><path d="m6 8 2.5 2L6 12m4.5 0H14"/></svg>Install with Terminal</a>
         </div>
-        <p class="term-r">Read it first: <a href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/docs/install.sh">install.sh</a></p>
+        <p class="fine rise d4"><span class="dl-meta">Latest release</span>. Free and open source, for <span class="nw">macOS 26</span> or later on <span class="nw">Apple silicon</span>.</p>
       </div>
 
       <figure class="stage" id="stage">
-        <div class="screen" role="img" aria-label="Illustration of the Paneflo switcher: a glass shelf of window cards over the desktop. The selected window is ringed and two tiled windows sit side by side as a pair.">
-          <div class="mbar"></div>
-          <div class="win w1" aria-hidden="true"></div>
-          <div class="win dark w2" aria-hidden="true"></div>
-          <div class="shelf" aria-hidden="true">
-            <div class="cards">
-              <div class="card c-notes" data-t="Ideas"><div class="pv"><b><i></i></b></div><div class="lb"><span class="ic" style="--c:#e3b341"></span><span><strong>Ideas</strong><small>Notes</small></span></div></div>
-              <div class="pair">
-                <div class="card c-editor" data-t="main.swift"><div class="pv"><b><i></i></b><span class="link"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6.5 9.5l3-3M7 4.5l1-1a2.5 2.5 0 0 1 3.5 3.5l-1 1M9 11.5l-1 1A2.5 2.5 0 0 1 4.5 9l1-1"/></svg></span></div><div class="lb"><span class="ic" style="--c:#ef8a5f"></span><span><strong>main.swift</strong><small>Editor</small></span></div></div>
-                <div class="card c-web" data-t="Reading list"><div class="pv"><b></b></div><div class="lb"><span class="ic" style="--c:#3a9c89"></span><span><strong>Reading list</strong><small>Browser</small></span></div></div>
+        <div class="screen" id="screen">
+          <div class="ambient" aria-hidden="true"></div>
+          <div class="fore" id="fore" aria-hidden="true"></div>
+          <div class="shelf" id="shelf">
+            <div class="cards" id="cards" role="listbox" aria-label="Open windows" aria-orientation="horizontal" aria-activedescendant="sw-1">
+              <div class="card c-notes" role="option" id="sw-0" aria-selected="false" aria-label="Ideas, Notes" data-t="Ideas"><div class="pv"><b><i></i></b></div><div class="lb"><span class="ic" style="--c:#e3b341"></span><span><strong>Ideas</strong><small>Notes</small></span></div></div>
+              <div class="pair" role="group" aria-label="Tile pair">
+                <div class="card c-editor sel" role="option" id="sw-1" aria-selected="true" aria-label="main.swift, Editor" data-t="main.swift"><div class="pv"><b><i></i></b><span class="link" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6.5 9.5l3-3M7 4.5l1-1a2.5 2.5 0 0 1 3.5 3.5l-1 1M9 11.5l-1 1A2.5 2.5 0 0 1 4.5 9l1-1"/></svg></span></div><div class="lb"><span class="ic" style="--c:#ef8a5f"></span><span><strong>main.swift</strong><small>Editor</small></span></div></div>
+                <div class="card c-web mate" role="option" id="sw-2" aria-selected="false" aria-label="Reading list, Browser" data-t="Reading list"><div class="pv"><b></b></div><div class="lb"><span class="ic" style="--c:#3a9c89"></span><span><strong>Reading list</strong><small>Browser</small></span></div></div>
               </div>
-              <div class="card c-mail" data-t="Inbox"><div class="pv"><b></b></div><div class="lb"><span class="ic" style="--c:#4b74e6"></span><span><strong>Inbox</strong><small>Mail</small></span></div></div>
-              <div class="card c-term" data-t="~/projects"><div class="pv"><b><i></i></b></div><div class="lb"><span class="ic" style="--c:#3a3a3c"></span><span><strong>~/projects</strong><small>Terminal</small></span></div></div>
-              <div class="card c-desk" data-t="Desktop"><div class="pv"></div><div class="lb"><span class="ic" style="--c:#a1a1a6"></span><span><strong>Desktop</strong><small>Show desktop</small></span></div></div>
+              <div class="card c-mail" role="option" id="sw-3" aria-selected="false" aria-label="Inbox, Mail" data-t="Inbox"><div class="pv"><b></b></div><div class="lb"><span class="ic" style="--c:#4b74e6"></span><span><strong>Inbox</strong><small>Mail</small></span></div></div>
+              <div class="card c-term" role="option" id="sw-4" aria-selected="false" aria-label="~/projects, Terminal" data-t="~/projects"><div class="pv"><b><i></i></b></div><div class="lb"><span class="ic" style="--c:#3a3a3c"></span><span><strong>~/projects</strong><small>Terminal</small></span></div></div>
+              <div class="card c-desk" role="option" id="sw-5" aria-selected="false" aria-label="Desktop" data-t="Desktop"><div class="pv"></div><div class="lb"><span class="ic" style="--c:#a1a1a6"></span><span><strong>Desktop</strong><small>Show desktop</small></span></div></div>
             </div>
-            <p class="cap" id="cap">main.swift</p>
+            <p class="cap" id="cap" aria-hidden="true">main.swift</p>
           </div>
         </div>
-        <figcaption>Hold ⌘ and press Tab. Release ⌘ to bring the selected window forward.</figcaption>
+        <figcaption>On your Mac, hold ⌘ and press Tab. <span class="try">Here, click a window, or use the arrow keys and Return.</span></figcaption>
       </figure>
+      <p class="sr" id="sw-live" aria-live="polite"></p>
     </div>
   </section>
 
@@ -578,10 +666,10 @@ footer .legal{flex-basis:100%;padding-top:16px;border-top:1px solid var(--hair);
     <div class="wrap">
       <div class="head">
         <h2 id="sw-h">Windows, not apps.</h2>
-        <p>Every open window gets its own card, so two browser windows are two choices. The one you pick plays live while you decide.</p>
+        <p>Every open window gets its own card, so two browser windows are two choices.</p>
         <div class="keys"><kbd>⌘</kbd><kbd>Tab</kbd></div>
       </div>
-      <figure class="visual reveal">
+      <figure class="visual">
         <div class="trio" role="img" aria-label="Three window cards from the same app. The middle one is selected and shows a live preview; the others show recent snapshots.">
           <div class="tc" aria-hidden="true"><div class="pv"><div class="win"></div></div><div class="lb"><span class="ic" style="--c:#e3b341"></span><span><strong>Proposal</strong><small>Writer</small></span></div><p class="state">Snapshot</p></div>
           <div class="tc sel" aria-hidden="true"><div class="pv"><div class="win side"></div></div><div class="lb"><span class="ic" style="--c:#e3b341"></span><span><strong>Trip plans</strong><small>Writer</small></span></div><p class="state">Live preview</p></div>
@@ -590,29 +678,29 @@ footer .legal{flex-basis:100%;padding-top:16px;border-top:1px solid var(--hair);
       </figure>
       <div class="points">
         <div>
-          <h3>Pick one window</h3>
-          <p>Tab steps forward and Shift-Tab steps back. The arrow keys work too. Release ⌘ to focus, or press Escape to cancel.</p>
+          <h3>Live where it counts</h3>
+          <p>The window you pick plays live. The others show recent snapshots.</p>
         </div>
         <div>
-          <h3>See it before you go</h3>
-          <p>Only the selected window plays live. The rest show recent snapshots, kept in memory and never saved. Without Screen Recording, cards show app icons.</p>
+          <h3>Step either way</h3>
+          <p>Tab and Shift-Tab, or the arrow keys. Release ⌘ to switch, or press Escape.</p>
         </div>
         <div>
           <h3>Act without leaving</h3>
-          <p>With ⌘ still held, close, minimize or hide the selected window, or quit its app. The switcher stays open.</p>
+          <p>With ⌘ held, close, minimize or hide the window, or quit its app.</p>
           <div class="keys"><kbd>W</kbd><kbd>M</kbd><kbd>H</kbd><kbd>Q</kbd></div>
         </div>
       </div>
     </div>
   </section>
 
-  <section class="band sec" id="tiling" aria-labelledby="snap-h">
+  <section class="sec" id="tiling" aria-labelledby="snap-h">
     <div class="wrap">
       <div class="head">
         <h2 id="snap-h">Drag to an edge. It snaps.</h2>
-        <p>Drag a window by its title bar to the edge of the screen. An outline shows where it will land, and it fills that space when you let go. Drag it away and it gets its old size back.</p>
+        <p>An outline shows where the window will land. Drag it away again and it gets its old size back.</p>
       </div>
-      <figure class="visual snap reveal" id="snap">
+      <figure class="visual snap" id="snap">
         <div class="live">
           <div class="screen" role="img" aria-label="Animation: a window dragged to the top edge fills the display, dragged to the left edge fills the left half, and dragged into the top-right corner fills that quarter. A translucent outline previews each place before release.">
             <div class="mbar"></div>
@@ -628,12 +716,12 @@ footer .legal{flex-basis:100%;padding-top:16px;border-top:1px solid var(--hair);
           <div class="screen"><div class="mbar"></div><div class="win side" style="left:50%;top:5%;width:50%;height:47.5%"></div></div>
         </div>
         <ol class="legend">
-          <li><span class="z" style="--p:0 0;--s:100% 100%" aria-hidden="true"></span><strong>Top edge</strong>Fills the display. The menu bar counts as the top edge.</li>
-          <li><span class="z" style="--p:0 0;--s:50% 100%" aria-hidden="true"></span><strong>Left or right edge</strong>Takes that half of the display.</li>
-          <li><span class="z" style="--p:100% 0;--s:50% 50%" aria-hidden="true"></span><strong>Corner</strong>Takes that quarter, including the two bottom corners.</li>
+          <li><span class="z" style="--p:0 0;--s:100% 100%" aria-hidden="true"></span><strong>Top edge</strong>Fills the display. The menu bar counts.</li>
+          <li><span class="z" style="--p:0 0;--s:50% 100%" aria-hidden="true"></span><strong>Left or right edge</strong>Takes that half.</li>
+          <li><span class="z" style="--p:100% 0;--s:50% 50%" aria-hidden="true"></span><strong>Corner</strong>Takes that quarter, bottom corners included.</li>
         </ol>
       </figure>
-      <p class="note">The bottom edge does nothing, so dragging past the Dock never resizes a window. Edges shared between displays let a window cross over. Turn snap areas off in <span class="nw">Settings › Tiling</span>.</p>
+      <p class="note">The bottom edge does nothing, so the Dock is safe, and edges shared by two displays let a window cross. Turn snapping off in <span class="nw">Settings › Tiling</span>.</p>
     </div>
   </section>
 
@@ -641,7 +729,7 @@ footer .legal{flex-basis:100%;padding-top:16px;border-top:1px solid var(--hair);
     <div class="wrap">
       <div class="head">
         <h2 id="kb-h">Or keep your hands on the keys.</h2>
-        <p>Control-Option with an arrow tiles the front window to a half, Return fills the display, and Z restores it. Inside the switcher, ⌘⌥ with an arrow tiles the selected window.</p>
+        <p>Hold Control-Option and press an arrow for a half, Return to fill the display, or Z to restore.</p>
       </div>
       <div class="kb visual">
         <div class="pad" role="group" aria-labelledby="pad-l">
@@ -663,7 +751,7 @@ footer .legal{flex-basis:100%;padding-top:16px;border-top:1px solid var(--hair);
           </div>
           <p class="hint" aria-live="polite">⌃⌥← <strong>Left half</strong></p>
         </div>
-        <div class="mini reveal">
+        <div class="mini">
           <div class="screen" role="img" aria-label="A display showing where the front window goes for the chosen shortcut.">
             <div class="mbar"></div>
             <div class="win dark" style="left:58%;top:30%;width:34%;height:52%" aria-hidden="true"></div>
@@ -682,23 +770,22 @@ footer .legal{flex-basis:100%;padding-top:16px;border-top:1px solid var(--hair);
           <div><dt>Restore</dt><dd><kbd>⌃</kbd><kbd>⌥</kbd><kbd>Z</kbd></dd></div>
         </dl>
       </div>
-      <p class="note">Record your own keys for halves, quarters, thirds, Fill, Center and Restore. Changes apply at once, and a key another action already uses moves rather than doubling up.</p>
+      <p class="note">Record your own keys for halves, quarters, thirds, Fill, Center and Restore.</p>
     </div>
   </section>
 
-  <section class="band sec" id="pairs" aria-labelledby="pair-h">
+  <section class="sec" id="pairs" aria-labelledby="pair-h">
     <div class="wrap split">
       <div class="text">
         <h2 id="pair-h">Two halves. One pair.</h2>
-        <p class="intro">Two windows side by side on one display become a tile pair, whether Paneflo put them there or you did.</p>
+        <p class="intro">Two windows side by side on one display become a pair, however they got there.</p>
         <ul class="facts">
-          <li><strong>Together.</strong> Open either window and its partner comes forward too.</li>
+          <li><strong>Together.</strong> Switch to either window and its partner comes forward too.</li>
           <li><strong>Or alone.</strong> <span class="keys"><kbd>⌘</kbd><kbd>⌥</kbd><kbd>↩</kbd></span> opens the pair, <span class="keys"><kbd>⌘</kbd><kbd>A</kbd></span> just the one you picked.</li>
-          <li><strong>Swap a half.</strong> Tile a third window into one side and it pairs with the other.</li>
-          <li><strong>One undo.</strong> Restores every window an arrangement moved, and the pair with them.</li>
+          <li><strong>One undo.</strong> Restore puts back every window an arrangement moved.</li>
         </ul>
       </div>
-      <figure class="pairvis reveal">
+      <figure class="pairvis">
         <div class="screen" role="img" aria-label="Two windows filling the left and right halves of a display, joined by a link at the seam. Below, the switcher shows them as two linked cards.">
           <div class="mbar"></div>
           <div class="win dark pl" aria-hidden="true"></div>
@@ -719,10 +806,10 @@ footer .legal{flex-basis:100%;padding-top:16px;border-top:1px solid var(--hair);
     <div class="wrap">
       <div class="head">
         <h2 id="ov-h">Every window, in a place that stays.</h2>
-        <p>The Overview lays out all your windows in slots you control. Search without reshuffling, drag to swap, and keep a place for an app that isn't open yet.</p>
+        <p>All your windows, in slots you arrange. Search without reshuffling, drag to swap, and pin a slot for an app.</p>
         <div class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd><span class="or">or swipe up with three fingers</span></div>
       </div>
-      <figure class="visual reveal">
+      <figure class="visual">
         <div class="screen" role="img" aria-label="Illustration of the Overview: a translucent overlay with a search field and a window count above a grid of slots. A Desktop tile comes first, one window is selected, one slot is free and one is pinned, waiting for its app.">
           <div class="mbar"></div>
           <div class="win" style="left:6%;top:12%;width:50%;height:60%" aria-hidden="true"></div>
@@ -745,34 +832,34 @@ footer .legal{flex-basis:100%;padding-top:16px;border-top:1px solid var(--hair);
       <div class="points">
         <div>
           <h3>Nothing reshuffles</h3>
-          <p>Slots never move while the Overview is open. Arrow keys move around the grid the way it looks.</p>
+          <p>Slots stay put while the Overview is open. Arrow keys move the way the grid looks.</p>
         </div>
         <div>
           <h3>Arranged by you</h3>
-          <p>Drag a window onto a free slot to move it, or onto another window to swap. Pinned slots wait for their app.</p>
+          <p>Drop a window on a free slot to move it, or on another window to swap.</p>
         </div>
         <div>
           <h3>A Desktop tile</h3>
-          <p>Shows the desktop by hiding other apps, and brings them back when you pick it again. The switcher has one too.</p>
+          <p>Hides other apps to show the desktop, and brings them back. The switcher has one too.</p>
         </div>
       </div>
-      <p class="note">The Overview is Paneflo's own overlay; it doesn't change Mission Control or Spaces. The three-finger swipe is optional and experimental.</p>
+      <p class="note">The Overview is Paneflo's own overlay and leaves Mission Control and Spaces alone. The three-finger swipe is optional and experimental.</p>
     </div>
   </section>
 
-  <section class="band sec privacy" id="privacy" aria-labelledby="pv-h">
-    <div class="wrap">
+  <section class="sec privacy" id="privacy" aria-labelledby="pv-h">
+    <div class="wrap"><div class="panel">
       <svg class="shield" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M24 4 8 10v12c0 10.5 6.8 18.6 16 22 9.2-3.4 16-11.5 16-22V10z"/><path d="m17 24 5 5 9-10"/></svg>
       <div class="head">
         <h2 id="pv-h">Your windows stay on your Mac.</h2>
-        <p>Paneflo sees your windows so it can arrange them. It doesn't send them anywhere.</p>
+        <p>Paneflo sees your windows so it can arrange them, and sends them nowhere.</p>
       </div>
       <ul class="plist">
-        <li><strong>No analytics</strong><span>No telemetry, no accounts and no tracking of any kind.</span></li>
-        <li><strong>Online only for updates</strong><span>Paneflo talks to GitHub only to check for and download a new release. Turn off the daily check in <span class="nw">Settings › Updates</span>.</span></li>
-        <li><strong>Pictures in memory only</strong><span>Snapshots are never written to disk, and they're cleared when you lock the screen.</span></li>
+        <li><strong>No analytics</strong><span>No telemetry, no accounts, no tracking.</span></li>
+        <li><strong>Online only for updates</strong><span>It contacts GitHub only to check for and download a new release.</span></li>
+        <li><strong>Snapshots in memory</strong><span>Never written to disk, and cleared when you lock the screen.</span></li>
       </ul>
-    </div>
+    </div></div>
   </section>
 
   <section class="sec" id="install" aria-labelledby="in-h">
@@ -782,24 +869,24 @@ footer .legal{flex-basis:100%;padding-top:16px;border-top:1px solid var(--hair);
         <p>Paneflo is free and open source under the MIT License.</p>
       </div>
       <ol class="steps">
-        <li><h3>Download</h3><p>Get <a data-download class="zip-name" href="https://github.com/Jenish-Shobhit/Paneflo/releases/latest">the latest zip</a>, unzip it, and move Paneflo to your Applications folder.</p></li>
-        <li><h3>Choose Open Anyway</h3><p>Paneflo isn't notarized yet, so macOS stops the first launch. Click Done, then open System Settings › Privacy &amp; Security and choose Open Anyway next to Paneflo.</p></li>
-        <li><h3>Grant access</h3><p>Set up Paneflo opens on its own. Click Grant… on each row and switch Paneflo on; the row turns green. Then hold ⌘ and press Tab.</p></li>
+        <li><h3>Download</h3><p>Get <a data-download class="zip-name" href="https://github.com/Jenish-Shobhit/Paneflo/releases/latest">the latest zip</a>, unzip it, and move Paneflo to Applications.</p></li>
+        <li><h3>Choose Open Anyway</h3><p>Paneflo isn't notarized yet. Click Done, then choose Open Anyway in System Settings › <span class="nw">Privacy &amp; Security</span>.</p></li>
+        <li><h3>Grant access</h3><p>Set up Paneflo opens on its own. Click Grant… on each row, then hold ⌘ and press Tab.</p></li>
       </ol>
-      <div class="quick">
+      <div class="quick" id="terminal">
         <h3>Or skip Open Anyway with one line in Terminal</h3>
-        <p>Instead of steps 1 and 2, open Terminal, paste this and press Return. It downloads the latest release from GitHub, checks its size and checksum and that it's signed with Paneflo's certificate, moves it to Applications and opens it. If any check fails, nothing is installed. Then grant access as in step 3.</p>
+        <p>Paste this in Terminal instead of steps 1 and 2. It checks the download's checksum and signature before installing; if a check fails, nothing is installed.</p>
         <div class="term">
           <div class="cmd">
             <code><span class="prompt">$ </span><span data-cmd>curl -fsSL https://<wbr>jenish-shobhit.github.io/<wbr>Paneflo/<wbr>install.sh | bash</span></code>
             <button class="copy" type="button" data-copy aria-label="Copy the install command"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M5 2.5A1.5 1.5 0 0 1 6.5 1h6A1.5 1.5 0 0 1 14 2.5v8a1.5 1.5 0 0 1-1.5 1.5H11v1.5A1.5 1.5 0 0 1 9.5 15h-6A1.5 1.5 0 0 1 2 13.5v-8A1.5 1.5 0 0 1 3.5 4H5V2.5ZM6.5 2.5V4h3A1.5 1.5 0 0 1 11 5.5v5h1.5v-8h-6Zm-3 3v8h6v-8h-6Z"/></svg><span>Copy</span></button>
           </div>
-          <p class="term-r">Read it first: <a href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/docs/install.sh">install.sh</a>. Run it again any time to update.</p>
+          <p class="term-r">You can read <a href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/docs/install.sh">install.sh</a> first. Run it again any time to update.</p>
         </div>
       </div>
       <div class="perm">
         <h3>What Paneflo asks for</h3>
-        <p>Three permissions, and nothing else. If a row says Restart Paneflo to apply, restart it once.</p>
+        <p>Three permissions, nothing else. If a row says Restart Paneflo to apply, restart it once.</p>
         <table class="tbl">
           <thead><tr><th scope="col">Permission</th><th scope="col"><span class="sr">Status</span></th><th scope="col">Why</th></tr></thead>
           <tbody>
@@ -809,11 +896,11 @@ footer .legal{flex-basis:100%;padding-top:16px;border-top:1px solid var(--hair);
           </tbody>
         </table>
       </div>
-      <p class="note">To update, choose Check for Updates… from the menu bar icon. Each download is checked against the copy you have before it replaces it, so your permissions carry over.</p>
+      <p class="note">To update, choose Check for Updates… from the menu bar icon. Your permissions carry over.</p>
     </div>
   </section>
 
-  <section class="band sec" id="shortcuts" aria-labelledby="sc-h">
+  <section class="sec" id="shortcuts" aria-labelledby="sc-h">
     <div class="wrap">
       <div class="head">
         <h2 id="sc-h">The keys worth knowing.</h2>
@@ -893,24 +980,23 @@ footer .legal{flex-basis:100%;padding-top:16px;border-top:1px solid var(--hair);
 
   <section class="sec closing" aria-labelledby="end-h">
     <div class="wrap">
-      <img class="icon" src="assets/icon-128.png" width="96" height="96" alt="" loading="lazy" decoding="async">
       <div class="head">
-        <h2 id="end-h">Put every window in its place.</h2>
-        <p>Free, open source and made for macOS 26.</p>
+        <h2 id="end-h"><span class="g">A better</span> <span class="nw"><span class="hk" aria-hidden="true"><span>⌘</span></span><span class="hk tab" aria-hidden="true"><span>Tab</span></span></span><span class="sr">Command Tab</span><br> <span class="g">is one download away.</span></h2>
+        <p>Free and open source, for Macs with Apple silicon on macOS 26 or later.</p>
       </div>
       <div class="cta">
         <a class="btn" data-download href="https://github.com/Jenish-Shobhit/Paneflo/releases/latest">
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10m-4.2-4.2L10 13l4.2-4.2M4 16.5h12"/></svg>Download for Mac
         </a>
-        <a class="textlink" href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/docs/user-guide.md">Read the user guide</a>
+        <a class="btn ghost" href="https://github.com/Jenish-Shobhit/Paneflo/blob/main/docs/user-guide.md">Read the user guide</a>
       </div>
-      <p class="meta"><strong class="dl-meta">Latest release</strong>. Requires macOS 26 or later on Apple silicon.</p>
+      <p class="fine"><span class="dl-meta">Latest release</span></p>
     </div>
   </section>
 </main>
 
 <footer>
-  <div class="wrap">
+  <div class="wrap wide">
     <span>Paneflo is free software under the MIT License.</span>
     <nav aria-label="Project">
       <ul>
@@ -985,33 +1071,107 @@ footer .legal{flex-basis:100%;padding-top:16px;border-top:1px solid var(--hair);
     });
   });
 
-  /* Reveal the illustrations once as they scroll in. */
-  if (io) {
-    var rev = new IntersectionObserver(function (es) {
-      es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("in"); rev.unobserve(e.target); } });
-    }, { rootMargin: "0px 0px -8% 0px" });
-    each(".reveal", function (el) { rev.observe(el); });
-  } else {
-    each(".reveal", function (el) { el.classList.add("in"); });
-  }
-
-  /* Hero: the selection steps through the shelf, like holding ⌘ and pressing Tab. */
-  var cards = [].slice.call(d.querySelectorAll("#stage .card")), cap = d.getElementById("cap"), stage = d.getElementById("stage");
-  var sel = 1, timer = 0, heroOn = true;
+  /* Hero: a switcher the visitor can drive. On its own the selection steps along like ⌘Tab and the headline's
+     Tab key taps with it. Click a window, or focus the shelf and use the arrow keys and Return, to switch.
+     Tab itself is left alone so the page stays keyboard navigable. */
+  var list = d.getElementById("cards"), stage = d.getElementById("stage");
+  var cards = [].slice.call(d.querySelectorAll("#stage .card"));
+  var cap = d.getElementById("cap"), shelf = d.getElementById("shelf"), screen = d.getElementById("screen");
+  var fore = d.getElementById("fore"), swLive = d.getElementById("sw-live");
+  var kCmd = d.getElementById("k-cmd"), kTab = d.getElementById("k-tab");
+  var sel = 1, timer = 0, heroOn = true, hold = false, hover = false, focused = false, busy = false;
+  var resumeT = 0, backT = 0, drawT = 0, tapT = 0;
+  function pairOf(c) { return c.parentNode.classList.contains("pair") ? c.parentNode : null; }
   function show(n) {
-    var pair = cards[n].parentNode.classList.contains("pair") ? cards[n].parentNode : null;
+    sel = (n + cards.length) % cards.length;
+    var pair = pairOf(cards[sel]);
     cards.forEach(function (c, k) {
-      c.classList.toggle("sel", k === n);
-      c.classList.toggle("mate", k !== n && !!pair && c.parentNode === pair);
+      c.classList.toggle("sel", k === sel);
+      c.classList.toggle("mate", k !== sel && !!pair && c.parentNode === pair);
+      c.setAttribute("aria-selected", String(k === sel));
     });
-    cap.textContent = cards[n].getAttribute("data-t");
+    list.setAttribute("aria-activedescendant", cards[sel].id);
+    cap.textContent = cards[sel].getAttribute("data-t");
   }
+  function tap() {
+    if (still() || !kTab) return;
+    kTab.classList.add("down");
+    clearTimeout(tapT);
+    tapT = setTimeout(function () { kTab.classList.remove("down"); }, 160);
+  }
+  function step(by) { show(sel + by); tap(); }
   function run() {
     clearInterval(timer); timer = 0;
-    if (!still() && heroOn && !d.hidden) timer = setInterval(function () { sel = (sel + 1) % cards.length; show(sel); }, 1700);
+    if (!still() && heroOn && !d.hidden && !hold && !hover && !focused && !busy) timer = setInterval(function () { step(1); }, 1700);
+    /* ⌘ is held while the shelf is up, and let go when a window is chosen. */
+    if (kCmd) kCmd.classList.toggle("down", !still() && !busy);
   }
-  if (cards.length) {
+  function interact() {
+    hold = true; run();
+    clearTimeout(resumeT);
+    resumeT = setTimeout(function () { hold = false; run(); }, 5000);
+  }
+  function say(t) { swLive.textContent = ""; setTimeout(function () { swLive.textContent = t; }, 30); }
+  function draw(c) {
+    fore.textContent = "";
+    var desk = c.classList.contains("c-desk");
+    screen.classList.toggle("desk", desk);
+    if (desk) return;
+    var pair = pairOf(c), wins = pair ? [].slice.call(pair.querySelectorAll(".card")) : [c];
+    wins.forEach(function (x, k) {
+      var kind = (/\bc-[a-z]+/.exec(x.className) || [""])[0], el = d.createElement("div");
+      var look = /c-(editor|term)/.test(kind) ? " dark" : /c-(web|mail)/.test(kind) ? " side" : "";
+      el.className = "win fw " + kind + look + (pair ? (k ? " r" : " l") : " solo");
+      fore.appendChild(el);
+    });
+  }
+  function back() {
+    clearTimeout(backT);
+    shelf.classList.remove("away");
+    busy = false; run();
+  }
+  function switchTo(n) {
+    show(n);
+    var c = cards[sel], pair = pairOf(c), name = c.getAttribute("data-t");
+    busy = true; interact();
+    shelf.classList.add("away");
+    clearTimeout(drawT);
+    drawT = setTimeout(function () { draw(c); }, still() ? 0 : 120);
+    if (c.classList.contains("c-desk")) say("Showing the desktop.");
+    else if (pair) {
+      var mate = [].filter.call(pair.querySelectorAll(".card"), function (x) { return x !== c; })[0];
+      say("Switched to " + name + ". Its tile pair, " + mate.getAttribute("data-t") + ", came forward too.");
+    } else say("Switched to " + name + ".");
+    clearTimeout(backT);
+    backT = setTimeout(back, 1600);
+  }
+  if (list && cards.length) {
+    list.tabIndex = 0;
     show(sel); run();
+    list.addEventListener("keydown", function (e) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      var k = e.key, by = k === "ArrowRight" || k === "ArrowDown" ? 1 : k === "ArrowLeft" || k === "ArrowUp" ? -1 : 0;
+      if (by || k === "Home" || k === "End") {
+        e.preventDefault(); interact();
+        if (busy) back();
+        if (by) step(by); else { show(k === "Home" ? 0 : cards.length - 1); tap(); }
+      } else if (k === "Enter" || k === " ") {
+        e.preventDefault();
+        if (!busy) switchTo(sel);
+      }
+    });
+    /* Keyboard focus holds the autoplay; a click only pauses it for a while. */
+    list.addEventListener("focus", function () {
+      var kb = true;
+      try { kb = list.matches(":focus-visible"); } catch (e) {}
+      focused = kb; interact();
+    });
+    list.addEventListener("blur", function () { focused = false; interact(); });
+    cards.forEach(function (c, k) {
+      c.addEventListener("click", function () { if (!busy || k !== sel) { if (busy) back(); switchTo(k); } });
+    });
+    shelf.addEventListener("pointerenter", function (e) { if (e.pointerType === "mouse") { hover = true; run(); } });
+    shelf.addEventListener("pointerleave", function () { if (hover) { hover = false; interact(); } });
     d.addEventListener("visibilitychange", run);
     if (rm && rm.addEventListener) rm.addEventListener("change", run);
     if (io) new IntersectionObserver(function (e) { heroOn = e[0].isIntersecting; run(); }).observe(stage);
